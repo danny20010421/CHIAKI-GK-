@@ -7,7 +7,7 @@ const LINKS = {
   fb:'https://www.facebook.com/profile.php?id=61554304767569'
 };
 const PARTNERS = [
-  {role:'合作塗裝師', h:'rrrrryan2d', url:'https://www.instagram.com/rrrrryan2d/'},
+  {role:'合作塗裝師', h:'rrrrryan2d', url:'https://www.instagram.com/rrrrryan2d/', av:''},
   {role:'合作塗裝師', h:'best.do7788', url:'https://www.instagram.com/best.do7788/'},
   {role:'合作維修師', h:'_space_box', url:'https://www.instagram.com/_space_box/'},
   {role:'合作維修師', h:'dual_unbound_studio', url:'https://www.instagram.com/dual_unbound_studio/'}
@@ -176,7 +176,7 @@ function shipQuote(p, n, pick){
   const key = p.id + ':' + p.setIdx, rec = S.shipPaid[key] || {n:0, m:null};
   const m = rec.m || pick || 'home', fee = m === 'home' ? p.ship.home : p.ship.cvs;
   const small = S.wh.filter(w => w.pool === p.id && w.set === p.setIdx && w.g === 'S' && w.st !== 'recycled').length;
-  const need = Math.max(1, Math.ceil((small + n) / 20));
+  const need = Math.floor((small + n) / 20) + 1;   // 滿 20 件小獎即再收一份
   const add = Math.max(0, need - rec.n);
   return {key, m, fee, add, cost:add*fee, paid:rec.n, locked:!!rec.m, small, cap:rec.n*20};
 }
@@ -398,7 +398,7 @@ routes.home = () => {
 
     <section class="sec" aria-labelledby="h-pt">
       <div class="sec-h"><h2 id="h-pt"><small>PARTNERS</small>合作塗裝師與維修師</h2></div>
-      <div class="partners">${PARTNERS.map(x => `<a class="pt reveal" href="${x.url}" target="_blank" rel="noopener"><span class="av">${ic(x.role.includes('塗裝')?'brush':'wrench','width:24px;height:24px')}</span><span class="tag">${x.role}</span><b>@${x.h}</b><span class="dim" style="font-size:12px;display:inline-flex;align-items:center;gap:4px">${ic('ig','width:14px;height:14px')}Instagram</span></a>`).join('')}</div>
+      <div class="partners">${PARTNERS.map(x => `<a class="pt reveal" href="${x.url}" target="_blank" rel="noopener"><span class="av">${x.av ? `<img src="${x.av}" alt="@${x.h} 的 Instagram 頭像" loading="lazy">` : `<i aria-hidden="true">${x.h.replace(/[^a-z]/i,'').charAt(0).toUpperCase()}</i>`}<span class="role-ic">${ic(x.role.includes('塗裝')?'brush':'wrench','width:12px;height:12px')}</span></span><span class="tag">${x.role}</span><b>@${x.h}</b><span class="dim" style="font-size:12px;display:inline-flex;align-items:center;gap:4px">${ic('ig','width:14px;height:14px')}Instagram</span></a>`).join('')}</div>
     </section>
   </div>`;
 };
@@ -422,7 +422,7 @@ routes.lobby = (r) => {
   else list.sort((a,b) => key(a)-key(b) || (b.hot?1:0)-(a.hot?1:0) || (b.total-remaining(b))/b.total - (a.total-remaining(a))/a.total);
   const link = (k, v) => { const n = new URLSearchParams(q); if (v) n.set(k, v); else n.delete(k); const s = n.toString(); return '#/lobby' + (s ? '?' + s : ''); };
   const chip = (k, v, t) => { const on = (q.get(k) || '') === v; return `<a class="chip ${on?'on':''}" href="${link(k, v)}" aria-current="${on}">${t}</a>`; };
-  const ips = [...new Set(POOLS.map(p => p.ip))];
+  const ips = [...new Set(POOLS.map(p => p.ip))].filter(n => { const x = (S.ips||[]).find(i => i.n === n); return !x || x.vis; }).sort((a,b) => ipOrder(a) - ipOrder(b));
   return `<div class="wrap">
     <div class="page-h"><h1>抽賞大廳</h1><p>依商品來源、玩法、價格與作品篩選，找到你的下一抽。</p></div>
     <div class="lobby">

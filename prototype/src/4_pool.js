@@ -208,7 +208,7 @@ function buyDialog(){
     <div class="sumrow"><span class="muted">優惠券</span><b class="dim">未使用</b></div>
     <div class="sumrow" style="border-bottom:0;min-height:56px"><span>應付</span><b style="font-size:22px;color:var(--gold-2)">${fmt(total)} 幣</b></div>
     <div class="sumrow" style="border-bottom:0"><span class="muted">扣款後餘額</span><b class="${after<0?'':'muted'}" style="${after<0?'color:var(--bad)':''}">${fmt(after)} 幣</b></div>
-    <label class="check"><input type="checkbox" id="ruleOk" ${S.rulesOk?'checked':''}><span>我已閱讀並同意本賞池之<a href="#/support" data-doc="rules">抽賞規則與機率揭露（v1.0.3）</a>，了解結果於付款後由伺服器確定，動畫僅為呈現。</span></label>
+    <label class="check"><input type="checkbox" id="ruleOk" ${S.rulesOk?'checked':''}><span>我已閱讀並同意本賞池之<a href="#/rules" data-act="close-modal">遊戲規則與注意事項</a>及<a href="#/support" data-doc="rules">抽賞規則與機率揭露（v1.0.3）</a>，了解結果於付款後由伺服器確定，動畫僅為呈現。</span></label>
     ${after < 0
       ? `<a class="btn gold block" href="#/wallet" data-act="close-modal">餘額不足，前往儲值</a>`
       : `<button class="btn gold block" data-act="confirm-buy">${ic('ticket')}確認付款並抽賞</button>`}
@@ -250,7 +250,7 @@ function confirmBuy(){
   S.rulesOk = true;
   const nos = S.sel.slice(), sq = shipQuote(p, nos.length, S.shipPick), total = nos.length * p.price + sq.cost;
   if (total > S.coins){ closeModal(); location.hash = '#/wallet'; return; }
-  S.coins -= total; syncBal();
+  S.coins -= total; S.coinsNR = Math.max(0, S.coinsNR - total); syncBal();   // 不可退款代幣優先扣抵
   if (sq.add){ S.shipPaid[sq.key] = {n:sq.paid + sq.add, m:sq.m};
     S.tx.unshift({t:`運費預收 ・ ${SHIP_M[sq.m]} ×${sq.add}（${p.ip}${p.sets.length>1?' 第 '+(p.setIdx+1)+' 套':''}）`, d:new Date().toLocaleString('zh-TW',{hour12:false}), a:-sq.cost, ic:'truck'}); }
   const results = settle(p, nos);

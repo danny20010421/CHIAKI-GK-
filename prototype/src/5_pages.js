@@ -14,7 +14,7 @@ routes.warehouse = () => {
       <label class="witem ${S.whSel.includes(w.id)?'sel':''}">
         ${S.whTab==='stored' ? `<input type="checkbox" data-act="whsel" data-id="${w.id}" ${S.whSel.includes(w.id)?'checked':''} aria-label="選取 ${w.name}">` : ''}
         ${art(w.hue, glyphOf(w))}
-        <div class="i"><b>${w.name}</b><span>${w.st==='stored' ? (() => { const x = daysLeft(w.at); return `保管至 ${x.end} ・ 回收值 ${w.rv ? fmt(w.rv)+' 點' : '不可回收'}`; })() : w.at + ' 入庫' + (w.track ? ' ・ ' + w.track : '')}</span>
+        <div class="i"><b>${w.name}</b><span>${w.st==='stored' ? (() => { const x = daysLeft(w.at); return `保管至 ${x.end} ・ 回收值 ${w.rv ? fmt(w.rv)+' 點' : '不可回收'}`; })() : w.at + ' 入庫' + (w.track ? ' ・ ' + w.track : '')}</span>${w.st==='ship' && w.ship ? trackHTML(w.ship) : ''}
           <div class="row" style="gap:8px">${tagOf(w)}${w.st==='stored' ? (() => { const x = daysLeft(w.at); return x.d <= 0 ? '<span class="tag bad">今日到期</span>' : x.d <= 7 ? `<span class="tag warn">${x.d} 天後到期</span>` : ''; })() : w.st==='ship'?'<span class="tag info">運送中</span>':w.st==='done'?'<span class="tag ok">已簽收</span>':w.st==='recycled'?'<span class="tag">已轉點數</span>':''}</div></div>
       </label>`).join('')}</div>` : `<div class="empty">${S.whTab==='stored'?'倉庫目前是空的，去抽一抽吧！<br><br><a class="btn gold" href="#/lobby">前往抽賞大廳</a>':'沒有紀錄'}</div>`}
     ${S.whTab==='stored' && list.length ? `<div class="actbar"><span class="t">已選 <b class="num">${n}</b> 件</span>
@@ -40,11 +40,28 @@ function recycleDialog(){
   const items = S.wh.filter(w => S.whSel.includes(w.id));
   const pts = items.reduce((s,w) => s + (w.rv||0), 0);
   const blocked = items.filter(w => !w.rv);
+  const fr = shipRefundCalc(items), frAmt = fr.reduce((s,x) => s + x.amt, 0);
   openModal(`<h3 id="mdlT">回收換平台點數</h3>
     ${items.map(w => `<div class="sumrow"><span style="display:flex;gap:8px;align-items:center;min-width:0">${tagOf(w,true)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.name}</span></span><b>${w.rv ? '+'+fmt(w.rv)+' 點' : '不可回收'}</b></div>`).join('')}
     <div class="sumrow" style="border-bottom:0;min-height:56px"><span>合計</span><b style="font-size:20px;color:var(--gold-2)">+${fmt(pts)} 點</b></div>
     <p class="dim" style="font-size:12px;margin:0 0 16px">回收值依各套公開之設定計算。平台點數僅可於站內折抵，不得提領或兌換現金；確認回收後無法撤回。回收小獎可釋出該套運費名額。${blocked.length?`<br>其中 ${blocked.length} 件不提供回收。`:''}</p>
+    ${frAmt ? `<div class="panel" style="padding:16px;margin:0 0 16px;border-color:rgba(201,164,92,.4)"><b style="font-size:14px">預收運費退還</b>
+      <p class="dim" style="font-size:12px;margin:4px 0 12px">回收後本套小獎減少，多預收的 ${fr.reduce((s,x)=>s+x.surplus,0)} 份運費可退還：</p>
+      <div class="pays" role="radiogroup" aria-label="運費退還方式" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+        <button class="pay" role="radio" data-act="frway" data-k="coin" aria-pressed="${S.frWay!=='bank'&&S.frWay!=='ecpay'}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span>代幣（推薦）</span><span class="dim" style="font-size:12px">+${fmt(frAmt)} 幣・即時</span></button>
+        <button class="pay" role="radio" data-act="frway" data-k="bank" aria-pressed="${S.frWay==='bank'}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span>銀行轉帳</span><span class="dim" style="font-size:12px">NT$ ${fmt(frAmt)}・審核</span></button>
+        <button class="pay" role="radio" data-act="frway" data-k="ecpay" aria-pressed="${S.frWay==='ecpay'}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span>綠界退刷</span><span class="dim" style="font-size:12px">NT$ ${fmt(frAmt)}・審核</span></button>
+      </div><p class="dim" style="font-size:12px;margin:8px 0 0">代幣退還為預收運費的 ${SHIP_REFUND_RATIO*100}%，屬不可退款代幣。</p></div>` : ''}
     <button class="btn gold block" data-act="recycle-ok" ${pts?'':'disabled'}>確認回收</button>`);
+}
+function shipRefundCalc(items){
+  const keys = [...new Set(items.filter(w => w.g === 'S' && w.rv).map(w => w.pool + ':' + (w.set||0)))];
+  return keys.map(key => { const rec = S.shipPaid[key]; if (!rec) return {key, surplus:0, amt:0};
+    const [pid, set] = key.split(':'), p = poolById(pid);
+    const left = S.wh.filter(w => w.pool === pid && (w.set||0) === +set && w.g === 'S' && w.st !== 'recycled' && !(items.includes(w) && w.rv)).length;
+    const need = Math.floor(left / 20) + 1, surplus = Math.max(0, rec.n - need);
+    const fee = rec.m === 'home' ? p.ship.home : p.ship.cvs;
+    return {key, surplus, need, fee, amt: Math.round(surplus * fee * SHIP_REFUND_RATIO)}; }).filter(x => x.surplus);
 }
 
 /* =========================================================
@@ -55,7 +72,7 @@ const PAYS = [['card','信用卡','card','綠界'],['atm','ATM 虛擬帳號','ba
 routes.wallet = () => `<div class="wrap">
   <div class="page-h"><h1>錢包與儲值</h1><p>儲值代幣與平台點數分開記帳；所有異動皆可查詢。</p></div>
   <div class="wal-top">
-    <div class="balance main"><span>儲值代幣</span><b><span class="coin" style="width:32px;height:32px;font-size:16px">C</span><span class="num">${fmt(S.coins)}</span></b><small>1 代幣 = NT$1 ・ 未使用代幣可依退款規範申請退款</small></div>
+    <div class="balance main"><span>儲值代幣</span><b><span class="coin" style="width:32px;height:32px;font-size:16px">C</span><span class="num">${fmt(S.coins)}</span></b><small>可退款 ${fmt(S.coins - S.coinsNR)} ・ 不可退款 ${fmt(S.coinsNR)}${S.coinsNR ? ' ' + nrTag : ''}</small></div>
     <div class="balance"><span>平台點數</span><b class="num">${fmt(S.points)}</b><small>活動與回收取得 ・ 站內折抵，不可提領</small></div>
     <div class="balance"><span>可用優惠券</span><b class="num">3</b><small><a href="#/me">查看優惠券</a></small></div>
   </div>
@@ -74,7 +91,7 @@ routes.wallet = () => `<div class="wrap">
     </div>
     <div class="panel">
       <h3>交易紀錄 <a href="#/me" style="font-size:13px;font-weight:400">全部</a></h3>
-      <div class="txl">${S.tx.slice(0,8).map(x => `<div class="tx"><span class="ic">${ic(x.ic)}</span><div class="d"><b>${x.t}</b><span>${x.d}</span></div><span class="a ${x.a>0?'p':''}">${x.a>0?'+':''}${fmt(x.a)}${x.pt?' 點':''}</span></div>`).join('')}</div>
+      <div class="txl">${S.tx.slice(0,8).map(x => `<div class="tx"><span class="ic">${ic(x.ic)}</span><div class="d"><b>${x.t}</b><span>${x.d}</span></div><span class="a ${x.a>0?'p':''}">${x.a>0?'+':''}${fmt(x.a)}${x.pt?' 點':''}${x.nr?'<br><span class="tag warn" style="height:20px;font-size:11px">不可退款</span>':''}</span></div>`).join('')}</div>
       <button class="btn block ghost" style="margin-top:16px" data-act="refund">${ic('doc','width:18px;height:18px')}申請未使用代幣退款</button>
     </div>
   </div></div>`;
@@ -95,15 +112,21 @@ routes.me = () => {
   <div class="menu-grid">
     <button class="mg" data-act="scroll" data-to="me-draws">${ic('ticket')}抽賞紀錄</button><a class="mg" href="#/wallet">${ic('list')}消費紀錄</a>
     <button class="mg" data-act="scroll" data-to="me-coupon">${ic('gift')}優惠券</button><button class="mg" data-act="scroll" data-to="me-invite">${ic('users')}邀請好友</button>
-    <button class="mg" data-act="scroll" data-to="me-follow">${ic('heart')}追蹤 IP</button><button class="mg" data-act="scroll" data-to="me-bind">${ic('gift')}綁定獎勵</button>
+    <button class="mg" data-act="scroll" data-to="me-follow">${ic('heart')}追蹤 IP</button><button class="mg" data-act="scroll" data-to="me-notify">${ic('bell')}通知設定</button>
     <button class="mg" data-act="scroll" data-to="me-sec">${ic('shield')}登入安全</button><a class="mg" href="#/support">${ic('help')}客服工單</a>
   </div>
   <div class="layout2" style="margin-top:32px">
     <div style="display:grid;gap:24px">
-      <div class="panel" id="me-draws"><h3>抽賞紀錄</h3>
+      <div class="panel" id="me-draws"><h3>抽賞紀錄 <span class="dim" style="font-size:12px;font-weight:400">保留最近 3 個月</span></h3>
         <div class="tbl-wrap" style="border:0;background:none"><table class="tbl" style="min-width:520px"><thead><tr><th>時間</th><th>賞池</th><th>籤號</th><th>結果</th></tr></thead><tbody>
-          ${S.wh.slice(0,6).map((w,i) => `<tr><td class="dim">${w.at}</td><td>${(poolById(w.pool)||{}).ip||'-'}</td><td class="num">No.${pad(7+i*9)}</td><td>${tagOf(w,true)}</td></tr>`).join('')}
-        </tbody></table></div></div>
+          ${S.wh.filter(w => (new Date() - new Date(w.at)) / 864e5 <= 90).slice(0,8).map((w,i) => `<tr><td class="dim">${w.at}</td><td>${(poolById(w.pool)||{}).ip||'-'}</td><td class="num">No.${pad(7+i*9)}</td><td>${tagOf(w,true)}</td></tr>`).join('')}
+        </tbody></table></div><p class="dim" style="font-size:12px;margin:12px 0 0">抽賞紀錄僅保留最近 3 個月，超過者自最舊一筆起自動移除。</p></div>
+      <div class="panel" id="me-notify"><h3>通知</h3>
+        ${S.notifs.map(n => `<div class="tx"><span class="ic">${ic(n.ic)}</span><div class="d"><b style="font-weight:400">${n.t}</b><span>${n.d}</span></div></div>`).join('')}
+        <h3 style="margin-top:24px">接收方式</h3>
+        <div class="toggles">${[['inapp','站內通知'],['sms','簡訊'],['line','LINE'],['push','手機推播'],['email','Email']].map(([k,t]) => `<label class="tg"><input type="checkbox" data-act="x-notif" data-k="${k}" ${S.notifPref[k]?'checked':''} ${k==='inapp'?'disabled':''}><span>${t}</span></label>`).join('')}</div>
+        <h3 style="margin-top:24px">通知項目</h3>
+        <div class="toggles">${[['draw','抽賞結果'],['expiry','保管到期'],['ship','出貨與物流'],['refund','退款進度'],['ticket','客服回覆'],['news','新賞上架與活動']].map(([k,t]) => `<label class="tg"><input type="checkbox" data-act="x-notev" data-k="${k}" ${S.notifEv[k]?'checked':''}><span>${t}</span></label>`).join('')}</div></div>
       <div class="panel" id="me-follow"><h3>追蹤的 IP 與收藏喜好</h3>
         <p class="muted" style="font-size:13px;margin:0 0 16px">追蹤後，新賞池上架與開賣前 1 小時將通知你。</p>
         <div class="ipf">${ips.map(x => `<button class="chip" data-act="follow" data-ip="${x}" aria-pressed="${S.follow.includes(x)}">${S.follow.includes(x)?ic('check','width:14px;height:14px'):''}${x}</button>`).join('')}</div></div>
@@ -115,8 +138,10 @@ routes.me = () => {
           ${st === 'done' ? '<span class="tag ok">已領取</span>' : st === 'review' ? '<span class="tag warn">審核中</span>' : `<button class="btn s ${t.k==='line'||t.k==='group'?'line':''}" data-act="bind-task" data-k="${t.k}">${t.cta}</button>`}</div>`; }).join('')}
         <p class="dim" style="font-size:12px;margin:12px 0 0">LINE 官方帳號綁定完成後自動發放；IG／FB 追蹤獎勵經客服確認後於 3 個工作天內發放。</p></div>
       <div class="panel" id="me-invite"><h3>邀請好友</h3>
-        <div class="invite"><code>CHK8A2</code><button class="btn" data-act="copy">${ic('copy','width:18px;height:18px')}複製</button></div>
-        <p class="dim" style="font-size:12px;margin:12px 0 0">好友完成首次儲值後，雙方皆可獲得平台點數回饋。已邀請 2 人。</p></div>
+        <div class="invite"><code>${S.invite.code}</code><button class="btn" data-act="x-invite">${ic('copy','width:18px;height:18px')}複製連結</button></div>
+        <div class="row between" style="margin:16px 0 8px;font-size:13px"><span>已成功邀請 <b class="num">${S.invite.ok}</b> / ${S.invite.goal} 人</span><b style="color:var(--gold-2)">贈 ${fmt(S.invite.reward)} 平台代幣</b></div>
+        <div class="meter"><i style="width:${S.invite.ok/S.invite.goal*100}%"></i></div>
+        <p class="dim" style="font-size:12px;margin:12px 0 0">好友需完成註冊與手機驗證才計入；贈送之平台代幣為不可退款代幣，如有疑問請聯絡官方小編。</p></div>
       <div class="panel" id="me-coupon"><h3>優惠券</h3>
         <div class="coupon"><div class="l"><b>9 折</b><span>抽賞</span></div><div class="r"><b>新會員首抽折扣</b><span>2026-11-30 到期 ・ 限單筆 1,000 幣以上</span></div></div></div>
       <div class="panel" id="me-sec"><h3>登入與安全</h3>
@@ -233,7 +258,9 @@ routes.support = () => `<div class="wrap">
       </div>
     </div>
     <div style="display:grid;gap:24px;align-content:start">
-      <div class="panel"><h3>服務規範</h3><div class="doclist">${Object.entries(DOCS).map(([k,d]) => `<a href="#/support" data-doc="${k}">${d[0]}${ic('right','width:16px;height:16px')}</a>`).join('')}</div></div>
+      <div class="panel"><h3>我的工單</h3>
+        ${S.tickets.filter(t => t.user === 'Chiaki 玩家').map(t => `<div class="kv"><span>${t.subj}<br><span class="dim" style="font-size:12px">${t.id} ・ ${t.cat}</span></span><span class="tag ${t.st==='已結案'?'ok':'info'}">${t.st==='待用戶回覆'?'待您回覆':t.st}</span></div>`).join('')}</div>
+      <div class="panel"><h3>服務規範</h3><div class="doclist"><a href="#/rules">遊戲規則與注意事項${ic('right','width:16px;height:16px')}</a>${Object.entries(DOCS).map(([k,d]) => `<a href="#/support" data-doc="${k}">${d[0]}${ic('right','width:16px;height:16px')}</a>`).join('')}</div></div>
       <div class="panel"><h3>官方社群</h3><div class="doclist">
         <a href="${LINKS.ig}" target="_blank" rel="noopener"><span class="row" style="gap:12px">${ic('ig')}Instagram ・ @chiaki_gk.studies</span>${ic('link','width:16px;height:16px')}</a>
         <a href="${LINKS.line}" target="_blank" rel="noopener"><span class="row" style="gap:12px">${ic('chat')}LINE 社群 ・ GK 雕像討論／分享群</span>${ic('link','width:16px;height:16px')}</a>
@@ -250,16 +277,19 @@ const ADM = [
   ['營運','dash','總覽','chart'],
   ['營運','pool','賞池管理','ticketbox',['建立賞池','編輯與規則版本','送審／雙人覆核','排程上架','結束與完售揭露']],
   ['營運','prize','獎品管理','gift',['獎品資料與圖片規格','數量與賞級','庫存連動','目前抽數','已創造實際收益']],
+  ['營運','ip','IP 管理','grid'],
   ['營運','draw','抽賞管理','list',['購買紀錄','籤號與結果','承諾雜湊與規則版本','稽核軌跡（不可竄改）','異常重送與補償']],
   ['會員','member','會員管理','users',['搜尋與標籤','身分／年齡驗證狀態','帳號狀態（停權／凍結）','交易歷史']],
   ['會員','vip','VIP 系統','crown',['等級門檻','等級優惠','權益發放紀錄']],
   ['會員','cs','客服中心','help',['問題回報','爭議處理','工單紀錄與 SLA']],
   ['金流','wallet','錢包管理','wallet',['儲值紀錄','扣款／退款','代幣與點數分帳','對帳（綠界回調）']],
   ['金流','order','訂單管理','doc',['付款訂單','異常訂單','取消與退款','發票開立']],
+  ['金流','refund','運費退款','recycle'],
   ['金流','report','報表中心','chart',['營運 GMV','毛利（成本 vs 收益）','轉換漏斗','用戶留存分析','未履約責任']],
   ['物流','ship','物流管理','truck',['出貨申請','揀貨單','物流狀態（超商／宅配）','退件處理','進貨與庫存盤點']],
   ['行銷','mkt','行銷管理','mega',['優惠券','Banner 排程','活動頁','分眾推播','邀請碼成效']],
-  ['系統','risk','風險控管','alert',['異常抽賞偵測','刷單與多帳號','支付風險','IP／裝置指紋','風險名單']],
+  ['系統','notify','通知中心','bell'],
+  ['系統','risk','防火牆與風控','alert',['異常抽賞偵測','刷單與多帳號','支付風險','IP／裝置指紋','風險名單']],
   ['系統','role','權限管理','lock',['角色','操作授權','高風險操作雙人覆核','操作日誌']],
   ['系統','set','系統設定','gear',['公告','費率與運費','金流設定（綠界）','物流設定','保管期限']],
   ['系統','ext','擴充服務','api',['合作商家入駐','寄售與平台抽成','分潤結算','開放 API','外部連結 IG／LINE／FB']]
@@ -268,14 +298,14 @@ routes.admin = () => {
   const cur = ADM.find(a => a[1] === S.admin) || ADM[0];
   let grp = '';
   const side = ADM.map(a => { const g = a[0] !== grp ? `<div class="grp">${a[0]}</div>` : ''; grp = a[0];
-    return g + `<button data-act="adm" data-k="${a[1]}" aria-current="${S.admin===a[1]}">${ic(a[3],'width:18px;height:18px')}${a[2]}${a[1]==='risk'?'<span class="bd">1</span>':a[1]==='ship'?'<span class="bd" style="background:var(--warn)">12</span>':''}</button>`; }).join('');
+    return g + `<button data-act="adm" data-k="${a[1]}" aria-current="${S.admin===a[1]}">${ic(a[3],'width:18px;height:18px')}${a[2]}${a[1]==='risk'?'<span class="bd">1</span>':a[1]==='ship'?`<span class="bd" style="background:var(--warn)">${S.shipments.filter(x=>!['已出貨','已送達'].includes(x.st)).length}</span>`:a[1]==='cs'?`<span class="bd">${S.tickets.filter(t=>t.st==='待處理').length}</span>`:a[1]==='refund'?`<span class="bd" style="background:var(--warn)">${S.refunds.filter(f=>f.st==='待審核').length}</span>`:''}</button>`; }).join('');
   const live = POOLS.filter(p => !p.soon);
   const poolTable = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>賞池</th><th>來源／玩法</th><th class="r">單價</th><th class="r">已抽 / 總數</th><th class="r">實際收益</th><th>狀態</th><th></th></tr></thead><tbody>
     ${POOLS.map(p => { const d = p.soon ? 0 : p.total - remaining(p); return `<tr><td>${p.title.split(' ～')[0]}</td><td><span class="tag ${SRC[p.src].c}">${SRC[p.src].t.slice(0,2)}</span> <span class="dim" style="font-size:12px">${PLAY[p.play]}</span></td>
       <td class="r">${fmt(p.price)}</td><td class="r">${d} / ${p.total}</td><td class="r">${fmt(d*p.price)}</td>
       <td>${p.soon?'<span class="tag info">排程上架</span>':remaining(p)?'<span class="tag ok">上架中</span>':'<span class="tag">已完售</span>'}</td><td><button class="btn s ghost">編輯</button></td></tr>`; }).join('')}
     </tbody></table></div>`;
-  const body = cur[1] === 'dash' ? `
+  const body = ADM_VIEWS[cur[1]] ? ADM_VIEWS[cur[1]]() : cur[1] === 'dash' ? `
     <div class="kpis">
       <div class="kpi"><span>今日 GMV</span><b>NT$ 86,450</b><em>▲ 12% vs 昨日</em></div>
       <div class="kpi"><span>今日抽數</span><b>${fmt(live.reduce((s,p)=>s+p.total-remaining(p),0))}</b><em>▲ 8%</em></div>
@@ -297,7 +327,7 @@ routes.admin = () => {
     <aside class="aside" aria-label="後台選單">${side}</aside>
     <div class="amain">
       <div class="row between" style="margin-bottom:24px;flex-wrap:wrap"><div><h1 style="margin:0;font-family:var(--serif-tc);font-size:24px">${cur[2]}</h1><span class="dim" style="font-size:12px">CHIAKI 管理後台 ・ 角色：超級管理員</span></div>
-        <div class="row" style="gap:8px"><span class="tag ok">${ic('shield','width:14px;height:14px')} MFA 已驗證</span></div></div>
+        <div class="row" style="gap:8px"><span class="tag ok">${ic('shield','width:14px;height:14px')} MFA 已驗證</span><button class="btn s ghost" data-act="x-logout">登出</button></div></div>
       ${body}
     </div>
   </div>`;
@@ -321,7 +351,7 @@ function heroFx(){
   const rnd = (a,b) => a + Math.random()*(b-a);
   function resize(){ const d = Math.min(devicePixelRatio||1, 2); W = cv.clientWidth; H = cv.clientHeight; cv.width = W*d; cv.height = H*d; ctx.setTransform(d,0,0,d,0,0); }
   resize();
-  for (let i = 0; i < (mob ? 12 : 22); i++){ const z = rnd(.25, 1); T.push({x:rnd(0,W), y:rnd(0,H), z, r:rnd(-.6,.6), vr:rnd(-.003,.003), f:rnd(0,6.28), vf:rnd(.005,.014), vy:rnd(.18,.5)*z, vx:rnd(-.1,.1), sw:rnd(0,6.28)}); }
+  for (let i = 0; i < (mob ? 12 : 22); i++){ const z = rnd(.25, 1); T.push({x:rnd(0,W), y:rnd(0,H), z, r:rnd(-.6,.6), vr:rnd(-.003,.003), f:rnd(0,6.28), vf:rnd(.005,.014), vy:rnd(.18,.5)*z, vx:rnd(-.1,.1), sw:rnd(0,6.28), wx:0, wy:0}); T[T.length-1].vf0 = T[T.length-1].vf; }
   for (let i = 0; i < (mob ? 50 : 110); i++) P.push({x:rnd(0,W), y:rnd(0,H), z:rnd(.2,1), t:rnd(0,6.28), vy:-rnd(.05,.25)});
   T.sort((a,b) => a.z - b.z);
   /* rasterise the real CHIAKI GK ticket (front = cover, back = teal side) once */
@@ -332,7 +362,7 @@ function heroFx(){
       g.beginPath(); if (g.roundRect) g.roundRect(0,0,300,204,10); else g.rect(0,0,300,204); g.clip(); g.drawImage(im,0,0,300,204); IMG[key] = c; };
     im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '));
   };
-  raster(kujiCover(), 'front'); raster(kujiBack(), 'back');
+  raster(kujiCover(), 'front'); raster('<svg viewBox="0 0 300 204"><rect width="300" height="204" rx="10" fill="#050505"/><rect x="1" y="1" width="298" height="202" rx="9" fill="none" stroke="rgba(255,255,255,.08)"/></svg>', 'back');
   function ticket(t, sy){
     const w = 44 + 76*t.z, h = w*.68;
     const px = t.x + tx*36*t.z, py = t.y + ty*24*t.z - sy*.35*t.z;
@@ -351,14 +381,28 @@ function heroFx(){
     for (const p of P){ p.y += p.vy; p.t += .03; if (p.y < -10){ p.y = H + 10; p.x = rnd(0,W); }
       const a = (.25 + .55*Math.abs(Math.sin(p.t)))*p.z; ctx.fillStyle = `rgba(230,199,127,${a})`;
       ctx.beginPath(); ctx.arc(p.x + tx*14*p.z, p.y + ty*10*p.z - sy*.2*p.z, .6 + 1.4*p.z, 0, 6.28); ctx.fill(); }
-    for (const t of T){ t.sw += .01; t.y += t.vy; t.x += t.vx + Math.sin(t.sw)*.35*t.z; t.r += t.vr; t.f += t.vf;
+    for (const t of T){ t.sw += .01; t.wx *= .96; t.wy *= .96; t.vr *= .985; t.vf += (t.vf0 - t.vf) * .02;
+      t.y += t.vy + t.wy; t.x += t.vx + t.wx + Math.sin(t.sw)*.35*t.z; t.r += t.vr; t.f += t.vf;
       if (t.y > H + 120){ t.y = -120; t.x = rnd(0,W); } if (t.x < -140) t.x = W + 140; if (t.x > W + 140) t.x = -140;
       ticket(t, sy); }
     const logo = $('#heroLogo');
     if (logo){ logo.style.transform = `translate3d(${-tx*10}px,${-ty*8 + sy*.25}px,0)`; logo.parentElement.style.opacity = Math.max(0, 1 - sy/(H*.7)); }
     if (vis && !RM()) raf = requestAnimationFrame(frame);
   }
-  const onMove = e => { mx = (e.clientX / innerWidth - .5)*2; my = (e.clientY / innerHeight - .5)*2; };
+  /* wind: pointer movement pushes nearby tickets and turns them; phone shake throws them around */
+  let lpx = null, lpy = null;
+  const gust = (x, y, vx, vy, radius) => { for (const t of T){ const dx = t.x - x, dy = t.y - y, d = Math.hypot(dx, dy);
+      if (d < radius){ const f = (1 - d/radius) * t.z; t.wx += vx * f * .06; t.wy += vy * f * .06; t.vr += (vx * dy - vy * dx) / (radius*radius) * f * .002; t.vf += Math.min(.08, Math.hypot(vx,vy) * f * .0008); } } };
+  const onMove = e => { mx = (e.clientX / innerWidth - .5)*2; my = (e.clientY / innerHeight - .5)*2;
+    const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    if (lpx != null && y >= 0 && y <= r.height) gust(x, y, x - lpx, y - lpy, 220);
+    lpx = x; lpy = y; };
+  const onShake = e => { const a = e.accelerationIncludingGravity || e.acceleration; if (!a) return;
+    const ax = a.x || 0, ay = a.y || 0, last = onShake.l || {x:ax, y:ay}; const jx = ax - last.x, jy = ay - last.y; onShake.l = {x:ax, y:ay};
+    if (Math.hypot(jx, jy) > 12) for (const t of T){ t.wx += (-jx + (Math.random()-.5)*8) * .5 * t.z; t.wy += (jy + (Math.random()-.5)*8) * .5 * t.z; t.vr += (Math.random()-.5) * .04; t.vf += .05; } };
+  const askMotion = () => { if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') DeviceMotionEvent.requestPermission().catch(() => {}); hero.removeEventListener('touchend', askMotion); };
+  hero.addEventListener('touchend', askMotion, {passive:true});
+  addEventListener('devicemotion', onShake, {passive:true});
   const onTilt = e => { if (e.gamma == null) return; mx = Math.max(-1, Math.min(1, e.gamma/30)); my = Math.max(-1, Math.min(1, (e.beta-45)/30)); };
   addEventListener('pointermove', onMove, {passive:true});
   addEventListener('deviceorientation', onTilt, {passive:true});
@@ -366,7 +410,7 @@ function heroFx(){
   const io = new IntersectionObserver(([e]) => { vis = e.isIntersecting; cancelAnimationFrame(raf); if (vis) raf = requestAnimationFrame(frame); });
   io.observe(hero);
   frame();
-  cleanup.push(() => { cancelAnimationFrame(raf); io.disconnect(); removeEventListener('pointermove', onMove); removeEventListener('deviceorientation', onTilt); removeEventListener('resize', resize); });
+  cleanup.push(() => { cancelAnimationFrame(raf); io.disconnect(); removeEventListener('pointermove', onMove); removeEventListener('deviceorientation', onTilt); removeEventListener('devicemotion', onShake); hero.removeEventListener('touchend', askMotion); removeEventListener('resize', resize); });
 }
 
 /* carousel with autoplay + swipe */
@@ -429,7 +473,12 @@ document.addEventListener('click', e => {
       const home = el.dataset.k === 'home'; $('#addrL').textContent = home ? '收件地址' : '取貨門市'; $('#addr').placeholder = home ? '縣市／區／路段門牌' : '選擇門市（串接超商電子地圖）'; },
     'ship-ok': () => { S.wh.forEach(w => { if (S.whSel.includes(w.id)){ w.st = 'ship'; w.track = '揀貨中'; } }); const n = S.whSel.length; S.whSel = []; closeModal(); render(true); toast(`已申請出貨 ${n} 件`); },
     'recycle': () => recycleDialog(),
-    'recycle-ok': () => { let pts = 0; S.wh.forEach(w => { if (S.whSel.includes(w.id) && w.rv){ w.st = 'recycled'; pts += w.rv; } }); S.points += pts;
+    'frway': () => { S.frWay = el.dataset.k; recycleDialog(); },
+    'recycle-ok': () => { const items = S.wh.filter(w => S.whSel.includes(w.id)), fr = shipRefundCalc(items), frAmt = fr.reduce((s,x)=>s+x.amt,0);
+      fr.forEach(x => { S.shipPaid[x.key].n = x.need; });
+      if (frAmt){ if (S.frWay === 'bank' || S.frWay === 'ecpay') S.refunds.unshift({id:'RF-00' + (S.refunds.length + 4), user:'Chiaki 玩家', kind:'twd', via:S.frWay==='bank'?'銀行轉帳':'綠界退刷', amt:frAmt, st:'待審核', note:'回收小獎後多出運費'});
+        else { S.coins += frAmt; S.coinsNR += frAmt; syncBal(); S.tx.unshift({t:'預收運費部分退還（回收小獎）', d:new Date().toLocaleString('zh-TW',{hour12:false}), a:frAmt, ic:'truck', nr:true}); } }
+      let pts = 0; S.wh.forEach(w => { if (S.whSel.includes(w.id) && w.rv){ w.st = 'recycled'; pts += w.rv; } }); S.points += pts;
       S.tx.unshift({t:'回收獎品 → 平台點數', d:new Date().toLocaleString('zh-TW',{hour12:false}), a:pts, ic:'recycle', pt:true}); S.whSel = []; closeModal(); render(true); toast(`已回收，獲得 ${pts} 點`); },
     'pack': () => { S.pick.pack = +el.dataset.v; render(true); },
     'paym': () => { S.pick.pay = el.dataset.k; render(true); },
@@ -449,7 +498,9 @@ document.addEventListener('click', e => {
     'addcart': () => { S.cart.push(el.dataset.id); toast('已加入購物車'); render(true); },
     'cart': () => { const items = S.cart.map(id => PRODUCTS.find(p => p.id === id)); const sum = items.reduce((s,x) => s + x.price, 0);
       openModal(`<h3 id="mdlT">購物車</h3>${items.length ? items.map(x => `<div class="sumrow"><span>${x.name}</span><b>NT$ ${fmt(x.price)}</b></div>`).join('') + `<div class="sumrow" style="border-bottom:0;min-height:56px"><span>小計</span><b style="font-size:20px">NT$ ${fmt(sum)}</b></div><button class="btn gold block" data-act="close-modal">前往結帳</button>` : '<p class="muted">購物車是空的</p>'}`); },
-    'ticket': () => toast('工單已送出，編號 CS-20261023-0042'),
+    'ticket': () => { const m = ($('#tkMsg')||{}).value || ''; if (!m.trim()){ toast('請描述問題內容'); $('#tkMsg').focus(); return; }
+      const id = 'CS-10' + (27 + S.tickets.length); S.tickets.unshift({id, cat:$('#tkType').value.replace('抽賞結果爭議','抽賞爭議').replace('儲值／付款','儲值/付款').replace('出貨／物流','出貨/物流').replace('帳號與安全','帳號'), user:'Chiaki 玩家', subj:m.trim().slice(0,18), st:'待處理', due:+24, link:$('#tkNo').value || '—', msgs:[{f:'u', t:m.trim(), d:'剛剛'}]});
+      toast(`工單已送出，編號 ${id}，客服將於 24 小時內回覆`); render(true); },
     'adm': () => { S.admin = el.dataset.k; render(true); }
   };
   if (acts[a]){ if (el.tagName === 'A' && a !== 'close-stage' && a !== 'close-modal') e.preventDefault(); acts[a](); }
@@ -469,11 +520,4 @@ addEventListener('scroll', () => $('#nav').classList.toggle('scrolled', scrollY 
 addEventListener('hashchange', () => { if ($('#stageRoot').innerHTML) closeStage(); closeModal(); render(); window.scrollTo(0, 0);
   if (S.pendingDoc){ const k = S.pendingDoc; S.pendingDoc = null; docDialog(k); } });
 
-/* boot */
-render.first = true;
-syncBal();
-render();
-setTimeout(() => $('#loader').classList.add('done'), RM() ? 100 : 1700);
 </script>
-</body>
-</html>

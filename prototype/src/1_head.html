@@ -753,5 +753,48 @@ body.rm .reveal{opacity:1;transform:none}
 .doc h4{margin:0 0 var(--s1);font-size:15px;font-weight:700;line-height:1.5}
 .doc p{margin:0;font-size:14px;line-height:1.8;color:var(--tx-2)}
 .feat p:empty{display:none}
+.pt .av{position:relative;overflow:visible}
+.pt .av img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.pt .av i{font-style:normal;font-family:var(--serif);font-weight:700;font-size:22px;color:var(--gold-2);line-height:1}
+.pt .av .role-ic{position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:var(--gold);color:var(--gold-ink);display:flex;align-items:center;justify-content:center;border:2px solid var(--sf)}
+/* ---------- CS desk ---------- */
+.cs{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:var(--s3);align-items:start}
+@media (max-width:1023px){.cs{grid-template-columns:minmax(0,1fr)}}
+.cs-list{display:flex;flex-direction:column;gap:var(--s1)}
+.cs-item{display:flex;flex-direction:column;align-items:flex-start;gap:6px;width:100%;padding:12px var(--s2);border-radius:var(--r-2);border:1px solid var(--line);background:var(--sf);cursor:pointer;text-align:left;font-size:12px}
+.cs-item b{font-size:14px;font-weight:500;line-height:1.4}
+.cs-item.on{border-color:var(--gold);background:rgba(201,164,92,.08)}
+.bad-t{color:var(--bad)}
+.cs-detail{display:flex;flex-direction:column;gap:var(--s2)}
+.thread{display:flex;flex-direction:column;gap:12px;padding:var(--s2);border-radius:var(--r-2);background:var(--bg-2);max-height:320px;overflow:auto}
+.msg{max-width:85%;display:flex;flex-direction:column;gap:4px}
+.msg p{margin:0;padding:12px var(--s2);border-radius:var(--r-2);background:var(--sf-2);font-size:14px;line-height:1.6}
+.msg span{font-size:11px;color:var(--tx-3)}
+.msg.s{align-self:flex-end;align-items:flex-end}
+.msg.s p{background:rgba(201,164,92,.16)}
+.cs-acts{display:flex;flex-wrap:wrap;gap:var(--s1)}
+/* ---------- fulfilment flow ---------- */
+.flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--s1)}
+.flow-s{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;height:88px;border-radius:var(--r-2);background:var(--sf);border:1px solid var(--line);position:relative}
+.flow-s b{font-size:24px;line-height:1}
+.flow-s span{font-size:12px;color:var(--tx-2)}
+@media (max-width:599px){.flow-s{height:72px} .flow-s b{font-size:20px}}
+/* ---------- toggles ---------- */
+.toggles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s1)}
+.tg{display:flex;align-items:center;gap:12px;height:48px;padding:0 var(--s2);border-radius:var(--r-1);border:1px solid var(--line);background:var(--bg-2);cursor:pointer;font-size:14px}
+.tg input{width:20px;height:20px;margin:0;accent-color:var(--gold);flex:none}
+/* ---------- rules page ---------- */
+.rules{max-width:800px;margin:0 auto}
+.rules section{padding:var(--s3) 0;border-bottom:1px solid var(--line)}
+.rules h2{margin:0 0 var(--s2);font-family:var(--serif-tc);font-size:20px;line-height:1.4}
+.rules h3{margin:var(--s2) 0 var(--s1);font-size:16px}
+.rules p,.rules li{font-size:15px;line-height:1.9;color:var(--tx-2)}
+.rules p{margin:0 0 var(--s1)}
+.rules ul,.rules ol{margin:0 0 var(--s1);padding-left:24px}
+.rules strong{color:var(--tx)}
+.rules-end{margin:var(--s5) 0 0;padding:var(--s4);border-radius:var(--r-2);background:var(--sf);border:1px solid rgba(201,164,92,.35);text-align:center}
+.rules-end b{font-family:var(--serif-tc);font-size:18px}
+.rules-end p{margin:var(--s1) 0 0;color:var(--tx-2);font-size:14px;line-height:1.8}
+.gold-t{color:var(--gold-2)!important;font-weight:700}
 </style>
 </head>
