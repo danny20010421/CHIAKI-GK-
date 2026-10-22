@@ -1,0 +1,7 @@
+{
+  "//": "離線型別檢查：排除需要 React/Next 型別的 .tsx 頁面（UI 尚未開發）。有安裝 next 時請用 `npm run build:next`。",
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "incremental": false, "plugins": [] },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "vendor", "src/app/**/*.tsx"]
+}

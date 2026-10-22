@@ -1,0 +1,464 @@
+// CHIAKI Prisma schema（鏡像）
+//
+// ⚠ 資料庫結構的「唯一真實來源」是 prisma/migrations/*/migration.sql（含 CHECK、trigger、部分索引等
+//   Prisma schema 無法表達的防護）。本檔由實際 migrate 後的資料庫結構產生，並由 tests/schema-drift.test.ts
+//   在每次測試時比對資料表/欄位/型別/可空性，確保兩者一致。
+// ⚠ 本開發環境無法連線 npm registry 與 binaries.prisma.sh，因此尚未以 `prisma validate`/`prisma generate`
+//   驗證；執行期資料存取使用 postgres.js（原生 SQL、明確交易與 FOR UPDATE 列鎖）。
+//   若日後改用 Prisma Client：`npx prisma validate && npx prisma generate`，並以
+//   `npx prisma migrate resolve --applied 20261023000000_init` 標記既有 migration。
+// 關聯欄位（relation fields）刻意省略：外鍵已在 SQL migration 中定義。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ApprovalRequest {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId   String    @default("chiaki") @map("merchant_id")
+  type         String
+  targetId     String    @map("target_id")
+  payloadJson  String    @map("payload_json")
+  status       String    @default("PENDING")
+  requestedBy  String    @map("requested_by") @db.Uuid
+  decidedBy    String?   @map("decided_by") @db.Uuid
+  decidedAt    DateTime? @map("decided_at") @db.Timestamptz(6)
+  decisionNote String?   @map("decision_note")
+  resultJson   String?   @map("result_json")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("approval_requests")
+}
+
+model AuditHead {
+  id       Int    @id
+  lastSeq  BigInt @map("last_seq")
+  lastHash String @map("last_hash")
+  @@map("audit_head")
+}
+
+model AuditLog {
+  seq         BigInt  @id
+  merchantId  String  @default("chiaki") @map("merchant_id")
+  actorType   String  @map("actor_type")
+  actorId     String? @map("actor_id")
+  action      String
+  entityType  String  @map("entity_type")
+  entityId    String  @map("entity_id")
+  payloadJson String  @map("payload_json")
+  createdAt   String  @map("created_at")
+  prevHash    String  @map("prev_hash")
+  hash        String  @unique
+  @@map("audit_log")
+}
+
+model AuthSession {
+  tokenHash String    @id @map("token_hash")
+  userId    String    @map("user_id") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  @@map("auth_sessions")
+}
+
+model DrawResult {
+  id              BigInt  @id @default(autoincrement())
+  drawId          String  @map("draw_id") @db.Uuid
+  seq             Int
+  kind            String
+  ticketNo        Int?    @map("ticket_no")
+  prizeId         String? @map("prize_id") @db.Uuid
+  rank            String
+  tier            Int
+  prizeName       String  @map("prize_name")
+  warehouseItemId String  @map("warehouse_item_id") @db.Uuid
+  @@unique([drawId, seq])
+  @@map("draw_results")
+}
+
+model Draw {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId     String   @default("chiaki") @map("merchant_id")
+  userId         String   @map("user_id") @db.Uuid
+  poolId         String   @map("pool_id") @db.Uuid
+  setId          String   @map("set_id") @db.Uuid
+  ruleVersionId  String   @map("rule_version_id") @db.Uuid
+  idempotencyKey String   @map("idempotency_key")
+  ticketCount    Int      @map("ticket_count")
+  unitPrice      BigInt   @map("unit_price")
+  amountCoins    BigInt   @map("amount_coins")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@unique([userId, idempotencyKey])
+  @@map("draws")
+}
+
+model GuaranteeCounter {
+  userId    String   @map("user_id") @db.Uuid
+  poolId    String   @map("pool_id") @db.Uuid
+  misses    Int      @default(0)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@id([userId, poolId])
+  @@map("guarantee_counters")
+}
+
+model IdempotencyKey {
+  userId       String   @map("user_id") @db.Uuid
+  scope        String
+  key          String
+  requestHash  String   @map("request_hash")
+  responseJson String?  @map("response_json")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([userId, scope, key])
+  @@map("idempotency_keys")
+}
+
+model Merchant {
+  id        String   @id
+  name      String
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("merchants")
+}
+
+model PaymentNotification {
+  id              BigInt   @id @default(autoincrement())
+  provider        String
+  merchantTradeNo String?  @map("merchant_trade_no")
+  rawBody         String   @map("raw_body")
+  macValid        Boolean  @map("mac_valid")
+  outcome         String
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("payment_notifications")
+}
+
+model PaymentOrder {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId      String    @default("chiaki") @map("merchant_id")
+  userId          String    @map("user_id") @db.Uuid
+  provider        String
+  merchantTradeNo String    @unique @map("merchant_trade_no")
+  packageCode     String    @map("package_code")
+  amountTwd       BigInt    @map("amount_twd")
+  coins           BigInt
+  bonusPoints     BigInt    @default(0) @map("bonus_points")
+  status          String    @default("PENDING")
+  providerTradeNo String?   @map("provider_trade_no")
+  paymentType     String?   @map("payment_type")
+  bankLast5       String?   @map("bank_last5")
+  paidAt          DateTime? @map("paid_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("payment_orders")
+}
+
+model PoolGuarantee {
+  poolId           String @id @map("pool_id") @db.Uuid
+  everyN           Int    @map("every_n")
+  minTier          Int    @map("min_tier")
+  reserveRank      String @map("reserve_rank")
+  reservePrizeName String @map("reserve_prize_name")
+  reserveTotal     Int    @map("reserve_total")
+  reserveUsed      Int    @default(0) @map("reserve_used")
+  @@map("pool_guarantees")
+}
+
+model PoolPrize {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  poolId    String @map("pool_id") @db.Uuid
+  rank      String
+  tier      Int
+  name      String
+  qtyPerSet Int    @map("qty_per_set")
+  sortOrder Int    @default(0) @map("sort_order")
+  @@unique([poolId, rank])
+  @@map("pool_prizes")
+}
+
+model PoolRuleVersion {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId  String    @default("chiaki") @map("merchant_id")
+  poolId      String    @map("pool_id") @db.Uuid
+  version     Int
+  rulesJson   String    @map("rules_json")
+  rulesHash   String    @map("rules_hash")
+  createdBy   String?   @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  @@unique([poolId, version])
+  @@map("pool_rule_versions")
+}
+
+model PoolSet {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId      String    @default("chiaki") @map("merchant_id")
+  poolId          String    @map("pool_id") @db.Uuid
+  setNo           Int       @map("set_no")
+  ruleVersionId   String    @map("rule_version_id") @db.Uuid
+  status          String
+  totalTickets    Int       @map("total_tickets")
+  commitScheme    String    @map("commit_scheme")
+  commitment      String
+  commitSalt      String    @map("commit_salt")
+  lastPrizeUserId String?   @map("last_prize_user_id") @db.Uuid
+  publishedAt     DateTime  @default(now()) @map("published_at") @db.Timestamptz(6)
+  onSaleAt        DateTime? @map("on_sale_at") @db.Timestamptz(6)
+  soldOutAt       DateTime? @map("sold_out_at") @db.Timestamptz(6)
+  @@unique([poolId, setNo])
+  @@map("pool_sets")
+}
+
+model Pool {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId           String    @default("chiaki") @map("merchant_id")
+  slug                 String    @unique
+  title                String
+  ip                   String    @default("")
+  description          String    @default("")
+  terms                String    @default("")
+  source               String
+  playType             String    @map("play_type")
+  priceCoins           BigInt    @map("price_coins")
+  setCount             Int       @map("set_count")
+  lastPrizeName        String?   @map("last_prize_name")
+  status               String    @default("DRAFT")
+  currentRuleVersionId String?   @map("current_rule_version_id") @db.Uuid
+  createdBy            String?   @map("created_by") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt          DateTime? @map("published_at") @db.Timestamptz(6)
+  @@map("pools")
+}
+
+model Product {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId String   @default("chiaki") @map("merchant_id")
+  sku        String   @unique
+  name       String
+  ip         String   @default("")
+  source     String
+  priceCoins BigInt   @map("price_coins")
+  stock      Int
+  status     String   @default("ACTIVE")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("products")
+}
+
+model PurchaseOrder {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId     String   @default("chiaki") @map("merchant_id")
+  userId         String   @map("user_id") @db.Uuid
+  productId      String   @map("product_id") @db.Uuid
+  qty            Int
+  unitPrice      BigInt   @map("unit_price")
+  amountCoins    BigInt   @map("amount_coins")
+  idempotencyKey String   @map("idempotency_key")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@unique([userId, idempotencyKey])
+  @@map("purchase_orders")
+}
+
+model RateCounter {
+  userId      String   @map("user_id") @db.Uuid
+  action      String
+  windowStart DateTime @map("window_start") @db.Timestamptz(6)
+  count       Int
+
+  @@id([userId, action, windowStart])
+  @@map("rate_counters")
+}
+
+model RecycleRate {
+  merchantId String  @default("chiaki") @map("merchant_id")
+  rank       String
+  points     BigInt
+  recyclable Boolean
+
+  @@id([merchantId, rank])
+  @@map("recycle_rates")
+}
+
+model RefundRequest {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId        String    @default("chiaki") @map("merchant_id")
+  userId            String    @map("user_id") @db.Uuid
+  amountCoins       BigInt    @map("amount_coins")
+  reason            String    @default("")
+  status            String    @default("REQUESTED")
+  approvalRequestId String?   @map("approval_request_id") @db.Uuid
+  decidedBy         String?   @map("decided_by") @db.Uuid
+  decidedAt         DateTime? @map("decided_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("refund_requests")
+}
+
+model RewardClaim {
+  userId    String   @map("user_id") @db.Uuid
+  taskCode  String   @map("task_code")
+  evidence  String?
+  claimedAt DateTime @default(now()) @map("claimed_at") @db.Timestamptz(6)
+
+  @@id([userId, taskCode])
+  @@map("reward_claims")
+}
+
+model RewardTask {
+  code         String  @id
+  merchantId   String  @default("chiaki") @map("merchant_id")
+  title        String
+  rewardPoints BigInt  @default(0) @map("reward_points")
+  couponCode   String? @map("coupon_code")
+  active       Boolean @default(true)
+  @@map("reward_tasks")
+}
+
+model RiskEvent {
+  id          BigInt   @id @default(autoincrement())
+  merchantId  String   @default("chiaki") @map("merchant_id")
+  userId      String?  @map("user_id") @db.Uuid
+  type        String
+  severity    String
+  detailsJson String   @default("{}") @map("details_json")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("risk_events")
+}
+
+model Shipment {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId     String    @default("chiaki") @map("merchant_id")
+  userId         String    @map("user_id") @db.Uuid
+  method         String
+  recipientName  String    @map("recipient_name")
+  recipientPhone String    @map("recipient_phone")
+  address        String?
+  cvsStoreId     String?   @map("cvs_store_id")
+  cvsStoreName   String?   @map("cvs_store_name")
+  feeCoins       BigInt    @map("fee_coins")
+  itemCount      Int       @map("item_count")
+  status         String    @default("REQUESTED")
+  trackingNo     String?   @map("tracking_no")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  shippedAt      DateTime? @map("shipped_at") @db.Timestamptz(6)
+  deliveredAt    DateTime? @map("delivered_at") @db.Timestamptz(6)
+  @@map("shipments")
+}
+
+model ShippingMethod {
+  method     String  @id
+  merchantId String  @default("chiaki") @map("merchant_id")
+  label      String
+  feeCoins   BigInt  @map("fee_coins")
+  maxItems   Int     @default(50) @map("max_items")
+  active     Boolean @default(true)
+  @@map("shipping_methods")
+}
+
+model Ticket {
+  setId     String    @map("set_id") @db.Uuid
+  ticketNo  Int       @map("ticket_no")
+  prizeId   String    @map("prize_id") @db.Uuid
+  status    String    @default("AVAILABLE")
+  heldBy    String?   @map("held_by") @db.Uuid
+  heldUntil DateTime? @map("held_until") @db.Timestamptz(6)
+  takenBy   String?   @map("taken_by") @db.Uuid
+  drawId    String?   @map("draw_id") @db.Uuid
+  takenAt   DateTime? @map("taken_at") @db.Timestamptz(6)
+
+  @@id([setId, ticketNo])
+  @@map("tickets")
+}
+
+model UserCoupon {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId String   @default("chiaki") @map("merchant_id")
+  userId     String   @map("user_id") @db.Uuid
+  code       String
+  source     String
+  status     String   @default("ACTIVE")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("user_coupons")
+}
+
+model UserDevice {
+  userId      String   @map("user_id") @db.Uuid
+  fingerprint String
+  firstSeenAt DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+
+  @@id([userId, fingerprint])
+  @@map("user_devices")
+}
+
+model UserRole {
+  userId     String   @map("user_id") @db.Uuid
+  role       String
+  merchantId String   @default("chiaki") @map("merchant_id")
+  grantedAt  DateTime @default(now()) @map("granted_at") @db.Timestamptz(6)
+
+  @@id([userId, role])
+  @@map("user_roles")
+}
+
+model User {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone         String?   @unique
+  lineUserId    String?   @unique @map("line_user_id")
+  displayName   String    @default("") @map("display_name")
+  status        String    @default("ACTIVE")
+  birthDate     DateTime? @map("birth_date") @db.Date
+  ageVerifiedAt DateTime? @map("age_verified_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("users")
+}
+
+model WalletLedgerEntry {
+  id           BigInt   @id @default(autoincrement())
+  merchantId   String   @default("chiaki") @map("merchant_id")
+  userId       String   @map("user_id") @db.Uuid
+  currency     String
+  amount       BigInt
+  balanceAfter BigInt   @map("balance_after")
+  entryType    String   @map("entry_type")
+  refType      String   @map("ref_type")
+  refId        String   @map("ref_id")
+  memo         String?
+  createdBy    String?  @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("wallet_ledger")
+}
+
+model Wallet {
+  userId     String   @id @map("user_id") @db.Uuid
+  merchantId String   @default("chiaki") @map("merchant_id")
+  coins      BigInt   @default(0)
+  points     BigInt   @default(0)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("wallets")
+}
+
+model WarehouseItem {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId     String    @default("chiaki") @map("merchant_id")
+  userId         String    @map("user_id") @db.Uuid
+  source         String
+  poolId         String?   @map("pool_id") @db.Uuid
+  setId          String?   @map("set_id") @db.Uuid
+  drawId         String?   @map("draw_id") @db.Uuid
+  ticketNo       Int?      @map("ticket_no")
+  prizeId        String?   @map("prize_id") @db.Uuid
+  productId      String?   @map("product_id") @db.Uuid
+  purchaseId     String?   @map("purchase_id") @db.Uuid
+  rank           String
+  prizeName      String    @map("prize_name")
+  status         String    @default("STORED")
+  shipmentId     String?   @map("shipment_id") @db.Uuid
+  recycledPoints BigInt?   @map("recycled_points")
+  recycledAt     DateTime? @map("recycled_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("warehouse_items")
+}

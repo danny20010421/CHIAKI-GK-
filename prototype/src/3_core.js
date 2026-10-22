@@ -1,0 +1,421 @@
+<script>
+"use strict";
+const GUAR_IMG = "__GUAR__";
+const LINKS = {
+  ig:'https://www.instagram.com/chiaki_gk.studies/',
+  line:'https://line.me/ti/g2/onOPVpRAYARR2bqRz3DKN4IP-XTIayGKwt9QRw?utm_source=invitation&utm_medium=link_copy&utm_campaign=default',
+  fb:'https://www.facebook.com/profile.php?id=61554304767569'
+};
+const PARTNERS = [
+  {role:'合作塗裝師', h:'rrrrryan2d', url:'https://www.instagram.com/rrrrryan2d/'},
+  {role:'合作塗裝師', h:'best.do7788', url:'https://www.instagram.com/best.do7788/'},
+  {role:'合作維修師', h:'_space_box', url:'https://www.instagram.com/_space_box/'},
+  {role:'合作維修師', h:'dual_unbound_studio', url:'https://www.instagram.com/dual_unbound_studio/'}
+];
+/* =========================================================
+   CHIAKI prototype — front-end only; every number is sample data.
+   In production the draw result is decided server-side (atomic),
+   the front end only plays the animation.
+   ========================================================= */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const fmt = n => Number(n).toLocaleString('zh-TW');
+const pad = n => String(n).padStart(2, '0');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function shuffle(arr, rnd){for(let i=arr.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]]}return arr}
+const RM = () => document.body.classList.contains('rm') || matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- Icons ---------- */
+const IP = {
+  home:'<path d="M3 10.5 12 3l9 7.5V21H3z"/><path d="M9 21v-6h6v6"/>',
+  ticket:'<path d="M3 7h18v3a2 2 0 0 0 0 4v3H3v-3a2 2 0 0 0 0-4z"/><path d="M13 7v10" stroke-dasharray="2 2"/>',
+  box:'<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
+  wallet:'<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2"/>',
+  user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
+  users:'<circle cx="9" cy="8" r="3.5"/><path d="M2 20c.8-3.5 3.5-5 7-5s6.2 1.5 7 5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 15c2 .6 3.4 2.2 4 5"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  down:'<path d="m6 9 6 6 6-6"/>', right:'<path d="m9 6 6 6-6 6"/>', x:'<path d="M6 6l12 12M18 6 6 18"/>',
+  shield:'<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="m9 12 2 2 4-4"/>',
+  truck:'<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
+  store:'<path d="M4 9h16l-1-5H5zM5 9v11h14V9"/><path d="M10 20v-6h4v6"/>',
+  gift:'<rect x="3" y="8" width="18" height="13" rx="1"/><path d="M3 12h18M12 8v13M12 8S10 3 7.5 4.5 9 8 12 8zm0 0s2-5 4.5-3.5S15 8 12 8z"/>',
+  star:'<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+  fire:'<path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-4 2-6 1 1 2 2 2 3 1-2 1-5 1-7z"/>',
+  crown:'<path d="M3 8l4 4 5-7 5 7 4-4-2 11H5z"/>',
+  bag:'<path d="M5 8h14l-1 13H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>',
+  help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5V14M12 17.5v.01"/>',
+  heart:'<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>',
+  recycle:'<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>',
+  copy:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  list:'<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+  filter:'<path d="M4 5h16l-6 8v6l-4-2v-4z"/>',
+  lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  dice:'<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1"/><circle cx="15" cy="15" r="1"/><circle cx="15" cy="9" r="1"/><circle cx="9" cy="15" r="1"/>',
+  chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  alert:'<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.01"/>',
+  check:'<path d="m5 12 5 5 9-10"/>',
+  motion:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  skip:'<path d="M5 5l9 7-9 7zM17 5v14"/>',
+  share:'<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 10.8 7.6-3.6M8.2 13.2l7.6 3.6"/>',
+  cart:'<path d="M3 4h2l2.4 11h11l2-8H6.2"/><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/>',
+  mega:'<path d="M3 10v4h4l8 5V5L7 10z"/><path d="M18 9a4 4 0 0 1 0 6"/>',
+  card:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/>',
+  bank:'<path d="M3 10 12 4l9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 20h18"/>',
+  doc:'<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h7"/>',
+  expand:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  grid:'<rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/>',
+  api:'<path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 5l-4 14"/>',
+  ticketbox:'<path d="M4 4h16v16H4z"/><path d="M4 9h16M9 4v5"/>',
+  ig:'<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5v.01"/>',
+  fb:'<path d="M14 8h3V4h-3a4 4 0 0 0-4 4v3H7v4h3v6h4v-6h3l1-4h-4V8z"/>',
+  chat:'<path d="M12 4c5 0 9 3.1 9 7s-4 7-9 7c-.8 0-1.6-.1-2.3-.2L6 20v-3.3C4.2 15.4 3 13.3 3 11c0-3.9 4-7 9-7z"/>',
+  brush:'<path d="M18 3l3 3-9 9-3-3z"/><path d="M9 12c-3 0-5 2-5 5 0 1-1 2-2 2 2 2 6 2 8 0 1.5-1.5 1.5-3.5 2-4"/>',
+  wrench:'<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>',
+  phone:'<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/>'
+};
+const ic = (n, s) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"${s?` style="${s}"`:''}>${IP[n]||''}</svg>`;
+
+/* ---------- Rank system ---------- */
+const RK = {
+  LAST:{cls:'rk-last',label:'最後賞',tier:4},
+  A:{cls:'rk-a',label:'A賞',tier:3}, B:{cls:'rk-b',label:'B賞',tier:2}, C:{cls:'rk-c',label:'C賞',tier:1},
+  D:{cls:'rk-d',label:'D賞',tier:0}, E:{cls:'rk-e',label:'E賞',tier:0}, F:{cls:'rk-e',label:'F賞',tier:0},
+  G:{cls:'rk-e',label:'G賞',tier:0}, H:{cls:'rk-e',label:'H賞',tier:0},
+  P:{cls:'rk-e',label:'參加獎',tier:0}
+};
+const rankTag = (rk, small) => `<span class="rank ${RK[rk].cls}"${small?' style="min-width:0;height:24px;font-size:11px;padding:0 6px"':''}>${RK[rk].label}</span>`;
+const SRC = {o:{t:'官方套組',c:'src-o'}, s:{t:'自製套組',c:'src-s'}, m:{t:'混合套組',c:'src-m'}};
+const PLAY = {std:'標準選籤', guar:'保底挑戰', solo:'單挑賞池'};
+
+/* ---------- Sample data (fictional IPs; replace with real catalog) ---------- */
+const NOW = Date.now();
+const POOLS = [
+  {id:'gk', title:'CHIAKI GK 雕像一番賞 第一彈', ip:'CHIAKI ORIGINAL', src:'s', play:'std', price:300, hue:192, seed:101, hot:true, isNew:true,
+   setCount:10, setDrawn:[100,64,0,0,0,0,0,0,0,0],
+   prizes:[{rk:'A',name:'CHIAKI GK 原創雕像 全彩完成品',qty:1,keep:1},{rk:'B',name:'CHIAKI GK 原創雕像 白模版',qty:1,keep:1},{rk:'C',name:'原創角色 胸像',qty:1,keep:1},
+           {rk:'D',name:'壓克力立牌（全 6 種）',qty:6},{rk:'E',name:'設定原畫 收藏卡組',qty:6},{rk:'F',name:'金屬徽章（全 5 種）',qty:15},
+           {rk:'G',name:'燙金貼紙組',qty:20},{rk:'H',name:'明信片（全 10 種）',qty:50}], last:null},
+  {id:'p1', title:'星屑學園 一番賞 ～放學後的星空～', ip:'星屑學園', src:'o', play:'std', price:350, hue:222, seed:11, drawn:38, hot:true,
+   prizes:[{rk:'A',name:'星野雫 1/7 比例模型',qty:1,keep:1},{rk:'B',name:'夜空觀測 場景模型',qty:2,keep:1},{rk:'C',name:'角色壓克力立牌（全 3 種）',qty:3},
+           {rk:'D',name:'印花毛巾（全 5 種）',qty:10},{rk:'E',name:'鏡面徽章（全 10 種）',qty:20},{rk:'F',name:'透明資料夾（全 6 種）',qty:24}],
+   last:'星野雫 特別配色 Ver.'},
+  {id:'p3', title:'CHIAKI ORIGINAL 保底挑戰 ～黑金典藏～', ip:'CHIAKI ORIGINAL', src:'s', play:'guar', price:280, hue:42, seed:33, drawn:22, img:GUAR_IMG,
+   guar:{every:10, minTier:2, reserveRk:'B', reserve:3, name:'黑金典藏 B 賞（保底專用庫存）'},
+   prizes:[{rk:'A',name:'黑金典藏 1/6 雕像',qty:1,keep:1},{rk:'B',name:'黑金色 胸像',qty:4,keep:2},{rk:'C',name:'金箔簽名色紙',qty:10},
+           {rk:'D',name:'限定版畫（全 4 種）',qty:25},{rk:'E',name:'燙金貼紙組',qty:40}], last:'黑金典藏 全身雕像 金箔 Ver.'},
+  {id:'p4', title:'妖狐夜行抄 混合賞 ～百鬼燈籠～', ip:'妖狐夜行抄', src:'m', play:'std', price:300, hue:12, seed:44, drawn:10, isNew:true,
+   prizes:[{rk:'A',name:'九尾 1/8 比例模型（官方正版）',qty:1,keep:1},{rk:'B',name:'燈籠 LED 擺飾（CHIAKI 自製）',qty:3},{rk:'C',name:'和紙扇子（合作工坊）',qty:6},
+           {rk:'D',name:'御守吊飾（全 5 種）',qty:20},{rk:'E',name:'明信片組',qty:30}], last:'九尾 燈籠夜 Ver.'},
+  {id:'p5', title:'深海偶像 MARINE 單挑賞 ～珊瑚舞台～', ip:'深海偶像 MARINE', src:'s', play:'solo', price:150, hue:186, seed:55, drawn:30,
+   prizes:[{rk:'A',name:'MARINE 1/6 舞台雕像',qty:1,keep:1},{rk:'P',name:'參加獎：角色貼紙（全 5 種）',qty:49}], last:null},
+  {id:'p7', title:'魔導書庫 一番賞 ～禁書目錄～', ip:'魔導書庫', src:'o', play:'std', price:380, hue:268, seed:77, soon:NOW+ 2*864e5 + 5*36e5,
+   prizes:[{rk:'A',name:'大魔導師 1/7 比例模型',qty:1},{rk:'B',name:'魔導書 收納盒',qty:2},{rk:'C',name:'金屬書籤',qty:6},{rk:'D',name:'掛軸',qty:15},{rk:'E',name:'徽章',qty:36}], last:'大魔導師 禁咒 Ver.'},
+];
+const PRODUCTS = [
+  {id:'s2', name:'CHIAKI 黑金 收藏展示盒', ip:'CHIAKI ORIGINAL', price:1280, hue:42, stock:12},
+];
+
+/* Build fixed ticket lists (no replacement), mark already-drawn & held tickets */
+function buildSet(p, seed, drawn){
+  const rnd = mulberry32(seed);
+  const list = [];
+  p.prizes.forEach((pr, i) => { for (let k = 0; k < pr.qty; k++) list.push(i); });
+  shuffle(list, rnd);
+  const tickets = list.map((pi, n) => ({no:n+1, pi, taken:false, held:false, by:null}));
+  if (p.soon) return {tickets, total:list.length};
+  if (drawn >= list.length){ tickets.forEach(t => { t.taken = true; t.by = 'other'; }); return {tickets, total:list.length}; }
+  // pre-drawn by other players (protect 'keep' qty of top prizes for demo)
+  const protect = p.prizes.map(pr => pr.keep || 0);
+  const order = shuffle([...tickets.keys()], rnd);
+  let done = 0;
+  for (const idx of order){
+    if (done >= drawn) break;
+    const t = tickets[idx];
+    const left = tickets.filter(x => !x.taken && x.pi === t.pi).length;
+    if (left <= protect[t.pi]) continue;
+    t.taken = true; t.by = 'other'; done++;
+  }
+  if (drawn > 0){ const free = tickets.filter(t => !t.taken); shuffle(free, rnd).slice(0, Math.min(3, Math.floor(free.length/8))).forEach(t => t.held = true); }
+  return {tickets, total:list.length};
+}
+function buildPool(p){
+  const n = p.setCount || 1;
+  p.sets = Array.from({length:n}, (_, s) => buildSet(p, p.seed + s*7919, p.setDrawn ? p.setDrawn[s] : (p.drawn || 0)));
+  p.setIdx = Math.max(0, p.sets.findIndex(s => s.tickets.some(t => !t.taken)));
+  Object.defineProperty(p, 'tickets', {get(){ return this.sets[this.setIdx].tickets; }, configurable:true});
+  Object.defineProperty(p, 'total', {get(){ return this.sets[this.setIdx].total; }, configurable:true});
+}
+POOLS.forEach(buildPool);
+const poolById = id => POOLS.find(p => p.id === id);
+const remaining = p => p.tickets.filter(t => !t.taken).length;
+const remainOf = (p, i) => p.tickets.filter(t => !t.taken && t.pi === i).length;
+const topLeft = p => p.prizes.map((pr,i)=>({pr,i})).filter(x => RK[x.pr.rk].tier >= 2).map(x => ({rk:x.pr.rk, n:remainOf(p,x.i), q:x.pr.qty}));
+
+/* ---------- App state (demo user) ---------- */
+const S = {
+  coins: 5000, points: 320, verified: false, rulesOk: false,
+  sel: [], holdUntil: 0, holdTimer: null,
+  guar: {p3: 7},
+  cart: [],
+  follow: ['星屑學園','CHIAKI ORIGINAL'],
+  wh: [
+    {id:'w2', pool:'p1', rk:'E', name:'星屑學園 鏡面徽章（雫）', hue:222, at:'2026-10-18', st:'stored'},
+    {id:'w4', pool:'p3', rk:'B', name:'黑金色 胸像', hue:42, at:'2026-10-02', st:'ship', track:'7-ELEVEN 取貨 ・ 已到店'},
+    {id:'w5', pool:'p4', rk:'E', name:'妖狐夜行抄 明信片組', hue:12, at:'2026-09-20', st:'done'},
+    {id:'w6', pool:'p1', rk:'F', name:'透明資料夾（全員）', hue:222, at:'2026-09-14', st:'recycled'},
+  ],
+  whSel: [], whTab:'stored',
+  tx: [
+    {t:'儲值 ・ 信用卡（綠界）', d:'2026-10-20 21:14', a:+3000, ic:'card'},
+    {t:'抽賞 ・ 星屑學園 一番賞 ×3', d:'2026-10-18 22:40', a:-1050, ic:'ticket'},
+    {t:'回收獎品 ・ 透明資料夾 → 平台點數', d:'2026-09-14 13:02', a:+20, ic:'recycle', pt:true},
+  ],
+  pick: {pack:1000, pay:'card'},
+  admin: 'dash',
+  binds: {line:false, group:false, ig:false, fb:false, phone:'done'}
+};
+let drawLog = [
+  {u:'k***a', pool:'CHIAKI GK', rk:'B'},{u:'r***n', pool:'星屑學園', rk:'A'},{u:'y***i', pool:'妖狐夜行抄', rk:'C'},
+  {u:'t***2', pool:'CHIAKI ORIGINAL', rk:'B'},{u:'s***o', pool:'深海偶像 MARINE', rk:'P'}
+];
+
+/* ---------- Generic UI helpers ---------- */
+function toast(msg){
+  const r = $('#toastRoot'); r.innerHTML = `<div class="toast">${ic('check','width:18px;height:18px')}${msg}</div>`;
+  clearTimeout(toast.t); toast.t = setTimeout(() => r.innerHTML = '', 2400);
+}
+let lastFocus = null;
+function openModal(html, opts = {}){
+  lastFocus = document.activeElement;
+  $('#modalRoot').innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="mdlT">
+    <div class="scrim" data-act="close-modal"></div>
+    <div class="dlg ${opts.wide?'wide':''}">
+      <button class="ibtn x" data-act="close-modal" aria-label="關閉">${ic('x')}</button>${html}</div></div>`;
+  document.documentElement.style.overflow = 'hidden';
+  setTimeout(() => { const f = $('#modalRoot .dlg h3') ; if (f){ f.setAttribute('tabindex','-1'); f.focus(); } }, 30);
+}
+function closeModal(){
+  $('#modalRoot').innerHTML = ''; document.documentElement.style.overflow = '';
+  if (lastFocus && lastFocus.focus) lastFocus.focus();
+}
+function syncBal(){ $('#navBal').textContent = fmt(S.coins); }
+
+const art = (hue, glyph, cls = '', label = '', img = '') =>
+  `<div class="art ${cls}" style="--h:${hue}" ${label?`role="img" aria-label="${label}"`:'aria-hidden="true"'}><div class="fig"></div><span class="glyph">${glyph}</span>${img && img.startsWith('<svg') ? `<div class="tkart">${img}</div>` : img?`<img class="cover" src="${img}" alt="" loading="lazy">`:''}</div>`;
+
+/* ---------- Pool card ---------- */
+function poolCard(p){
+  if (p.soon){
+    return `<a class="pc reveal" href="#/pool/${p.id}">
+      <div class="badges"><span class="tag ${SRC[p.src].c}">${SRC[p.src].t}</span></div>
+      <span class="status tag info">即將登場</span>
+      ${art(p.hue,'A','', p.title+' 商品圖')}
+      <div class="body"><h3>${p.title}</h3>
+        <div class="price"><span class="coin">C</span>${fmt(p.price)}<small>/ 抽</small></div>
+        <div class="meta"><span>開賣倒數</span></div>
+        <div class="cd" data-cd="${p.soon}"></div></div></a>`;
+  }
+  const left = remaining(p), pct = left / p.total * 100, low = pct <= 20;
+  const tops = topLeft(p).filter(x => x.n > 0).map(x => RK[x.rk].label.replace('賞','')).join('・');
+  return `<a class="pc reveal" href="#/pool/${p.id}">
+    <div class="badges"><span class="tag ${SRC[p.src].c}">${SRC[p.src].t}</span>${p.play!=='std'?`<span class="tag play" style="background:rgba(0,0,0,.5)">${PLAY[p.play]}</span>`:''}</div>
+    ${low ? '<span class="status tag hot">即將完售</span>' : p.isNew ? '<span class="status tag ok">NEW</span>' : p.hot ? '<span class="status tag hot">熱門</span>' : ''}
+    ${art(p.hue, p.play==='solo'?'1':'A','', p.title+' 商品圖', p.img)}
+    <div class="body">
+      <h3>${p.title}</h3>${p.sets.length>1?`<span class="dim" style="font-size:12px;line-height:1">第 ${p.setIdx+1} / ${p.sets.length} 套進行中</span>`:''}
+      <div class="price"><span class="coin">C</span>${fmt(p.price)}<small>/ 抽</small></div>
+      <div class="meter ${low?'low':''}" role="img" aria-label="剩餘 ${left} / ${p.total} 抽"><i style="width:${pct}%"></i></div>
+      <div class="meta"><span>剩餘 <b class="num">${left}</b> / ${p.total} 抽</span></div>
+      ${tops?`<div class="top">${ic('crown','width:14px;height:14px')}大賞剩餘 ${tops}${p.last?'・Last':''}</div>`:'<div class="top dim">大賞已出完</div>'}
+    </div></a>`;
+}
+
+/* ---------- Router ---------- */
+const routes = {};
+function parseHash(){
+  const h = location.hash.replace(/^#\/?/, '') || 'home';
+  const [path, qs] = h.split('?');
+  const parts = path.split('/');
+  return {name: parts[0] || 'home', arg: parts[1], q: new URLSearchParams(qs || '')};
+}
+let cleanup = [];
+function render(keep){
+  cleanup.forEach(f => f()); cleanup = [];
+  const r = parseHash();
+  const fn = routes[r.name] || routes.home;
+  const app = $('#app');
+  app.innerHTML = fn(r);
+  $$('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === r.name || (r.name==='pool' && a.dataset.nav==='lobby')));
+  $$('[data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === r.name || (r.name==='pool' && a.dataset.tab==='lobby')));
+  $('#footer').style.display = r.name === 'admin' ? 'none' : '';
+  if (fn.after) fn.after(r);
+  if (keep) $$('.reveal', app).forEach(e => e.classList.add('in'));
+  observeReveal();
+}
+function observeReveal(){
+  const els = $$('.reveal:not(.in)');
+  if (!('IntersectionObserver' in window) || RM()) { els.forEach(e => e.classList.add('in')); return; }
+  const io = new IntersectionObserver(es => es.forEach((e) => { if (e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target);} }), {rootMargin:'0px 0px -40px 0px'});
+  els.forEach((e, i) => { e.style.transitionDelay = (i % 4) * 60 + 'ms'; io.observe(e); });
+  cleanup.push(() => io.disconnect());
+}
+/* countdowns */
+setInterval(() => {
+  $$('[data-cd]').forEach(el => {
+    let s = Math.max(0, Math.floor((+el.dataset.cd - Date.now()) / 1000));
+    const d = Math.floor(s / 86400); s %= 86400; const h = Math.floor(s / 3600); s %= 3600; const m = Math.floor(s / 60); s %= 60;
+    el.innerHTML = `<span>${d}天</span><span>${pad(h)}</span><span>${pad(m)}</span><span>${pad(s)}</span>`;
+    el.setAttribute('aria-label', `剩餘 ${d} 天 ${h} 小時 ${m} 分`);
+  });
+}, 1000);
+
+/* =========================================================
+   HOME
+   ========================================================= */
+routes.home = () => {
+  const live = POOLS.filter(p => !p.soon);
+  const used = new Set();
+  const pick = arr => { const p = arr.find(x => !used.has(x.id)) || arr[0]; used.add(p.id); return p; };
+  const hot = pick([...live].sort((a,b) => (b.hot?1:0)-(a.hot?1:0)));
+  const ending = pick([...live].sort((a,b) => remaining(a)/a.total - remaining(b)/b.total));
+  const fresh = pick(live.filter(p => p.isNew).concat(live.filter(p => !p.isNew)));
+  const soon = POOLS.filter(p => p.soon);
+  const slides = [
+    {p:'gk', k:'CHIAKI GK', t:'CHIAKI GK<br>雕像一番賞 第一彈', d:'每套 100 抽・共十套・A～H 賞，籤紙與實體店同款設計。'}
+  ];
+  const tick = drawLog.map(x => `<span>${x.u} 在 <b>${x.pool}</b> 抽中 <em>${RK[x.rk].label}</em></span>`).join('');
+  return `
+  <section class="hero" id="hero" aria-label="CHIAKI 主視覺">
+    <canvas id="heroCv" aria-hidden="true"></canvas>
+    <div class="fog" aria-hidden="true"></div>
+    <div class="vtext l" aria-hidden="true">一番賞 ・ 透明獎池</div>
+    <div class="vtext r" aria-hidden="true">每一籤，皆可追溯</div>
+    <div class="center">
+      <div class="kicker" aria-hidden="true"><i></i>ONLINE ICHIBAN KUJI<i></i></div>
+      <h1 id="heroLogo" class="brand hero-brand">CHIAKI</h1>
+      <div class="tagline" aria-label="為大家的青春與夢想而存在">${[...'為大家的青春與夢想而存在'].map((c,i)=>`<span style="animation-delay:${1+i*.06}s">${c}</span>`).join('')}</div>
+      <div class="sub"><span>官方・自製・混合套組</span>　<span>機率即時公開｜結果事前鎖定</span></div>
+      <div class="cta"><a class="btn gold" href="#/lobby">${ic('ticket')}進入抽賞大廳</a><a class="btn ghost" href="#/support">抽賞規則說明</a></div>
+    </div>
+    <div class="scroll" aria-hidden="true">SCROLL<i></i></div>
+  </section>
+
+  <div class="ticker" aria-label="近期中獎動態"><div class="lab"><i></i>LIVE</div><div class="track">${tick}${tick}</div></div>
+
+  <div class="wrap">
+    <section class="sec" aria-label="活動 Banner">
+      <div class="carousel" id="car" aria-roledescription="carousel">
+        ${slides.map((s,i) => { const p = poolById(s.p); return `
+        <div class="slide ${i===0?'on':''}" role="group" aria-roledescription="slide" aria-label="${i+1} / ${slides.length}">
+          ${art(p.hue, p.play==='guar'?'保':'A', '', '', p.img)}
+          <div class="txt"${p.img?' style="background:linear-gradient(90deg,rgba(0,0,0,.75),transparent);border-radius:0 0 0 var(--r-3)"':''}><div class="k">${s.k}</div><h3>${s.t}</h3><p>${s.d}</p><a class="btn gold" href="#/pool/${p.id}">立即查看</a></div>
+        </div>`}).join('')}
+        ${slides.length > 1 ? `<div class="dots">${slides.map((s,i)=>`<button data-slide="${i}" aria-label="第 ${i+1} 張" aria-current="${i===0}"><i></i></button>`).join('')}</div>` : ''}
+      </div>
+    </section>
+
+    <section class="sec" aria-labelledby="h-cat">
+      <div class="sec-h"><h2 id="h-cat"><small>CATEGORY</small>玩法分類</h2></div>
+      <div class="cats">
+        <a class="cat" href="#/lobby?src=o"><span class="ic">${ic('shield')}</span><b>官方一番賞</b><span>正版來源憑證</span></a>
+        <a class="cat" href="#/lobby?src=s"><span class="ic">${ic('star')}</span><b>自製一番賞</b><span>CHIAKI 企劃</span></a>
+        <a class="cat" href="#/lobby?src=m"><span class="ic">${ic('grid')}</span><b>混合套組</b><span>來源逐項揭露</span></a>
+        <a class="cat" href="#/lobby?play=guar"><span class="ic">${ic('lock')}</span><b>保底挑戰</b><span>保底條件公開</span></a>
+        <a class="cat" href="#/lobby?play=solo"><span class="ic">${ic('fire')}</span><b>熱門單挑</b><span>單一大賞</span></a>
+        <a class="cat" href="#/shop"><span class="ic">${ic('bag')}</span><b>直購商城</b><span>無機率・定價</span></a>
+      </div>
+    </section>
+
+    <section class="sec" aria-label="精選賞池">
+      <div class="picks">
+        ${[['HOT','熱門抽賞','hot',hot],['LAST CHANCE','即將完售','left',ending],['NEW','最新上架','new',fresh]].map(([en,zh,s,p]) => `<div class="pick">
+          <div class="sec-h"><h2><small>${en}</small>${zh}</h2><a href="#/lobby?sort=${s}">全部${ic('right','width:16px;height:16px')}</a></div>
+          ${poolCard(p)}</div>`).join('')}
+      </div>
+    </section>
+
+    <section class="sec">
+      <div class="two">
+        <div>
+          <div class="sec-h"><h2><small>COMING SOON</small>即將登場</h2></div>
+          <div style="display:grid;gap:16px">${soon.map(p => `
+            <a class="soon reveal" href="#/pool/${p.id}" style="color:inherit">
+              ${art(p.hue,'A')}
+              <div class="info"><span class="tag ${SRC[p.src].c}" style="align-self:flex-start">${SRC[p.src].t}</span><b>${p.title}</b><div class="cd" data-cd="${p.soon}"></div></div>
+            </a>`).join('')}</div>
+        </div>
+        <div>
+          <div class="sec-h"><h2><small>NEWS</small>限時活動與公告</h2><a href="#/support">全部${ic('right','width:16px;height:16px')}</a></div>
+          <div class="notice">
+            <a href="#/support"><span class="tag info">公告</span><span>抽賞規則 v1.0.3 更新：多抽逐張揭曉與略過動畫</span><time>10/18</time></a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" aria-labelledby="h-trust">
+      <div class="sec-h"><h2 id="h-trust"><small>TRUST</small>為什麼選 CHIAKI</h2></div>
+      <div class="trust">
+        <div class="reveal"><span class="ic">${ic('list')}</span><b>獎池完全公開</b><p>總數、剩餘數、機率、來源與商品狀況即時同步。</p></div>
+        <div class="reveal"><span class="ic">${ic('lock')}</span><b>結果事前鎖定</b><p>發布時產生承諾雜湊，完售後公開籤表供驗證。</p></div>
+        <div class="reveal"><span class="ic">${ic('box')}</span><b>收藏倉庫</b><p>中獎即入庫，可合併出貨、追蹤物流。</p></div>
+        <div class="reveal"><span class="ic">${ic('shield')}</span><b>交易可追溯</b><p>每筆儲值、扣款、出貨皆可查詢與對帳。</p></div>
+      </div>
+    </section>
+
+    <section class="sec" aria-labelledby="h-pt">
+      <div class="sec-h"><h2 id="h-pt"><small>PARTNERS</small>合作塗裝師與維修師</h2></div>
+      <div class="partners">${PARTNERS.map(x => `<a class="pt reveal" href="${x.url}" target="_blank" rel="noopener"><span class="av">${ic(x.role.includes('塗裝')?'brush':'wrench','width:24px;height:24px')}</span><span class="tag">${x.role}</span><b>@${x.h}</b><span class="dim" style="font-size:12px;display:inline-flex;align-items:center;gap:4px">${ic('ig','width:14px;height:14px')}Instagram</span></a>`).join('')}</div>
+    </section>
+  </div>`;
+};
+routes.home.after = () => { heroFx(); carousel();
+  let seen = false; try { seen = sessionStorage.getItem('ck_bind') === '1'; } catch(_){}
+  if (!seen && !/nobind/.test(location.search)){ setTimeout(() => { if (parseHash().name === 'home' && !$('#modalRoot').innerHTML){ bindPopup(); try { sessionStorage.setItem('ck_bind','1'); } catch(_){} } }, RM() ? 400 : 4200); }
+};
+
+/* =========================================================
+   LOBBY
+   ========================================================= */
+routes.lobby = (r) => {
+  const q = r.q, src = q.get('src') || '', play = q.get('play') || '', ip = q.get('ip') || '', sort = q.get('sort') || 'hot', kw = (q.get('q') || '').trim(), price = q.get('price') || '';
+  let list = POOLS.filter(p => (!src || p.src === src) && (!play || p.play === play) && (!ip || p.ip === ip) && (!kw || (p.title + p.ip).includes(kw)));
+  if (price === 'l') list = list.filter(p => p.price < 250); else if (price === 'm') list = list.filter(p => p.price >= 250 && p.price <= 350); else if (price === 'h') list = list.filter(p => p.price > 350);
+  const key = p => p.soon ? 9 : 0;
+  if (sort === 'left') list.sort((a,b) => key(a)-key(b) || remaining(a)/a.total - remaining(b)/b.total);
+  else if (sort === 'new') list.sort((a,b) => key(a)-key(b) || (b.isNew?1:0)-(a.isNew?1:0));
+  else if (sort === 'pl') list.sort((a,b) => a.price - b.price);
+  else if (sort === 'ph') list.sort((a,b) => b.price - a.price);
+  else list.sort((a,b) => key(a)-key(b) || (b.hot?1:0)-(a.hot?1:0) || (b.total-remaining(b))/b.total - (a.total-remaining(a))/a.total);
+  const link = (k, v) => { const n = new URLSearchParams(q); if (v) n.set(k, v); else n.delete(k); const s = n.toString(); return '#/lobby' + (s ? '?' + s : ''); };
+  const chip = (k, v, t) => { const on = (q.get(k) || '') === v; return `<a class="chip ${on?'on':''}" href="${link(k, v)}" aria-current="${on}">${t}</a>`; };
+  const ips = [...new Set(POOLS.map(p => p.ip))];
+  return `<div class="wrap">
+    <div class="page-h"><h1>抽賞大廳</h1><p>依商品來源、玩法、價格與作品篩選，找到你的下一抽。</p></div>
+    <div class="lobby">
+      <aside class="filters" id="filters" aria-label="篩選">
+        <div class="fgroup"><h4>商品來源</h4><div class="opts">${chip('src','','全部')}${chip('src','o','官方')}${chip('src','s','自製')}${chip('src','m','混合')}</div></div>
+        <div class="fgroup"><h4>玩法</h4><div class="opts">${chip('play','','全部')}${chip('play','std','標準選籤')}${chip('play','guar','保底挑戰')}${chip('play','solo','單挑賞池')}</div></div>
+        <div class="fgroup"><h4>單抽價格</h4><div class="opts">${chip('price','','不限')}${chip('price','l','250 以下')}${chip('price','m','250–350')}${chip('price','h','350 以上')}</div></div>
+        <div class="fgroup"><h4>IP 作品</h4><div class="opts">${chip('ip','','全部')}${ips.map(x => chip('ip', x, x)).join('')}</div></div>
+      </aside>
+      <div>
+        <div class="toolbar">
+          <span class="count">共 <b class="num">${list.length}</b> 個賞池${kw?`・關鍵字「${kw}」`:''}</span>
+          <button class="btn s ffilter-btn" data-act="toggle-filter" aria-controls="filters" aria-expanded="false">${ic('filter','width:16px;height:16px')}篩選</button>
+          <label class="sr" for="sortSel">排序</label>
+          <select class="input" id="sortSel" data-act="sort">
+            ${[['hot','熱門優先'],['left','即將完售'],['new','最新上架'],['pl','價格低→高'],['ph','價格高→低']].map(([v,t]) => `<option value="${v}" ${sort===v?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        ${list.length ? `<div class="grid lgrid">${list.map(poolCard).join('')}</div>` : `<div class="empty">沒有符合條件的賞池，試試放寬篩選。</div>`}
+      </div>
+    </div></div>`;
+};
+</script>

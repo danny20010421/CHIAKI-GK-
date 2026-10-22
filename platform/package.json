@@ -1,0 +1,37 @@
+{
+  "name": "chiaki-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CHIAKI 線上一番賞平台：後端核心（賞池/抽賞/錢包/金流/倉庫/稽核）。UI 待設計核可。",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "bootstrap:offline": "bash scripts/offline-bootstrap.sh",
+    "build": "tsc -p tsconfig.build.json",
+    "build:next": "next build",
+    "dev": "next dev",
+    "dev:api": "tsx scripts/dev-server.ts",
+    "db:local": "node scripts/pg-local.mjs start",
+    "db:local:stop": "node scripts/pg-local.mjs stop",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "verify:set": "tsx scripts/verify-set.ts",
+    "test": "node scripts/run-tests.mjs"
+  },
+  "dependencies": {
+    "next": "^15.5.0",
+    "postgres": "3.4.7",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.1.0",
+    "prisma": "^6.16.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
