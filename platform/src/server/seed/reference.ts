@@ -2,29 +2,18 @@ import type { Db } from '../db';
 import type { PoolDraftInput } from '../modules/pool/admin';
 
 /**
- * 參考資料（冪等）。所有數值皆為「範例／待營運與法遵確認」：
- * 回收點數費率、運費、綁定獎勵點數。
+ * 參考資料（冪等）。所有數值皆為「範例／待營運與法遵確認」：運費、回收值、綁定獎勵點數。
+ * 回收值已改為「每套 × 每獎項」設定（見各賞池 prizes[].recycleValue，發布後可逐套調整），不再有全域賞級費率表。
  */
-export const RECYCLE_RATES: { rank: string; points: number; recyclable: boolean }[] = [
-  { rank: 'LAST', points: 0, recyclable: false },
-  { rank: 'A', points: 0, recyclable: false },
-  { rank: 'B', points: 0, recyclable: false },
-  { rank: 'C', points: 300, recyclable: true },
-  { rank: 'D', points: 150, recyclable: true },
-  { rank: 'E', points: 100, recyclable: true },
-  { rank: 'F', points: 60, recyclable: true },
-  { rank: 'G', points: 40, recyclable: true },
-  { rank: 'H', points: 20, recyclable: true },
-  { rank: 'P', points: 10, recyclable: true },
-  { rank: 'SHOP', points: 0, recyclable: false },
-];
 
+/**
+ * 物流方式（只開放宅配、7-ELEVEN 交貨便、全家 店到店）。此處 fee_coins 只用於「未預收運費」的物品（直購商品）；
+ * 賞池獎品的運費是在抽賞時按套預收（每套設定：宅配 150–300、超商 60–150）。
+ */
 export const SHIPPING_METHODS: { method: string; label: string; feeCoins: number }[] = [
   { method: 'HOME_DELIVERY', label: '宅配到府', feeCoins: 150 },
-  { method: 'CVS_711', label: '7-ELEVEN 取貨', feeCoins: 70 },
-  { method: 'CVS_FAMI', label: '全家 取貨', feeCoins: 70 },
-  { method: 'CVS_HILIFE', label: '萊爾富 取貨', feeCoins: 60 },
-  { method: 'CVS_OK', label: 'OK mart 取貨', feeCoins: 60 },
+  { method: 'CVS_711_C2C', label: '7-ELEVEN 交貨便', feeCoins: 70 },
+  { method: 'CVS_FAMI_C2C', label: '全家 店到店', feeCoins: 70 },
 ];
 
 export const REWARD_TASKS: { code: string; title: string; points: number; coupon: string | null }[] = [
@@ -35,10 +24,6 @@ export const REWARD_TASKS: { code: string; title: string; points: number; coupon
 ];
 
 export async function seedReferenceData(d: Db, merchantId = 'chiaki'): Promise<void> {
-  for (const r of RECYCLE_RATES) {
-    await d`INSERT INTO recycle_rates (merchant_id, rank, points, recyclable) VALUES (${merchantId}, ${r.rank}, ${r.points}, ${r.recyclable})
-            ON CONFLICT (merchant_id, rank) DO NOTHING`;
-  }
   for (const m of SHIPPING_METHODS) {
     await d`INSERT INTO shipping_methods (method, merchant_id, label, fee_coins) VALUES (${m.method}, ${merchantId}, ${m.label}, ${m.feeCoins})
             ON CONFLICT (method) DO NOTHING`;
@@ -49,32 +34,40 @@ export async function seedReferenceData(d: Db, merchantId = 'chiaki'): Promise<v
   }
 }
 
-/** 規格指定的範例賞池：10 套 × 100 籤；A1 B1 C1 D6 E6 F15 G20 H50；300 代幣/抽。 */
+/**
+ * 規格指定的範例賞池（自製 CUSTOM：沒有 A–H 賞級，獎項以名稱識別）：
+ * 10 套 × 100 籤；數量 1,1,1,6,6,15,20,50；300 代幣/抽。
+ * 等級：第 1 項 GRAND（大獎）、第 2–3 項 MID（中獎）、其餘 SMALL（小獎）。
+ * 回收值（會員回收＝平台點數；寄存到期＝代幣）與運費皆為範例值，待業主確認。
+ */
 export const GK_FIRST_POOL: PoolDraftInput = {
   slug: 'chiaki-gk-01',
   title: 'CHIAKI GK 一番賞 第一彈',
   ip: 'CHIAKI ORIGINAL',
-  description: '每套 100 抽・共十套・A～H 賞（範例資料，獎品名稱待填）。',
-  terms: '固定獎品清單、無放回抽取；結果由伺服器原子確定；完售後公開籤表與 salt 供驗證。',
+  description: '每套 100 抽・共十套（範例資料，獎品名稱待填）。',
+  terms: '固定獎品清單、無放回抽取；結果由伺服器原子確定；完售後公開籤表與 salt 供驗證。運費於本套首次付費抽賞時預收。',
   source: 'CUSTOM',
   playType: 'STANDARD',
   priceCoins: 300,
   setCount: 10,
   lastPrizeName: null,
   prizes: [
-    { rank: 'A', name: 'A賞獎品（名稱待填）', qtyPerSet: 1 },
-    { rank: 'B', name: 'B賞獎品（名稱待填）', qtyPerSet: 1 },
-    { rank: 'C', name: 'C賞獎品（名稱待填）', qtyPerSet: 1 },
-    { rank: 'D', name: 'D賞獎品（名稱待填）', qtyPerSet: 6 },
-    { rank: 'E', name: 'E賞獎品（名稱待填）', qtyPerSet: 6 },
-    { rank: 'F', name: 'F賞獎品（名稱待填）', qtyPerSet: 15 },
-    { rank: 'G', name: 'G賞獎品（名稱待填）', qtyPerSet: 20 },
-    { rank: 'H', name: 'H賞獎品（名稱待填）', qtyPerSet: 50 },
+    { name: 'CHIAKI 原創 GK 雕像 典藏版（名稱待填）', grade: 'GRAND', qtyPerSet: 1, recycleValue: 0, recyclable: false },
+    { name: 'CHIAKI 原創 GK 半身像（名稱待填）', grade: 'MID', qtyPerSet: 1, recycleValue: 1500 },
+    { name: 'CHIAKI 原創 GK 胸像（名稱待填）', grade: 'MID', qtyPerSet: 1, recycleValue: 900 },
+    { name: '壓克力立牌（名稱待填）', grade: 'SMALL', qtyPerSet: 6, recycleValue: 150 },
+    { name: '金屬徽章（名稱待填）', grade: 'SMALL', qtyPerSet: 6, recycleValue: 100 },
+    { name: '透明收藏卡（名稱待填）', grade: 'SMALL', qtyPerSet: 15, recycleValue: 60 },
+    { name: '貼紙組（名稱待填）', grade: 'SMALL', qtyPerSet: 20, recycleValue: 40 },
+    { name: '明信片（名稱待填）', grade: 'SMALL', qtyPerSet: 50, recycleValue: 20 },
   ],
   guarantee: null,
+  shippingFeeHome: 150,
+  shippingFeeCvs: 70,
+  shippingNote: '平台商品依平台公告時程',
 };
 
-/** 保底挑戰範例（參考原型）：每 10 抽未獲 B 賞以上 → 保底 B 賞（獨立保底庫存 3 個）。 */
+/** 保底挑戰範例（自製）：每 10 抽未抽中「中獎」以上 → 保底中獎一個（獨立保底庫存 3 個）。 */
 export const GUARANTEE_SAMPLE_POOL: PoolDraftInput = {
   slug: 'chiaki-black-gold-guarantee',
   title: 'CHIAKI ORIGINAL 保底挑戰 ～黑金典藏～（範例）',
@@ -83,13 +76,16 @@ export const GUARANTEE_SAMPLE_POOL: PoolDraftInput = {
   playType: 'GUARANTEE',
   priceCoins: 280,
   setCount: 1,
-  lastPrizeName: 'Last賞獎品（名稱待填）',
+  lastPrizeName: '黑金 Last 特別版（名稱待填）',
+  lastPrizeGrade: 'GRAND',
   prizes: [
-    { rank: 'A', name: 'A賞獎品（名稱待填）', qtyPerSet: 1 },
-    { rank: 'B', name: 'B賞獎品（名稱待填）', qtyPerSet: 4 },
-    { rank: 'C', name: 'C賞獎品（名稱待填）', qtyPerSet: 10 },
-    { rank: 'D', name: 'D賞獎品（名稱待填）', qtyPerSet: 25 },
-    { rank: 'E', name: 'E賞獎品（名稱待填）', qtyPerSet: 40 },
+    { name: '黑金典藏 雕像（名稱待填）', grade: 'GRAND', qtyPerSet: 1, recycleValue: 0, recyclable: false },
+    { name: '黑金 半身像（名稱待填）', grade: 'MID', qtyPerSet: 4, recycleValue: 800 },
+    { name: '黑金 收藏盒（名稱待填）', grade: 'MID', qtyPerSet: 10, recycleValue: 300 },
+    { name: '黑金 壓克力立牌（名稱待填）', grade: 'SMALL', qtyPerSet: 25, recycleValue: 100 },
+    { name: '黑金 收藏卡（名稱待填）', grade: 'SMALL', qtyPerSet: 40, recycleValue: 40 },
   ],
-  guarantee: { everyN: 10, minTier: 2, reserveRank: 'B', reservePrizeName: 'B賞（保底專用庫存）', reserveTotal: 3 },
+  guarantee: { everyN: 10, minGrade: 'MID', reservePrizeName: '黑金 半身像（保底專用庫存）', reserveGrade: 'MID', reserveTotal: 3, reserveRecycleValue: 800 },
+  shippingFeeHome: 180,
+  shippingFeeCvs: 80,
 };

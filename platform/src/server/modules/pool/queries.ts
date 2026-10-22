@@ -2,6 +2,7 @@ import { AppError } from '../../errors';
 import type { Db } from '../../db';
 import { COMMIT_SCHEME, canonicalLayout, verifyCommitment, type LayoutEntry } from './commitment';
 import type { PoolRules } from './rules';
+import { displayName, type Grade } from './grades';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -26,12 +27,14 @@ export interface PoolSummary {
   status: string;
   setCount: number;
   hasLastPrize: boolean;
+  /** 出貨時程說明（無固定 SLA） */
+  shippingNote: string;
   currentSet: { setNo: number; remaining: number; total: number } | null;
 }
 
 export async function listPools(db: Db, filter: { source?: string; playType?: string } = {}): Promise<PoolSummary[]> {
   const rows = await db<(Omit<PoolSummary, 'currentSet' | 'hasLastPrize'> & { lastPrizeName: string | null; curSetNo: number | null; curRemaining: number | null; curTotal: number | null })[]>`
-    SELECT p.id, p.slug, p.title, p.ip, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.last_prize_name,
+    SELECT p.id, p.slug, p.title, p.ip, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.last_prize_name, p.shipping_note,
            cs.set_no AS cur_set_no, cs.remaining AS cur_remaining, cs.total_tickets AS cur_total
     FROM pools p
     LEFT JOIN LATERAL (
@@ -54,28 +57,41 @@ export async function listPools(db: Db, filter: { source?: string; playType?: st
     status: r.status,
     setCount: r.setCount,
     hasLastPrize: r.lastPrizeName !== null,
+    shippingNote: r.shippingNote,
     currentSet: r.curSetNo ? { setNo: r.curSetNo, remaining: r.curRemaining ?? 0, total: r.curTotal ?? 0 } : null,
   }));
+}
+
+interface PrizeRow {
+  id: string;
+  kind: 'TICKET' | 'LAST' | 'GUARANTEE';
+  rank: string | null;
+  grade: Grade;
+  name: string;
+  qtyPerSet: number;
 }
 
 export async function getPoolDetail(db: Db, idOrSlug: string) {
   const { id } = await resolvePublicPool(db, idOrSlug);
   const [p] = await db<{
     id: string; slug: string; title: string; ip: string; description: string; source: string; playType: string;
-    priceCoins: number; status: string; setCount: number; lastPrizeName: string | null; merchantId: string;
+    priceCoins: number; status: string; setCount: number; lastPrizeName: string | null; merchantId: string; shippingNote: string;
     ruleVersionId: string; ruleVersion: number; rulesHash: string; rulesJson: string;
   }[]>`
     SELECT p.id, p.slug, p.title, p.ip, p.description, p.source, p.play_type, p.price_coins, p.status, p.set_count,
-           p.last_prize_name, p.merchant_id, rv.id AS rule_version_id, rv.version AS rule_version, rv.rules_hash, rv.rules_json
+           p.last_prize_name, p.merchant_id, p.shipping_note, rv.id AS rule_version_id, rv.version AS rule_version, rv.rules_hash, rv.rules_json
     FROM pools p JOIN pool_rule_versions rv ON rv.id = p.current_rule_version_id WHERE p.id = ${id}`;
   if (!p) throw new AppError('NOT_FOUND', 'pool not found');
-  const prizes = await db<{ rank: string; tier: number; name: string; qtyPerSet: number }[]>`
-    SELECT rank, tier, name, qty_per_set FROM pool_prizes WHERE pool_id = ${id} ORDER BY sort_order, rank`;
-  const [g] = await db<{ everyN: number; minTier: number; reserveRank: string; reservePrizeName: string; reserveTotal: number; reserveUsed: number }[]>`
-    SELECT every_n, min_tier, reserve_rank, reserve_prize_name, reserve_total, reserve_used FROM pool_guarantees WHERE pool_id = ${id}`;
-  const sets = await db<{ setNo: number; status: string; total: number; remaining: number; commitment: string; commitScheme: string; ruleVersionId: string; lastPrizeAwarded: boolean }[]>`
+  const all = await db<PrizeRow[]>`
+    SELECT id, kind, rank, grade, name, qty_per_set FROM pool_prizes WHERE pool_id = ${id} ORDER BY sort_order, name`;
+  const show = (r: PrizeRow) => ({ prizeId: r.id, rank: r.rank, grade: r.grade, name: r.name, displayName: displayName(p.source, r.rank, r.name) });
+  const last = all.find((r) => r.kind === 'LAST');
+  const [g] = await db<{ everyN: number; minGrade: Grade; reservePrizeId: string; reserveTotal: number; reserveUsed: number }[]>`
+    SELECT every_n, min_grade, reserve_prize_id, reserve_total, reserve_used FROM pool_guarantees WHERE pool_id = ${id}`;
+  const reserve = g ? all.find((r) => r.id === g.reservePrizeId) : undefined;
+  const sets = await db<{ setNo: number; status: string; total: number; remaining: number; commitment: string; commitScheme: string; ruleVersionId: string; lastPrizeAwarded: boolean; shipFeeHome: number; shipFeeCvs: number }[]>`
     SELECT s.set_no, s.status, s.total_tickets AS total, s.commitment, s.commit_scheme, s.rule_version_id,
-           (s.last_prize_user_id IS NOT NULL) AS last_prize_awarded,
+           (s.last_prize_user_id IS NOT NULL) AS last_prize_awarded, s.ship_fee_home, s.ship_fee_cvs,
            (SELECT count(*)::int FROM tickets t WHERE t.set_id = s.id AND t.status = 'AVAILABLE') AS remaining
     FROM pool_sets s WHERE s.pool_id = ${id} ORDER BY s.set_no`;
   return {
@@ -90,13 +106,24 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
     priceCoins: p.priceCoins,
     status: p.status,
     setCount: p.setCount,
-    prizes,
-    lastPrize: p.lastPrizeName ? { name: p.lastPrizeName, rule: '每套抽出最後一籤者獲得' } : null,
-    guarantee: g
-      ? { everyN: g.everyN, minTier: g.minTier, reserveRank: g.reserveRank, reservePrizeName: g.reservePrizeName, reserveTotal: g.reserveTotal, reserveRemaining: g.reserveTotal - g.reserveUsed }
-      : null,
+    shippingNote: p.shippingNote,
+    prizes: all.filter((r) => r.kind === 'TICKET').map((r) => ({ ...show(r), qtyPerSet: r.qtyPerSet })),
+    lastPrize: last ? { ...show(last), rule: '每套抽出最後一籤者獲得' } : null,
+    guarantee:
+      g && reserve
+        ? {
+            everyN: g.everyN,
+            minGrade: g.minGrade,
+            reservePrize: show(reserve),
+            reservePrizeName: reserve.name,
+            reserveGrade: reserve.grade,
+            reserveTotal: g.reserveTotal,
+            reserveRemaining: g.reserveTotal - g.reserveUsed,
+          }
+        : null,
+    shippingPolicy: { mode: 'PREPAID_PER_SET', note: '運費於本套首次付費抽賞時預收；一份運費涵蓋本套最多 20 件小獎（大獎/中獎不計入）', rules: (JSON.parse(p.rulesJson) as PoolRules).shippingPolicy ?? null },
     rules: { ruleVersionId: p.ruleVersionId, version: p.ruleVersion, rulesHash: p.rulesHash, content: JSON.parse(p.rulesJson) as PoolRules },
-    sets,
+    sets: sets.map(({ shipFeeHome, shipFeeCvs, ...s }) => ({ ...s, shippingFees: { HOME_DELIVERY: shipFeeHome, CVS_711_C2C: shipFeeCvs, CVS_FAMI_C2C: shipFeeCvs } })),
   };
 }
 
@@ -108,25 +135,33 @@ export type TicketState = 'AVAILABLE' | 'HELD' | 'TAKEN';
  */
 export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewerId?: string | null) {
   const { id: poolId } = await resolvePublicPool(db, idOrSlug);
-  const [s] = await db<{ id: string; setNo: number; status: string; total: number; commitment: string; commitScheme: string; rulesHash: string; ruleVersion: number; lastPrizeName: string | null; lastPrizeAwarded: boolean; soldOutAt: Date | null }[]>`
+  const [s] = await db<{ id: string; setNo: number; status: string; total: number; commitment: string; commitScheme: string; rulesHash: string; ruleVersion: number; lastPrizeName: string | null; lastPrizeAwarded: boolean; soldOutAt: Date | null; source: string; shippingNote: string; shipFeeHome: number; shipFeeCvs: number }[]>`
     SELECT s.id, s.set_no, s.status, s.total_tickets AS total, s.commitment, s.commit_scheme, rv.rules_hash, rv.version AS rule_version,
-           p.last_prize_name, (s.last_prize_user_id IS NOT NULL) AS last_prize_awarded, s.sold_out_at
+           p.last_prize_name, (s.last_prize_user_id IS NOT NULL) AS last_prize_awarded, s.sold_out_at, p.source, p.shipping_note,
+           s.ship_fee_home, s.ship_fee_cvs
     FROM pool_sets s JOIN pools p ON p.id = s.pool_id JOIN pool_rule_versions rv ON rv.id = s.rule_version_id
     WHERE s.pool_id = ${poolId} AND s.set_no = ${setNo}`;
   if (!s) throw new AppError('NOT_FOUND', 'set not found');
 
-  const byPrize = await db<{ rank: string; tier: number; name: string; total: number; remaining: number }[]>`
-    SELECT pr.rank, pr.tier, pr.name, count(t.*)::int AS total,
-           count(t.*) FILTER (WHERE t.status = 'AVAILABLE')::int AS remaining
+  const byPrize = await db<{ prizeId: string; rank: string | null; grade: Grade; name: string; total: number; remaining: number; recycleValue: number; recyclable: boolean }[]>`
+    SELECT pr.id AS prize_id, pr.rank, pr.grade, pr.name, count(t.*)::int AS total,
+           count(t.*) FILTER (WHERE t.status = 'AVAILABLE')::int AS remaining, sp.recycle_value, sp.recyclable
     FROM pool_prizes pr JOIN tickets t ON t.prize_id = pr.id AND t.set_id = ${s.id}
-    GROUP BY pr.rank, pr.tier, pr.name, pr.sort_order ORDER BY pr.sort_order, pr.rank`;
+    LEFT JOIN set_prizes sp ON sp.set_id = ${s.id} AND sp.prize_id = pr.id
+    GROUP BY pr.id, pr.rank, pr.grade, pr.name, pr.sort_order, sp.recycle_value, sp.recyclable ORDER BY pr.sort_order, pr.name`;
+  const [lastPrize] = await db<{ prizeId: string; rank: string | null; grade: Grade; name: string; recycleValue: number | null; recyclable: boolean | null }[]>`
+    SELECT pr.id AS prize_id, pr.rank, pr.grade, pr.name, sp.recycle_value, sp.recyclable
+    FROM pool_prizes pr LEFT JOIN set_prizes sp ON sp.set_id = ${s.id} AND sp.prize_id = pr.id
+    WHERE pr.pool_id = ${poolId} AND pr.kind = 'LAST'`;
   const totalRemaining = byPrize.reduce((a, b) => a + b.remaining, 0);
 
-  const tickets = await db<{ ticketNo: number; status: string; heldActive: boolean; heldByMe: boolean; rank: string | null }[]>`
+  const tickets = await db<{ ticketNo: number; status: string; heldActive: boolean; heldByMe: boolean; rank: string | null; grade: Grade | null; name: string | null }[]>`
     SELECT t.ticket_no, t.status,
            (t.status = 'AVAILABLE' AND t.held_by IS NOT NULL AND t.held_until > now()) AS held_active,
            (t.status = 'AVAILABLE' AND t.held_by IS NOT NULL AND t.held_until > now() AND t.held_by = ${viewerId ?? null}::uuid) AS held_by_me,
-           CASE WHEN t.status = 'TAKEN' THEN pr.rank END AS rank
+           CASE WHEN t.status = 'TAKEN' THEN pr.rank END AS rank,
+           CASE WHEN t.status = 'TAKEN' THEN pr.grade END AS grade,
+           CASE WHEN t.status = 'TAKEN' THEN pr.name END AS name
     FROM tickets t JOIN pool_prizes pr ON pr.id = t.prize_id
     WHERE t.set_id = ${s.id} ORDER BY t.ticket_no`;
 
@@ -137,18 +172,28 @@ export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewe
     total: s.total,
     remaining: totalRemaining,
     commitment: { scheme: s.commitScheme, hash: s.commitment, rulesHash: s.rulesHash, ruleVersion: s.ruleVersion },
+    shippingNote: s.shippingNote,
+    shippingFees: { HOME_DELIVERY: s.shipFeeHome, CVS_711_C2C: s.shipFeeCvs, CVS_FAMI_C2C: s.shipFeeCvs },
+    // 籤板不輸出 prizeId（獎項 id 只出現在賞池詳情的規則內容），避免任何籤號↔獎項的關聯線索
     prizes: byPrize.map((p) => ({
       rank: p.rank,
-      tier: p.tier,
+      grade: p.grade,
       name: p.name,
+      displayName: displayName(s.source, p.rank, p.name),
       total: p.total,
       remaining: p.remaining,
       probability: totalRemaining ? Math.round((p.remaining / totalRemaining) * 1e6) / 1e6 : 0,
+      recycleValue: p.recycleValue,
+      recyclable: p.recyclable,
     })),
-    lastPrize: s.lastPrizeName ? { name: s.lastPrizeName, awarded: s.lastPrizeAwarded } : null,
+    lastPrize: lastPrize
+      ? { rank: lastPrize.rank, grade: lastPrize.grade, name: lastPrize.name, displayName: displayName(s.source, lastPrize.rank, lastPrize.name), awarded: s.lastPrizeAwarded, recycleValue: lastPrize.recycleValue, recyclable: lastPrize.recyclable }
+      : null,
     tickets: tickets.map((t) => {
       const state: TicketState = t.status === 'TAKEN' ? 'TAKEN' : t.heldActive ? 'HELD' : 'AVAILABLE';
-      return { no: t.ticketNo, state, ...(t.heldByMe ? { heldByMe: true } : {}), ...(t.rank ? { rank: t.rank } : {}) };
+      // 已抽出的籤公開獎項（等級＋顯示名稱）；未抽出的籤絕不揭露
+      const prize = state === 'TAKEN' && t.grade && t.name ? { grade: t.grade, displayName: displayName(s.source, t.rank, t.name), ...(t.rank ? { rank: t.rank } : {}) } : {};
+      return { no: t.ticketNo, state, ...(t.heldByMe ? { heldByMe: true } : {}), ...prize };
     }),
     soldOutAt: s.soldOutAt,
   };

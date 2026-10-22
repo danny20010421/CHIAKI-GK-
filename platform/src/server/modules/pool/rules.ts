@@ -1,11 +1,16 @@
 import { canonicalJson, sha256Hex } from '../../lib/canonical';
+import type { Grade } from './grades';
 
 export type PoolSource = 'OFFICIAL' | 'CUSTOM' | 'MIXED';
 export type PlayType = 'STANDARD' | 'GUARANTEE' | 'SOLO';
 
-/** 規則快照：發布後不可變；rulesHash 也被綁進每一套的承諾雜湊。 */
+/**
+ * 規則快照：發布後不可變；rulesHash 也被綁進每一套的承諾雜湊。
+ * v2（業主 2026-10 規則）：獎項以等級 grade 為準、自製賞池無賞級（rank = null）、
+ * 保底門檻為 minGrade、加入運費預收政策。v1 舊版快照仍可被讀取（抽賞只使用共同欄位）。
+ */
 export interface PoolRules {
-  schema: 'chiaki-rules-v1';
+  schema: 'chiaki-rules-v1' | 'chiaki-rules-v2';
   poolId: string;
   version: number;
   title: string;
@@ -16,24 +21,29 @@ export interface PoolRules {
   ticketsPerSet: number;
   drawMethod: 'FIXED_LIST_WITHOUT_REPLACEMENT';
   holdSeconds: number;
-  prizes: { prizeId: string; rank: string; tier: number; name: string; qtyPerSet: number }[];
-  lastPrize: { name: string; rule: 'AWARDED_TO_DRAWER_OF_FINAL_TICKET_OF_EACH_SET' } | null;
+  prizes: { prizeId: string; rank: string | null; grade?: Grade; tier?: number; name: string; qtyPerSet: number }[];
+  lastPrize: { prizeId?: string; name: string; grade?: Grade; rule: 'AWARDED_TO_DRAWER_OF_FINAL_TICKET_OF_EACH_SET' } | null;
   guarantee: {
     everyN: number;
-    minTier: number;
-    reserveRank: string;
+    minGrade?: Grade;
+    minTier?: number;
+    reservePrizeId?: string;
+    reserveRank: string | null;
     reservePrizeName: string;
+    reserveGrade?: Grade;
     reserveTotal: number;
-    rule: 'EXTRA_PRIZE_FROM_SEPARATE_RESERVE_AFTER_N_CONSECUTIVE_MISSES; STOPS_WHEN_RESERVE_EXHAUSTED; TICKET_ODDS_UNCHANGED';
+    rule: string;
   } | null;
+  shippingPolicy?: {
+    mode: 'PREPAID_PER_SET';
+    smallItemsPerFee: number;
+    homeFeeRange: [number, number];
+    cvsFeeRange: [number, number];
+    rule: string;
+  };
   terms: string;
 }
 
 export function rulesHash(rules: PoolRules): string {
   return sha256Hex(canonicalJson(rules));
-}
-
-/** 預設賞級 tier（與原型一致）：A=3、B=2、C=1、其他=0；LAST=4。 */
-export function defaultTier(rank: string): number {
-  return ({ LAST: 4, A: 3, B: 2, C: 1 } as Record<string, number>)[rank] ?? 0;
 }

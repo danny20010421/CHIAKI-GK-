@@ -4,6 +4,7 @@ import { AppError } from '../../errors';
 import { transaction, type Db } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
+import { config } from '../../config';
 
 /** 直購商城：固定價格、無隨機性。購得商品進入中獎倉庫（source = PURCHASE）沿用出貨流程。 */
 export async function listProducts(d: Db) {
@@ -35,8 +36,9 @@ export async function purchaseProduct(userId: string, idempotencyKey: string, in
     const amount = p.priceCoins * v.qty;
     const { balanceAfter } = await postLedger(tx, { userId, currency: 'COINS', amount: -amount, entryType: 'PURCHASE_DEBIT', refType: 'purchase_order', refId: orderId, merchantId: p.merchantId });
     for (let i = 0; i < v.qty; i++) {
-      await tx`INSERT INTO warehouse_items (merchant_id, user_id, source, product_id, purchase_id, rank, prize_name)
-               VALUES (${p.merchantId}, ${userId}, 'PURCHASE', ${v.productId}, ${orderId}, 'SHOP', ${p.name})`;
+      await tx`INSERT INTO warehouse_items (merchant_id, user_id, source, product_id, purchase_id, rank, prize_name, storage_expires_at)
+               VALUES (${p.merchantId}, ${userId}, 'PURCHASE', ${v.productId}, ${orderId}, NULL, ${p.name},
+                       now() + make_interval(days => ${config().STORAGE_FREE_DAYS}))`;
     }
     await appendAudit(tx, { actorType: 'USER', actorId: userId, action: 'PRODUCT_PURCHASED', entityType: 'purchase_order', entityId: orderId, payload: { productId: v.productId, qty: v.qty, amount } });
     return { orderId, amountCoins: amount, coinsAfter: balanceAfter, replayed: false };

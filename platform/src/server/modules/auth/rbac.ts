@@ -19,13 +19,15 @@ export const PERMISSIONS = [
   'wallet.reconcile',
   'risk.read',
   'member.read',
+  'pool.config.manage', // 發布後營運設定：每套運費、每套獎項回收值、出貨時程說明
+  'jobs.run', // 手動觸發排程工作（寄存到期掃描）
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 /** 角色 → 權限。MERCHANT 為 P4 多商家預留，目前無任何權限。 */
 const MATRIX: Record<Role, readonly Permission[]> = {
   SUPER_ADMIN: PERMISSIONS,
-  OPS: ['pool.draft.create', 'pool.publish.request', 'pool.publish.approve', 'shipment.manage', 'approval.list', 'member.read', 'risk.read'],
+  OPS: ['pool.draft.create', 'pool.publish.request', 'pool.publish.approve', 'shipment.manage', 'approval.list', 'member.read', 'risk.read', 'pool.config.manage', 'jobs.run'],
   FINANCE: [
     'refund.decide',
     'refund.approve',

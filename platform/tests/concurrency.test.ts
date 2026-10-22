@@ -7,7 +7,7 @@ import { POST as holdRoute } from '../src/app/api/pools/[id]/sets/[no]/holds/rou
 import { reconcileWallets } from '../src/server/modules/wallet/wallet';
 import { verifyAuditChain } from '../src/server/modules/audit/audit';
 import { executeDraw } from '../src/server/modules/draw/draw';
-import { apiRequest, ctx, makeUser, publishPool, setupTestDb, smallPool } from './helpers';
+import { apiRequest, ctx, FEE_CVS, makeUser, publishPool, setupTestDb, smallPool } from './helpers';
 
 let env: Awaited<ReturnType<typeof setupTestDb>>;
 before(async () => {
@@ -28,7 +28,7 @@ describe('concurrency (real PostgreSQL, row locks)', () => {
 
     const responses = await Promise.all(
       users.map((u, i) =>
-        drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': `race-${i}-${Date.now()}` }, body: { poolId, setNo: 1, ticketNos: [7] } }), undefined as never),
+        drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': `race-${i}-${Date.now()}` }, body: { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [7] } }), undefined as never),
       ),
     );
     const statuses = responses.map((r) => r.status);
@@ -42,9 +42,9 @@ describe('concurrency (real PostgreSQL, row locks)', () => {
 
     const winnerIdx = statuses.indexOf(201);
     const coins = await db()<{ userId: string; coins: number }[]>`SELECT user_id, coins FROM wallets WHERE user_id = ANY(${users.map((u) => u.id)}::uuid[])`;
-    for (const c of coins) assert.equal(c.coins, c.userId === users[winnerIdx]!.id ? START - 300 : START);
+    for (const c of coins) assert.equal(c.coins, c.userId === users[winnerIdx]!.id ? START - 300 - FEE_CVS : START);
     const [{ after: afterSum }] = (await db()`SELECT sum(coins)::bigint AS after FROM wallets`) as unknown as [{ after: number }];
-    assert.equal(afterSum, before - 300, 'system-wide balances reconcile to the coin');
+    assert.equal(afterSum, before - 300 - FEE_CVS, 'system-wide balances reconcile to the coin');
 
     const [t] = await db()`SELECT t.taken_by FROM tickets t JOIN pool_sets s ON s.id = t.set_id WHERE s.pool_id = ${poolId} AND s.set_no = 1 AND t.ticket_no = 7`;
     assert.equal(t!.takenBy, users[winnerIdx]!.id);
@@ -76,7 +76,7 @@ describe('concurrency (real PostgreSQL, row locks)', () => {
       Array.from({ length: 3 }, (_, j) => {
         const start = randomInt(1, 38);
         const nos = Array.from(new Set([start, start + randomInt(0, 3), start + randomInt(0, 3)])).filter((x) => x <= 40);
-        return executeDraw(u.id, `chaos-${i}-${j}-${Date.now()}`, { poolId, setNo: 1, ticketNos: nos }).then(
+        return executeDraw(u.id, `chaos-${i}-${j}-${Date.now()}`, { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: nos }).then(
           (r) => ({ ok: true as const, n: r.response.ticketNos.length, user: u.id }),
           (e: { code?: string }) => ({ ok: false as const, code: e.code ?? 'UNKNOWN', user: u.id }),
         );

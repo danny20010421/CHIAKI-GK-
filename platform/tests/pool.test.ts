@@ -55,28 +55,34 @@ describe('pool publishing (DB)', () => {
     await env.teardown();
   });
 
-  it('spec sample pool: 10 sets × 100 tickets, A1 B1 C1 D6 E6 F15 G20 H50, 300 coins/draw', async () => {
+  it('spec sample pool (CUSTOM, no ranks): 10 sets × 100 tickets, qty 1,1,1,6,6,15,20,50, grades GRAND/MID/MID/SMALL…, 300 coins/draw', async () => {
     const poolId = await publishPool(GK_FIRST_POOL);
     const res = await poolRoute(apiRequest('GET', `/api/pools/chiaki-gk-01`), ctx({ id: 'chiaki-gk-01' }));
-    const p = (await res.json()) as { id: string; priceCoins: number; source: string; playType: string; merchantId: string; sets: { setNo: number; status: string; total: number; remaining: number; commitment: string }[]; prizes: { rank: string; qtyPerSet: number }[] };
+    const p = (await res.json()) as { id: string; priceCoins: number; source: string; playType: string; merchantId: string; shippingNote: string; sets: { setNo: number; status: string; total: number; remaining: number; commitment: string; shippingFees: Record<string, number> }[]; prizes: { rank: string | null; grade: string; name: string; displayName: string; qtyPerSet: number }[] };
     assert.equal(p.id, poolId);
     assert.equal(p.priceCoins, 300);
     assert.equal(p.source, 'CUSTOM');
     assert.equal(p.playType, 'STANDARD');
     assert.equal(p.merchantId, 'chiaki');
-    assert.deepEqual(p.prizes.map((x) => `${x.rank}${x.qtyPerSet}`), ['A1', 'B1', 'C1', 'D6', 'E6', 'F15', 'G20', 'H50']);
+    assert.deepEqual(p.prizes.map((x) => x.qtyPerSet), [1, 1, 1, 6, 6, 15, 20, 50]);
+    assert.deepEqual(p.prizes.map((x) => x.grade), ['GRAND', 'MID', 'MID', 'SMALL', 'SMALL', 'SMALL', 'SMALL', 'SMALL']);
+    assert.ok(p.prizes.every((x) => x.rank === null && x.displayName === x.name && !/^[A-H]賞/.test(x.name)), 'custom: no rank letters; displayName = prize name');
+    assert.equal(p.shippingNote, '平台商品依平台公告時程');
+    assert.deepEqual(p.sets[0]!.shippingFees, { HOME_DELIVERY: 150, CVS_711_C2C: 70, CVS_FAMI_C2C: 70 });
     assert.equal(p.sets.length, 10);
     assert.deepEqual(p.sets.map((s) => s.status), ['ON_SALE', ...Array(9).fill('QUEUED')]);
     assert.ok(p.sets.every((s) => s.total === 100 && s.remaining === 100 && /^[0-9a-f]{64}$/.test(s.commitment)));
     assert.equal(new Set(p.sets.map((s) => s.commitment)).size, 10, 'each set has its own layout + salt');
     for (const setNo of [1, 10]) {
       const l = await layoutOf(poolId, setNo);
-      const count = (r: string) => l.filter((t) => t.rank === r).length;
-      assert.deepEqual([count('A'), count('B'), count('C'), count('D'), count('E'), count('F'), count('G'), count('H')], [1, 1, 1, 6, 6, 15, 20, 50]);
+      const count = (name: string) => l.filter((t) => t.name === name).length;
+      assert.deepEqual(p.prizes.map((x) => count(x.name)), [1, 1, 1, 6, 6, 15, 20, 50]);
+      assert.equal(l.filter((t) => t.grade === 'SMALL').length, 97);
     }
     const listRes = await listRoute(apiRequest('GET', '/api/pools?playType=STANDARD'), undefined as never);
-    const list = (await listRes.json()) as { pools: { id: string; currentSet: { setNo: number; remaining: number } }[] };
+    const list = (await listRes.json()) as { pools: { id: string; shippingNote: string; currentSet: { setNo: number; remaining: number } }[] };
     assert.deepEqual(list.pools.find((x) => x.id === poolId)!.currentSet, { setNo: 1, remaining: 100, total: 100 });
+    assert.equal(list.pools.find((x) => x.id === poolId)!.shippingNote, '平台商品依平台公告時程');
   });
 
   it('public endpoints never expose salt or unrevealed ticket→prize mapping', async () => {

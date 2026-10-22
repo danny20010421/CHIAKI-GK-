@@ -19,13 +19,14 @@ export interface RefundRequest {
 
 export async function createRefundRequest(userId: string, amountCoins: number, reason: string): Promise<RefundRequest> {
   return transaction(async (tx) => {
-    const [w] = await tx<{ coins: number }[]>`SELECT coins FROM wallets WHERE user_id = ${userId} FOR UPDATE`;
+    // 可退款餘額 = 代幣 − 不可退款代幣（例如寄存到期自動轉換的代幣）
+    const [w] = await tx<{ refundable: number }[]>`SELECT coins - nonrefundable_coins AS refundable FROM wallets WHERE user_id = ${userId} FOR UPDATE`;
     if (!w) throw new AppError('NOT_FOUND', 'wallet not found');
     const [o] = await tx<{ open: number }[]>`
       SELECT COALESCE(SUM(amount_coins), 0)::bigint AS open FROM refund_requests
       WHERE user_id = ${userId} AND status IN ('REQUESTED', 'PENDING_APPROVAL')`;
-    if (o!.open + amountCoins > w.coins) {
-      throw new AppError('INSUFFICIENT_FUNDS', '申請金額超過可退款代幣', { refundable: w.coins - o!.open });
+    if (o!.open + amountCoins > w.refundable) {
+      throw new AppError('INSUFFICIENT_FUNDS', '申請金額超過可退款代幣', { refundable: w.refundable - o!.open });
     }
     const [r] = await tx<RefundRequest[]>`
       INSERT INTO refund_requests (user_id, amount_coins, reason) VALUES (${userId}, ${amountCoins}, ${reason})

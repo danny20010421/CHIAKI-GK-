@@ -1,6 +1,6 @@
 # CHIAKI 平台 — 後端核心（chiaki-platform）
 
-CHIAKI（CHIAKI GARAGE KIT）線上一番賞與實體收藏商品平台的**伺服器端核心**：賞池、選籤／鎖籤、原子抽賞交易、保底、雙幣錢包與帳本、綠界金流、中獎倉庫、出貨、稽核雜湊鏈、RBAC 與雙人覆核、風控掛勾、綁定獎勵。
+CHIAKI（CHIAKI GARAGE KIT）線上一番賞與實體收藏商品平台的**伺服器端核心**：賞池、選籤／鎖籤、原子抽賞交易、保底、雙幣錢包與帳本、綠界金流、中獎倉庫（寄存期限）、運費按套預收、出貨、站內通知、稽核雜湊鏈、RBAC 與雙人覆核、風控掛勾、綁定獎勵。
 
 > **前台 UI 不在本專案範圍**：視覺設計仍待業主核可，`/` 僅為佔位頁。所有功能皆透過 JSON API 提供。
 
@@ -44,12 +44,13 @@ CHIAKI（CHIAKI GARAGE KIT）線上一番賞與實體收藏商品平台的**伺�
 
 | 模組 | 檔案 | 職責 |
 |---|---|---|
-| pool | `modules/pool/*` | 賞池草稿（來源 OFFICIAL/CUSTOM/MIXED × 玩法 STANDARD/GUARANTEE/SOLO）、發布（CSPRNG 洗牌、salt、承諾雜湊、不可變規則版本）、規則改版、公開查詢（剩餘/即時機率/籤板）、完售揭露 |
-| draw | `modules/draw/holds.ts`, `draw.ts` | 鎖籤（預設 180 秒、lazy 過期、全有或全無）、原子抽賞交易、冪等、保底、最後賞、完售換套 |
-| wallet | `modules/wallet/*` | 代幣 coins／平台點數 points 分帳、唯一異動入口 `postLedger`、對帳、退款申請工作流 |
+| pool | `modules/pool/*` | 賞池草稿（來源 OFFICIAL/CUSTOM/MIXED × 玩法 STANDARD/GUARANTEE/SOLO）、獎項等級 `grades.ts`、發布（CSPRNG 洗牌、salt、承諾雜湊、不可變規則版本）、規則改版、發布後營運設定（每套運費／每套獎項回收值／出貨時程說明）、公開查詢（剩餘/即時機率/籤板）、完售揭露 |
+| draw | `modules/draw/holds.ts`, `draw.ts` | 鎖籤（預設 180 秒、lazy 過期、全有或全無）、原子抽賞交易（含按套預收運費）、試算、冪等、保底（依等級）、最後賞、完售換套 |
+| wallet | `modules/wallet/*` | 代幣 coins／平台點數 points 分帳、可退款／不可退款代幣、唯一異動入口 `postLedger`、對帳、退款申請工作流 |
 | payment | `modules/payment/*` | 綠界 AIO CheckMacValue、建立訂單、ReturnURL 冪等入帳、銀行轉帳人工對帳 |
-| warehouse | `modules/warehouse/*` | 中獎倉庫、回收換點（費率表、部分賞級不可回收、不可逆） |
-| shipping | `modules/shipping/*` | 合併出貨、宅配/7-11/全家/萊爾富/OK、運費設定、出貨/送達 |
+| warehouse | `modules/warehouse/warehouse.ts`, `storage.ts` | 中獎倉庫、回收換點（每套每獎回收值、不可回收旗標、不可逆）、寄存期限掃描 `runStorageSweep`（通知＋到期自動轉代幣） |
+| shipping | `modules/shipping/*` | 物流方式與運費範圍 `fees.ts`、按套預收計算 `prepaid.ts`、合併出貨（已預收免運）、宅配/7-ELEVEN 交貨便/全家 店到店、出貨/送達 |
+| notifications | `modules/notifications/*` | 站內通知（寄存到期提醒、自動轉換結果）；簡訊/推播尚未串接 |
 | catalog | `modules/catalog/*` | 直購商城（固定價、無隨機性），購得商品進倉庫 |
 | audit | `modules/audit/*` | append-only 稽核紀錄＋雜湊鏈、驗證 |
 | auth | `modules/auth/*` | 角色/權限矩陣、Session、OTP／LINE 介面（開發替身）、年齡驗證 |
@@ -66,12 +67,56 @@ CHIAKI（CHIAKI GARAGE KIT）線上一番賞與實體收藏商品平台的**伺�
 2. 會員狀態、**年齡驗證**（未驗證 → 403 `AGE_VERIFICATION_REQUIRED`）。
 3. `pool_sets … FOR UPDATE`：同一套的抽賞序列化，保證「最後一籤／完售」判定唯一正確。
 4. `tickets … FOR UPDATE`：檢查未抽出、未被他人有效保留。
-5. 條件式扣款 `UPDATE wallets SET coins = coins - x WHERE coins - x >= 0` + 帳本（含 `balance_after`）。
+5. 條件式扣款 `UPDATE wallets SET coins = coins - x WHERE coins - x >= 0` + 帳本（含 `balance_after`）；**按套預收運費**（`SHIPPING_PREPAID`，見下方）同一交易扣除。
 6. 標記籤、寫 `draws`/`draw_results`、入中獎倉庫。
-7. 保底（獨立保底庫存，不改變籤的機率）、最後賞、完售 → 下一套開賣／整池結束。
+7. 保底（依**等級**判定、獨立保底庫存，不改變籤的機率）、最後賞、完售 → 下一套開賣／整池結束。
 8. 稽核鏈（最後取得的鎖）＋儲存冪等回應 → COMMIT。
 
 任何錯誤 → 整筆 rollback（不會留下扣款、籤狀態或冪等鍵）。鎖順序固定：`set → tickets → wallet → pool_guarantees → guarantee_counters → audit_head`。
+
+### 業主 2026-10 商業規則（本次實作）
+
+**1. 獎項等級（取代 A–H 賞級邏輯）**
+- 每個獎項都有後台設定的等級 `grade`：`GRAND` 大獎、`MID` 中獎、`SMALL` 小獎。等級決定保底資格、開獎特效（前台依 `grade`）、運費計數。
+- **自製（CUSTOM）賞池沒有 A–H 賞級**：草稿不可填 `rank`、必須填 `grade`，獎項以名稱識別（同池名稱不可重複）。
+- 官方／混合賞池保留賞級（A、B…、LAST），但每個獎項仍有等級；未填時預設 LAST/A → GRAND、B/C → MID、其他 → SMALL，後台可覆寫。
+- 最後賞與保底專用獎也是獎項列（`pool_prizes.kind = LAST / GUARANTEE`），各有等級與回收值。
+- 保底門檻改為 `minGrade`（GRAND 或 MID）：抽到門檻等級以上 → 計數歸零。SOLO 玩法：恰一個非 SMALL 的主獎。
+- API 一律輸出 `grade` 與 `displayName`（自製＝獎項名稱；其他＝「A賞 名稱」「LAST賞 名稱」）。`rank` 在自製賞池為 `null`。
+- 承諾雜湊格式不變（`[ticketNo, rank, prizeId]`，自製賞池 rank 為 `null`）；規則快照升為 `chiaki-rules-v2`（含等級、運費政策）。舊的已發布賞池（v1 快照）照常運作。
+
+**2. 回收值：每套 × 每獎項（後台設定）**
+- 草稿中每個獎項的 `recycleValue`／`recyclable` 為預設值，發布時複製到每一套（`set_prizes`），之後可用 `PATCH /api/admin/pools/:id/sets/:no` 逐套調整（稽核留存前後值）。
+- 會員主動回收 → 入**平台點數**（`RECYCLE_CREDIT`）；`recyclable=false`（預設：回收值為 0 者）不可回收。
+- 全域依賞級的 `recycle_rates` 表已移除（migration 先用它回填舊資料的預設值）。回收值於「回收／到期轉換當下」讀取目前設定。
+
+**3. 寄存期限與到期自動轉換**
+- 獎品自入庫起免費寄存 `STORAGE_FREE_DAYS`（預設 30）天，到期時間入庫時寫入 `warehouse_items.storage_expires_at`（之後改設定不追溯）。
+- `runStorageSweep(now)`（`npm run job:storage-sweep`，建議每小時排程；或 `POST /api/admin/jobs/storage-sweep`）：
+  到期前 `STORAGE_WARN_DAYS_BEFORE`（7）天、到期當日（台灣日期）各發一次站內通知；到期後仍「保管中」者依每套每獎回收值**自動轉為代幣**（帳本 `EXPIRY_AUTO_CONVERT`、稽核 `STORAGE_EXPIRY_AUTO_CONVERT`、通知）。
+- 冪等：條件式更新＋列鎖＋通知 `dedupe_key`，重複或同時執行都不會重複入帳或通知（有並發測試）。
+- 後台設為**不可回收**的獎品（例如大獎）與直購商品**不會被自動轉換**：標記 `storage_expired_hold_at`、通知會員，留待客服處理（避免大獎以 0 代幣消失）。
+- **不可退款代幣**：`wallet_ledger.refundable` 標記每筆代幣入帳；`wallets.nonrefundable_coins` 追蹤不可退款部分。可退款餘額 = `coins − nonrefundable_coins`（`GET /api/me/wallet` 的 `refundableCoins`）。一般消費優先使用不可退款代幣；退款只能動用可退款部分（資料庫條件式更新強制）。到期轉換代幣預設不可退款（`EXPIRY_COINS_REFUNDABLE=false`）。
+
+> ⚠ **法律風險**：若以「可退款」代幣支付獎品價值，獎品即可經「轉代幣 → 申請退款」兌換現金，付費抽賞可能被認定為賭博或違法有獎銷售。本實作預設這些代幣**不可退款**；若要改為可退款，請先取得台灣律師書面意見。
+
+**4. 運費按套預收（按套收取）**
+- 每套後台設定運費：宅配 150–300 代幣、超商 C2C（7-ELEVEN 交貨便／全家 店到店）60–150 代幣（草稿、後台 API、資料庫 CHECK 三重驗證）。萊爾富／OK 已停用。
+- 會員在某套**第一次付費抽賞**時，依其選擇的 `shippingMethod`（`HOME_DELIVERY`／`CVS_711_C2C`／`CVS_FAMI_C2C`）於**同一抽賞交易**扣一份運費（帳本 `SHIPPING_PREPAID`、`shipping_prepayments` 紀錄）。首抽未選物流方式 → 400 `SHIPPING_METHOD_REQUIRED`（零扣款）；之後未填則沿用該套上次的方式。
+- 一份運費涵蓋該會員在該套最多 **20 件 SMALL**（`SHIPPING_SMALL_ITEMS_PER_FEE`，發布時寫入規則快照）；GRAND／MID 不計。每次抽賞前：最壞情況 = 目前持有的小獎 + 本次籤數；超過 `20 × 已付份數` 時，同一交易補收差額份數。回收（含到期轉換）的小獎不再計入 → 回收小獎的會員不會被重複收費。
+- 同一套的抽賞因 `pool_sets FOR UPDATE` 序列化，份數計算無競態；冪等重播不會重複收費（並發測試：同一會員 30 筆抽賞＋30 筆同鍵重送 → 恰收 3 份）。
+- 出貨：來自已預收之套的獎品**不再收運費**；直購商品等未預收物品依 `shipping_methods` 運費收一次；預收超商但出貨改宅配 → 每套補「宅配 − 超商」差額。
+- `POST /api/draws/quote` 付款前試算：籤價、本次需收份數、各物流方式金額、持有小獎數與涵蓋額度、總額、餘額是否足夠。
+
+**5. 出貨時程**：無固定 SLA；每個賞池有 `shippingNote`（預設：官方「官方商品依官方出貨時程」、自製「平台商品依平台公告時程」、混合兩者），`PATCH /api/admin/pools/:id` 可修改，公開 API 輸出。
+
+**6. 年齡門檻**維持 18（`AGE_MIN`）。
+
+**實作時的解讀（請業主確認）**
+- 「持有中小獎」= 未回收的小獎（**已申請出貨／已出貨仍計入**）。若照字面「出貨即不計」，會員可「出貨 20 件 → 再抽 20 件 → 免運出貨」無限循環，一份運費變成無限次出貨。如確定要字面解讀，只需改 `shipping/prepaid.ts` 的 `countHeldSmallItems` 條件。
+- 最壞情況只計「本次籤數」；保底／最後賞額外獎若為 SMALL，會在下一次抽賞時計入（自動補正）。
+- 不可回收的獎品到期不自動轉換（見上）。
+- 回收值於回收／轉換當下讀取（後台調整會影響尚未處理的獎品）。
 
 ### 公平性：事前承諾（commit–reveal）
 
@@ -95,7 +140,7 @@ CHIAKI（CHIAKI GARAGE KIT）線上一番賞與實體收藏商品平台的**伺�
 | GET | `/api/pools/:idOrSlug` | 詳情：獎項、規則版本與雜湊、保底剩餘、各套承諾 |
 | GET | `/api/pools/:id/sets/:no` | 剩餘數、即時機率、籤板（未抽出不揭露獎項） |
 | GET | `/api/pools/:id/sets/:no/reveal` | 完售後揭露籤表＋salt（未完售 409） |
-| GET | `/api/products`、`/api/shipping-methods` | 直購商品、物流方式與運費 |
+| GET | `/api/products`、`/api/shipping-methods` | 直購商品、物流方式（`fee_coins` 只用於未預收運費的物品；賞池運費見各套 `shippingFees`） |
 | POST | `/api/auth/otp/request`、`/api/auth/otp/verify` | 手機 OTP 登入（開發替身固定碼 `000000`） |
 
 **會員**
@@ -103,11 +148,13 @@ CHIAKI（CHIAKI GARAGE KIT）線上一番賞與實體收藏商品平台的**伺�
 | Method | Path | 說明 |
 |---|---|---|
 | POST / DELETE | `/api/pools/:id/sets/:no/holds` | 鎖籤／釋出 |
-| POST | `/api/draws` | 抽賞（`Idempotency-Key` 必填；`{poolId, setNo, ticketNos}` 或 `{…, count}` 由伺服器代選） |
+| POST | `/api/draws/quote` | 抽賞試算（不扣款）：籤價＋按套預收運費明細＋總額 |
+| POST | `/api/draws` | 抽賞（`Idempotency-Key` 必填；`{poolId, setNo, ticketNos}` 或 `{…, count}` 由伺服器代選；`shippingMethod` 本套首抽必填） |
 | POST | `/api/me/age-verification` | 年齡驗證（替身） |
 | GET | `/api/me/wallet` | 餘額＋帳本明細＋儲值訂單 |
-| GET | `/api/me/warehouse?status=` | 中獎倉庫 |
-| GET / POST | `/api/me/shipments` | 出貨單／申請合併出貨 |
+| GET | `/api/me/warehouse?status=` | 中獎倉庫（含 `grade`、`displayName`、`storageExpiresAt`、目前回收值） |
+| GET / POST | `/api/me/notifications` | 站內通知／標記已讀 `{ids}` |
+| GET / POST | `/api/me/shipments` | 出貨單／申請合併出貨（已預收運費之套免運） |
 | POST | `/api/me/recycle` | 回收換平台點數 |
 | GET / POST | `/api/me/refund-requests` | 未使用代幣退款申請（僅建單） |
 | GET / POST | `/api/me/rewards` | 綁定獎勵任務／領取 |
@@ -120,7 +167,10 @@ CHIAKI（CHIAKI GARAGE KIT）線上一番賞與實體收藏商品平台的**伺�
 
 | Method | Path | 說明 |
 |---|---|---|
-| POST | `/api/admin/pools` | 建立賞池草稿 |
+| POST | `/api/admin/pools` | 建立賞池草稿（獎項等級、預設回收值、預設運費、出貨時程說明） |
+| PATCH | `/api/admin/pools/:id` | 出貨時程說明 `shippingNote` |
+| PATCH | `/api/admin/pools/:id/sets/:no` | 逐套運費（宅配 150–300、超商 60–150）與每個獎項回收值／可否回收 |
+| POST | `/api/admin/jobs/storage-sweep` | 手動執行寄存到期掃描（冪等） |
 | POST | `/api/admin/pools/:id/publish-request` | ★ 申請發布 |
 | POST | `/api/admin/pools/:id/rule-versions`、`/api/admin/rule-versions/:id/publish-request` | ★ 規則改版 |
 | GET | `/api/admin/approvals?status=` | 覆核清單 |
@@ -144,7 +194,7 @@ cd chiaki-platform
 npm install                 # 有網路時
 # npm run bootstrap:offline # 無法連 npm 時（本次開發環境）
 
-npm test                    # 自動啟動暫時 PostgreSQL → migrate → 60 個測試
+npm test                    # 自動啟動暫時 PostgreSQL → migrate → 75 個測試
 npm run build               # TypeScript strict 型別檢查
 
 npm run db:local            # 啟動本機 PostgreSQL（/tmp/chiaki-pg，埠 55432）並建立 chiaki 資料庫
@@ -152,6 +202,7 @@ cp .env.example .env        # 並 export 其中變數（或 set -a; . ./.env; se
 npm run db:migrate
 npm run db:seed             # 參考資料、員工/示範會員、範例賞池（經雙人覆核流程發布）
 npm run dev:api             # 無 Next 的本機 API 伺服器（http://localhost:3000）
+npm run job:storage-sweep   # 寄存到期掃描（正式環境請以排程每小時執行）
 # npm run dev               # 安裝 next 後使用
 
 curl -s localhost:3000/api/pools
@@ -162,13 +213,13 @@ npm run db:local:stop
 ```
 
 種子帳號（OTP `000000`）：`0900000001` SUPER_ADMIN、`0900000002` OPS、`0900000003`/`0900000004` FINANCE A/B、`0900000005` CS、`0900000010` 示範會員（已年齡驗證、5000 代幣）。
-範例賞池：「CHIAKI GK 一番賞 第一彈」（`chiaki-gk-01`，10 套 × 100 籤，A1 B1 C1 D6 E6 F15 G20 H50，300 代幣/抽）、保底挑戰範例（`chiaki-black-gold-guarantee`）。
+範例賞池：「CHIAKI GK 一番賞 第一彈」（`chiaki-gk-01`，自製、無賞級；10 套 × 100 籤，數量 1,1,1,6,6,15,20,50；等級：第 1 項大獎、第 2–3 項中獎、其餘小獎；300 代幣/抽；運費宅配 150／超商 70）、保底挑戰範例（`chiaki-black-gold-guarantee`，自製，每 10 抽未中「中獎」以上 → 保底中獎）。獎品名稱、回收值皆為範例待填。
 
 以 root 執行時，PostgreSQL 不允許 root 啟動，腳本會改用 `PG_RUN_AS`（預設 `claude` 或 `nobody`）。
 
 ## 環境變數
 
-見 `.env.example`（每項皆有註解）。重點：`DATABASE_URL`、`HOLD_SECONDS`(180)、`AGE_MIN`(18，待法務)、`ECPAY_*`（預設為綠界官方公開 STAGE 測試商店 `3002607` / `pwFHCqoQZGmho4w6` / `EkRm7iFT261dpevs`，已與 GitHub 上綠界官方 Python SDK 範例比對一致）、`ECPAY_ACCEPT_SIMULATED`、`RISK_*`、`AUTH_DEV_STUB`、`REWARD_VERIFY_STUB`。`NODE_ENV=production` 時若任何替身或模擬付款開關為 1，程式拒絕啟動。
+見 `.env.example`（每項皆有註解）。重點：`DATABASE_URL`、`HOLD_SECONDS`(180)、`AGE_MIN`(18)、`STORAGE_FREE_DAYS`(30)、`STORAGE_WARN_DAYS_BEFORE`(7)、`EXPIRY_COINS_REFUNDABLE`(false，見法律風險)、`SHIPPING_SMALL_ITEMS_PER_FEE`(20)、`ECPAY_*`（預設為綠界官方公開 STAGE 測試商店 `3002607` / `pwFHCqoQZGmho4w6` / `EkRm7iFT261dpevs`，已與 GitHub 上綠界官方 Python SDK 範例比對一致）、`ECPAY_ACCEPT_SIMULATED`、`RISK_*`、`AUTH_DEV_STUB`、`REWARD_VERIFY_STUB`。`NODE_ENV=production` 時若任何替身或模擬付款開關為 1，程式拒絕啟動。
 
 ---
 
@@ -182,7 +233,8 @@ npm run db:local:stop
 - 保底：每使用者每池計數、命中門檻歸零、獨立保底庫存、庫存耗盡即停止、並發不超發、不改變籤的機率。
 - 即時剩餘與機率（DB 計算）。
 - 錢包雙幣分帳（點數不可儲值購得、不可退款現金化：DB CHECK）、append-only 帳本＋`balance_after` 鏈、對帳函式；退款申請工作流（雙人覆核後才扣代幣）。
-- 中獎倉庫狀態機（DB trigger 強制）、回收換點（費率表、不可回收賞級、不可逆）、合併出貨、運費設定、出貨/送達。
+- 中獎倉庫狀態機（DB trigger 強制）、回收換點（每套每獎回收值、不可回收旗標、不可逆）、合併出貨、出貨/送達。
+- 業主 2026-10 規則：獎項等級（保底依等級）、自製賞池無賞級、`displayName`；每套每獎回收值；寄存 30 天＋7 天前／當日通知＋到期自動轉不可退款代幣（冪等、並發安全）；運費按套預收（首抽收取、每 20 件小獎一份、回收釋放額度、並發測試）、運費範圍驗證、試算端點；出貨時程說明。
 - 綠界 AIO：CheckMacValue（以官方文件範例向量 `6C51C9E6…5B840` 驗證）、建立訂單、ReturnURL 驗章＋商店代號＋金額比對、每個 MerchantTradeNo 只入帳一次（並發重送測試）、模擬付款預設不入帳、失敗交易標記；銀行轉帳人工對帳（雙人覆核）。
 - 稽核雜湊鏈：所有抽賞、錢包異動、後台動作；驗證可偵測竄改、刪除、截尾。
 - RBAC＋雙人覆核（應用層＋DB CHECK 雙重保障；核准與執行同一交易）。
@@ -197,7 +249,9 @@ npm run db:local:stop
 **尚未實作（後續）**
 - 前台 UI（待設計核可）；Next.js 實機建置驗證；Prisma Client（如需）。
 - 綠界：PaymentInfoURL（ATM/超商代碼取號通知）、查詢訂單 API 主動對帳、退款/刷退 API、電子發票。
-- 物流串接（綠界物流/超商電子地圖、託運單、追蹤回寫）、出貨取消、寄存期限。
+- 物流串接（綠界物流/超商電子地圖、託運單、追蹤回寫）、出貨取消。
+- 通知只有站內（`notifications` 表）；簡訊／LINE／推播派送尚未串接。寄存到期「不可回收」獎品的客服處理流程（目前只標記＋通知）。
+- 運費預收不退還（例如會員回收後持有數下降、或套已完售）；是否部分退還待業主決定。
 - 優惠券使用、VIP、邀請碼、客服工單、報表、進銷存、MFA、Redis 快取／佇列、多商家（P4）。
 - 限流目前存在 PostgreSQL（`rate_counters`）；量大時建議改 Redis 並加 WAF。
 
@@ -230,28 +284,30 @@ npm run db:local:stop
 本實作中的「暫定值」（皆可設定，需確認後調整）：
 - 年齡門檻 `AGE_MIN=18`、驗證方式（目前自填生日）。
 - 鎖籤 180 秒；單次最多 100 籤。
-- 回收點數費率（A/B/LAST/直購品不可回收；C 300、D 150、E 100、F 60、G 40、H 20、參加獎 10）。
-- 運費（宅配 150、7-11/全家 70、萊爾富/OK 60 代幣）。
+- 回收值：每套每獎由後台設定（範例賞池數值為示意）；直購品不可回收。
+- 運費：每套由後台設定（宅配 150–300、超商 C2C 60–150）；一份涵蓋 20 件小獎；直購品運費宅配 150、超商 70。
+- 寄存 30 天、到期前 7 天通知；到期自動轉換之代幣不可退款。
 - 儲值方案（500～30000 元，1 元 = 1 代幣，未設贈點）、大額儲值風控門檻 20000 元。
 - 退款：目前上限為「錢包餘額 − 進行中申請」，未扣手續費；實際撥款為線下流程（狀態 `PAID` 尚無 API）。
-- 保底：庫存耗盡後計數持續累積但不再給獎（與原型一致）；保底獎是否可回收（目前 B 不可回收）。
+- 保底：庫存耗盡後計數持續累積但不再給獎（與原型一致）；保底獎的等級與回收值由後台設定。
 - 綠界模擬付款（SimulatePaid=1）一律不入帳（STAGE 可開）。
 
 ---
 
 ## 測試
 
-`npm test`：11 個測試檔、60 個測試，全部對真實 PostgreSQL 執行（每檔獨立資料庫，由已 migrate 的 template 複製）。
+`npm test`：12 個測試檔、75 個測試，全部對真實 PostgreSQL 執行（每檔獨立資料庫，由已 migrate 的 template 複製）。
 
 | 檔案 | 涵蓋 |
 |---|---|
 | `tests/draw.test.ts` | 抽賞交易、年齡驗證、餘額不足全有或全無、冪等（含並發同鍵）、代選、鎖籤、最後賞/完售/換套/揭露驗證、即時機率 |
 | `tests/concurrency.test.ts` | 40 人搶同籤（HTTP handler）、40 人搶鎖籤、90 筆重疊多抽混戰＋對帳＋稽核鏈 |
-| `tests/guarantee.test.ts` | 保底觸發/歸零/耗盡停止/不改機率、並發不超發、設定驗證 |
+| `tests/guarantee.test.ts` | 依等級的保底（minGrade MID/GRAND）觸發/歸零/耗盡停止/不改機率、官方賞池預設等級對應與覆寫、並發不超發、草稿驗證（自製不可有賞級、須有等級） |
+| `tests/business-rules.test.ts` | 業主 2026-10 規則：displayName/grade 輸出、每套每獎回收值、寄存通知＋到期自動轉代幣（冪等、並發、不可退款、可設定）、運費首抽預收／>20 小獎補收／回收不重收／出貨仍計入、運費範圍、試算端點、同一會員並發抽賞運費份數精確、年齡 18 |
 | `tests/ecpay.test.ts` | 官方範例向量、.NET 編碼規則、checkout 參數、通知只入帳一次（含並發）、錯章/金額/未知訂單/失敗/模擬付款、大額風控 |
 | `tests/pool.test.ts` | 承諾機制、規格範例賞池形狀、公開 API 不洩漏、草稿不公開、規則版本不可變與改版 |
 | `tests/wallet-audit.test.ts` | 雙幣、點數規則、帳本 append-only、對帳偵測竄改、退款雙人覆核、稽核鏈竄改/刪除/截尾偵測 |
-| `tests/warehouse-shipping.test.ts` | 回收、狀態機、合併出貨與運費、回滾、直購 |
+| `tests/warehouse-shipping.test.ts` | 回收、狀態機、已預收免運／改宅配補差額／直購品運費、停用物流方式、回滾、直購 |
 | `tests/admin-rbac.test.ts` | 權限矩陣、雙人覆核（應用層/DB）、並發重複核准、執行失敗維持 PENDING、銀行轉帳 |
 | `tests/risk-rewards.test.ts` | 限流、同裝置多帳號、綁定獎勵一次性（並發） |
 | `tests/api-flow.test.ts` | 會員完整旅程（登入→儲值→驗證→鎖籤→抽→倉庫→出貨/回收→獎勵→退款）＋後台驗證 |

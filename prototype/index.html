@@ -907,6 +907,15 @@ const RK = {
   P:{cls:'rk-e',label:'參加獎',tier:0}
 };
 const rankTag = (rk, small) => `<span class="rank ${RK[rk].cls}"${small?' style="min-width:0;height:24px;font-size:11px;padding:0 6px"':''}>${RK[rk].label}</span>`;
+const GRADE = {G:{label:'大獎',cls:'rk-a',tier:3}, M:{label:'中獎',cls:'rk-b',tier:2}, S:{label:'小獎',cls:'rk-e',tier:0}};
+const gradeFromRk = rk => (rk === 'LAST' || rk === 'A') ? 'G' : (rk === 'B' || rk === 'C') ? 'M' : 'S';
+/* item = a prize instance (pool prize, draw result or warehouse item) */
+const tagOf = (x, small) => x.rk === 'LAST' ? rankTag('LAST', small) : x.custom
+  ? `<span class="rank ${GRADE[x.g].cls}"${small?' style="min-width:0;height:24px;font-size:11px;padding:0 6px"':''}>${GRADE[x.g].label}</span>` : rankTag(x.rk, small);
+const labelOf = x => x.rk === 'LAST' ? '最後賞' : x.custom ? x.name : RK[x.rk].label;
+const glyphOf = x => x.rk === 'LAST' ? 'L' : x.custom ? ({G:'★',M:'◆',S:'・'}[x.g]) : (x.rk === 'P' ? 'P' : x.rk);
+const SHIP_M = {home:'宅配到府', c711:'7-ELEVEN 交貨便', fami:'全家 店到店'};
+const STORE_DAYS = 30;
 const SRC = {o:{t:'官方套組',c:'src-o'}, s:{t:'自製套組',c:'src-s'}, m:{t:'混合套組',c:'src-m'}};
 const PLAY = {std:'標準選籤', guar:'保底挑戰', solo:'單挑賞池'};
 
@@ -914,24 +923,28 @@ const PLAY = {std:'標準選籤', guar:'保底挑戰', solo:'單挑賞池'};
 const NOW = Date.now();
 const POOLS = [
   {id:'gk', title:'CHIAKI GK 雕像一番賞 第一彈', ip:'CHIAKI ORIGINAL', src:'s', play:'std', price:300, hue:192, seed:101, hot:true, isNew:true,
-   setCount:10, setDrawn:[100,64,0,0,0,0,0,0,0,0],
-   prizes:[{rk:'A',name:'CHIAKI GK 原創雕像 全彩完成品',qty:1,keep:1},{rk:'B',name:'CHIAKI GK 原創雕像 白模版',qty:1,keep:1},{rk:'C',name:'原創角色 胸像',qty:1,keep:1},
-           {rk:'D',name:'壓克力立牌（全 6 種）',qty:6},{rk:'E',name:'設定原畫 收藏卡組',qty:6},{rk:'F',name:'金屬徽章（全 5 種）',qty:15},
-           {rk:'G',name:'燙金貼紙組',qty:20},{rk:'H',name:'明信片（全 10 種）',qty:50}], last:null},
+   setCount:10, setDrawn:[100,64,0,0,0,0,0,0,0,0], ship:{home:200, cvs:100},
+   prizes:[{name:'CHIAKI GK 原創雕像 全彩完成品',g:'G',qty:1,keep:1,rv:0},{name:'CHIAKI GK 原創雕像 白模版',g:'M',qty:1,keep:1,rv:1500},{name:'原創角色 胸像',g:'M',qty:1,keep:1,rv:900},
+           {name:'壓克力立牌（全 6 種）',g:'S',qty:6,rv:80},{name:'設定原畫 收藏卡組',g:'S',qty:6,rv:60},{name:'金屬徽章（全 5 種）',g:'S',qty:15,rv:40},
+           {name:'燙金貼紙組',g:'S',qty:20,rv:20},{name:'明信片（全 10 種）',g:'S',qty:50,rv:10}], last:null},
   {id:'p1', title:'星屑學園 一番賞 ～放學後的星空～', ip:'星屑學園', src:'o', play:'std', price:350, hue:222, seed:11, drawn:38, hot:true,
-   prizes:[{rk:'A',name:'星野雫 1/7 比例模型',qty:1,keep:1},{rk:'B',name:'夜空觀測 場景模型',qty:2,keep:1},{rk:'C',name:'角色壓克力立牌（全 3 種）',qty:3},
-           {rk:'D',name:'印花毛巾（全 5 種）',qty:10},{rk:'E',name:'鏡面徽章（全 10 種）',qty:20},{rk:'F',name:'透明資料夾（全 6 種）',qty:24}],
+   ship:{home:250, cvs:120},
+   prizes:[{rk:'A',name:'星野雫 1/7 比例模型',qty:1,keep:1,rv:0},{rk:'B',name:'夜空觀測 場景模型',qty:2,keep:1,rv:0},{rk:'C',name:'角色壓克力立牌（全 3 種）',qty:3,rv:150},
+           {rk:'D',name:'印花毛巾（全 5 種）',qty:10,rv:60},{rk:'E',name:'鏡面徽章（全 10 種）',qty:20,rv:20},{rk:'F',name:'透明資料夾（全 6 種）',qty:24,rv:10}],
    last:'星野雫 特別配色 Ver.'},
   {id:'p3', title:'CHIAKI ORIGINAL 保底挑戰 ～黑金典藏～', ip:'CHIAKI ORIGINAL', src:'s', play:'guar', price:280, hue:42, seed:33, drawn:22, img:GUAR_IMG,
-   guar:{every:10, minTier:2, reserveRk:'B', reserve:3, name:'黑金典藏 B 賞（保底專用庫存）'},
-   prizes:[{rk:'A',name:'黑金典藏 1/6 雕像',qty:1,keep:1},{rk:'B',name:'黑金色 胸像',qty:4,keep:2},{rk:'C',name:'金箔簽名色紙',qty:10},
-           {rk:'D',name:'限定版畫（全 4 種）',qty:25},{rk:'E',name:'燙金貼紙組',qty:40}], last:'黑金典藏 全身雕像 金箔 Ver.'},
+   guar:{every:10, minTier:2, g:'M', reserve:3, name:'黑金色 胸像（保底專用庫存）', rv:800}, ship:{home:180, cvs:80},
+   prizes:[{name:'黑金典藏 1/6 雕像',g:'G',qty:1,keep:1,rv:0},{name:'黑金色 胸像',g:'M',qty:4,keep:2,rv:800},{name:'金箔簽名色紙',g:'S',qty:10,rv:120},
+           {name:'限定版畫（全 4 種）',g:'S',qty:25,rv:50},{name:'燙金貼紙組',g:'S',qty:40,rv:20}], last:'黑金典藏 全身雕像 金箔 Ver.'},
   {id:'p4', title:'妖狐夜行抄 混合賞 ～百鬼燈籠～', ip:'妖狐夜行抄', src:'m', play:'std', price:300, hue:12, seed:44, drawn:10, isNew:true,
-   prizes:[{rk:'A',name:'九尾 1/8 比例模型（官方正版）',qty:1,keep:1},{rk:'B',name:'燈籠 LED 擺飾（CHIAKI 自製）',qty:3},{rk:'C',name:'和紙扇子（合作工坊）',qty:6},
-           {rk:'D',name:'御守吊飾（全 5 種）',qty:20},{rk:'E',name:'明信片組',qty:30}], last:'九尾 燈籠夜 Ver.'},
+   ship:{home:220, cvs:100},
+   prizes:[{rk:'A',name:'九尾 1/8 比例模型（官方正版）',qty:1,keep:1,rv:0},{rk:'B',name:'燈籠 LED 擺飾（CHIAKI 自製）',qty:3,rv:300},{rk:'C',name:'和紙扇子（合作工坊）',qty:6,rv:120},
+           {rk:'D',name:'御守吊飾（全 5 種）',qty:20,rv:40},{rk:'E',name:'明信片組',qty:30,rv:15}], last:'九尾 燈籠夜 Ver.'},
   {id:'p5', title:'深海偶像 MARINE 單挑賞 ～珊瑚舞台～', ip:'深海偶像 MARINE', src:'s', play:'solo', price:150, hue:186, seed:55, drawn:30,
-   prizes:[{rk:'A',name:'MARINE 1/6 舞台雕像',qty:1,keep:1},{rk:'P',name:'參加獎：角色貼紙（全 5 種）',qty:49}], last:null},
+   ship:{home:150, cvs:60},
+   prizes:[{name:'MARINE 1/6 舞台雕像',g:'G',qty:1,keep:1,rv:0},{name:'角色貼紙（全 5 種）',g:'S',qty:49,rv:10}], last:null},
   {id:'p7', title:'魔導書庫 一番賞 ～禁書目錄～', ip:'魔導書庫', src:'o', play:'std', price:380, hue:268, seed:77, soon:NOW+ 2*864e5 + 5*36e5,
+   ship:{home:250, cvs:120},
    prizes:[{rk:'A',name:'大魔導師 1/7 比例模型',qty:1},{rk:'B',name:'魔導書 收納盒',qty:2},{rk:'C',name:'金屬書籤',qty:6},{rk:'D',name:'掛軸',qty:15},{rk:'E',name:'徽章',qty:36}], last:'大魔導師 禁咒 Ver.'},
 ];
 const PRODUCTS = [
@@ -962,6 +975,7 @@ function buildSet(p, seed, drawn){
   return {tickets, total:list.length};
 }
 function buildPool(p){
+  p.prizes.forEach(pr => { pr.custom = p.src === 's'; pr.g = pr.g || gradeFromRk(pr.rk); pr.tier = pr.custom ? GRADE[pr.g].tier : RK[pr.rk].tier; pr.rv = pr.rv || 0; });
   const n = p.setCount || 1;
   p.sets = Array.from({length:n}, (_, s) => buildSet(p, p.seed + s*7919, p.setDrawn ? p.setDrawn[s] : (p.drawn || 0)));
   p.setIdx = Math.max(0, p.sets.findIndex(s => s.tickets.some(t => !t.taken)));
@@ -972,7 +986,18 @@ POOLS.forEach(buildPool);
 const poolById = id => POOLS.find(p => p.id === id);
 const remaining = p => p.tickets.filter(t => !t.taken).length;
 const remainOf = (p, i) => p.tickets.filter(t => !t.taken && t.pi === i).length;
-const topLeft = p => p.prizes.map((pr,i)=>({pr,i})).filter(x => RK[x.pr.rk].tier >= 2).map(x => ({rk:x.pr.rk, n:remainOf(p,x.i), q:x.pr.qty}));
+const topLeft = p => p.prizes.map((pr,i)=>({pr,i})).filter(x => x.pr.tier >= 2).map(x => ({rk:x.pr.rk, g:x.pr.g, custom:x.pr.custom, n:remainOf(p,x.i), q:x.pr.qty}));
+/* shipping is pre-collected per set; one fee covers 20 small prizes (recycled ones don't count) */
+const prizeOfItem = w => { const p = poolById(w.pool); return p ? p.prizes.find(x => x.name === w.pname) : null; };
+function shipQuote(p, n, pick){
+  const key = p.id + ':' + p.setIdx, rec = S.shipPaid[key] || {n:0, m:null};
+  const m = rec.m || pick || 'home', fee = m === 'home' ? p.ship.home : p.ship.cvs;
+  const small = S.wh.filter(w => w.pool === p.id && w.set === p.setIdx && w.g === 'S' && w.st !== 'recycled').length;
+  const need = Math.max(1, Math.ceil((small + n) / 20));
+  const add = Math.max(0, need - rec.n);
+  return {key, m, fee, add, cost:add*fee, paid:rec.n, locked:!!rec.m, small, cap:rec.n*20};
+}
+const daysLeft = at => { const end = new Date(at); end.setDate(end.getDate() + STORE_DAYS); return {end:end.toISOString().slice(0,10), d:Math.ceil((end - new Date(new Date().toISOString().slice(0,10))) / 864e5)}; };
 
 /* ---------- App state (demo user) ---------- */
 const S = {
@@ -982,11 +1007,13 @@ const S = {
   cart: [],
   follow: ['星屑學園','CHIAKI ORIGINAL'],
   wh: [
-    {id:'w2', pool:'p1', rk:'E', name:'星屑學園 鏡面徽章（雫）', hue:222, at:'2026-10-18', st:'stored'},
-    {id:'w4', pool:'p3', rk:'B', name:'黑金色 胸像', hue:42, at:'2026-10-02', st:'ship', track:'7-ELEVEN 取貨 ・ 已到店'},
-    {id:'w5', pool:'p4', rk:'E', name:'妖狐夜行抄 明信片組', hue:12, at:'2026-09-20', st:'done'},
-    {id:'w6', pool:'p1', rk:'F', name:'透明資料夾（全員）', hue:222, at:'2026-09-14', st:'recycled'},
+    {id:'w2', pool:'p1', set:0, rk:'E', g:'S', rv:20, pname:'鏡面徽章（全 10 種）', name:'星屑學園 鏡面徽章（雫）', hue:222, at:'2026-09-29', st:'stored'},
+    {id:'w4', pool:'p3', set:0, custom:true, g:'M', rv:800, pname:'黑金色 胸像', name:'黑金色 胸像', hue:42, at:'2026-10-02', st:'ship', track:'7-ELEVEN 交貨便 ・ 已到店'},
+    {id:'w5', pool:'p4', set:0, rk:'E', g:'S', rv:15, pname:'明信片組', name:'妖狐夜行抄 明信片組', hue:12, at:'2026-09-20', st:'done'},
+    {id:'w6', pool:'p1', set:0, rk:'F', g:'S', rv:10, pname:'透明資料夾（全 6 種）', name:'透明資料夾（全員）', hue:222, at:'2026-09-14', st:'recycled'},
   ],
+  shipPaid: {'p1:0':{n:1, m:'home'}, 'p3:0':{n:1, m:'c711'}, 'p4:0':{n:1, m:'home'}},
+  shipPick: 'home',
   whSel: [], whTab:'stored',
   tx: [
     {t:'儲值 ・ 信用卡（綠界）', d:'2026-10-20 21:14', a:+3000, ic:'card'},
@@ -998,8 +1025,8 @@ const S = {
   binds: {line:false, group:false, ig:false, fb:false, phone:'done'}
 };
 let drawLog = [
-  {u:'k***a', pool:'CHIAKI GK', rk:'B'},{u:'r***n', pool:'星屑學園', rk:'A'},{u:'y***i', pool:'妖狐夜行抄', rk:'C'},
-  {u:'t***2', pool:'CHIAKI ORIGINAL', rk:'B'},{u:'s***o', pool:'深海偶像 MARINE', rk:'P'}
+  {u:'k***a', pool:'CHIAKI GK', txt:'原創角色 胸像'},{u:'r***n', pool:'星屑學園', txt:'A賞'},{u:'y***i', pool:'妖狐夜行抄', txt:'C賞'},
+  {u:'t***2', pool:'CHIAKI ORIGINAL', txt:'黑金色 胸像'},{u:'s***o', pool:'深海偶像 MARINE', txt:'MARINE 1/6 舞台雕像'}
 ];
 
 /* ---------- Generic UI helpers ---------- */
@@ -1039,7 +1066,7 @@ function poolCard(p){
         <div class="cd" data-cd="${p.soon}"></div></div></a>`;
   }
   const left = remaining(p), pct = left / p.total * 100, low = pct <= 20;
-  const tops = topLeft(p).filter(x => x.n > 0).map(x => RK[x.rk].label.replace('賞','')).join('・');
+  const tops = p.src === 's' ? (() => { const t = topLeft(p).reduce((s,x)=>s+x.n,0); return t ? `${t} 件` : ''; })() : topLeft(p).filter(x => x.n > 0).map(x => RK[x.rk].label.replace('賞','')).join('・');
   return `<a class="pc reveal" href="#/pool/${p.id}">
     <div class="badges"><span class="tag ${SRC[p.src].c}">${SRC[p.src].t}</span>${p.play!=='std'?`<span class="tag play" style="background:rgba(0,0,0,.5)">${PLAY[p.play]}</span>`:''}</div>
     ${low ? '<span class="status tag hot">即將完售</span>' : p.isNew ? '<span class="status tag ok">NEW</span>' : p.hot ? '<span class="status tag hot">熱門</span>' : ''}
@@ -1049,7 +1076,7 @@ function poolCard(p){
       <div class="price"><span class="coin">C</span>${fmt(p.price)}<small>/ 抽</small></div>
       <div class="meter ${low?'low':''}" role="img" aria-label="剩餘 ${left} / ${p.total} 抽"><i style="width:${pct}%"></i></div>
       <div class="meta"><span>剩餘 <b class="num">${left}</b> / ${p.total} 抽</span></div>
-      ${tops?`<div class="top">${ic('crown','width:14px;height:14px')}大賞剩餘 ${tops}${p.last?'・Last':''}</div>`:'<div class="top dim">大賞已出完</div>'}
+      ${tops?`<div class="top">${ic('crown','width:14px;height:14px')}${p.src==='s'?'大獎・中獎剩餘':'大賞剩餘'} ${tops}${p.last?'・Last':''}</div>`:'<div class="top dim">大賞已出完</div>'}
     </div></a>`;
 }
 
@@ -1106,7 +1133,7 @@ routes.home = () => {
   const slides = [
     {p:'gk', k:'CHIAKI GK', t:'CHIAKI GK<br>雕像一番賞 第一彈', d:'每套 100 抽・共十套・A～H 賞，籤紙與實體店同款設計。'}
   ];
-  const tick = drawLog.map(x => `<span>${x.u} 在 <b>${x.pool}</b> 抽中 <em>${RK[x.rk].label}</em></span>`).join('');
+  const tick = drawLog.map(x => `<span>${x.u} 在 <b>${x.pool}</b> 抽中 <em>${x.txt}</em></span>`).join('');
   return `
   <section class="hero" id="hero" aria-label="CHIAKI 主視覺">
     <canvas id="heroCv" aria-hidden="true"></canvas>
@@ -1244,7 +1271,7 @@ const HOLD_SEC = 180;
 async function commitHash(p){
   const set = p.sets[p.setIdx];
   if (set.hash) return set.hash;
-  const payload = JSON.stringify(p.tickets.map(t => [t.no, p.prizes[t.pi].rk])) + '|salt:' + p.seed + ':' + p.setIdx;
+  const payload = JSON.stringify(p.tickets.map(t => [t.no, p.prizes[t.pi].name])) + '|salt:' + p.seed + ':' + p.setIdx;
   try {
     const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
     set.hash = [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
@@ -1253,7 +1280,7 @@ async function commitHash(p){
 }
 function boardHTML(p){
   return p.tickets.map(t => {
-    if (t.taken) return `<button class="tk taken" disabled aria-label="${t.no} 號，已抽出 ${RK[p.prizes[t.pi].rk].label}">${rankTag(p.prizes[t.pi].rk, true)}</button>`;
+    if (t.taken){ const pr = p.prizes[t.pi]; return `<button class="tk taken" disabled aria-label="${t.no} 號，已抽出 ${labelOf(pr)}">${tagOf(pr, true)}</button>`; }
     if (t.held) return `<button class="tk held" disabled aria-label="${t.no} 號，其他玩家鎖籤中"><span>${pad(t.no)}</span></button>`;
     const on = S.sel.includes(t.no);
     return `<button class="tk" data-tk="${t.no}" aria-pressed="${on}" aria-label="${t.no} 號籤"><span>${pad(t.no)}</span></button>`;
@@ -1306,7 +1333,7 @@ routes.pool = (r) => {
     <div class="pd">
       <div>
         <div style="position:relative">${art(p.hue, p.play==='guar'?'保':'A', 'main', p.title + ' 主視覺', p.img)}${p.imgNote?`<span class="tag warn" style="position:absolute;left:16px;top:16px;z-index:3">${p.imgNote}</span>`:''}</div>
-        <div class="thumbs">${p.prizes.slice(0,5).map(pr => art(p.hue, RK[pr.rk].label[0]==='參'?'P':RK[pr.rk].label[0])).join('')}</div>
+        <div class="thumbs">${p.prizes.slice(0,5).map(pr => art(p.hue, glyphOf(pr))).join('')}</div>
       </div>
       <div>
         <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -1323,14 +1350,14 @@ routes.pool = (r) => {
         ${live ? `
         <div class="stats" style="margin-top:24px">
           <div class="stat"><span>剩餘抽數</span><b class="num">${left}<small>/ ${p.total}</small></b></div>
-          <div class="stat gold"><span>大賞剩餘</span><b>${tops.map(t => `${RK[t.rk].label.replace('賞','')}<small>${t.n}</small>`).join(' ')}</b></div>
+          <div class="stat gold"><span>${p.src==='s'?'大獎・中獎剩餘':'大賞剩餘'}</span><b>${p.src==='s' ? `${tops.reduce((s,t)=>s+t.n,0)}<small>件</small>` : tops.map(t => `${RK[t.rk].label.replace('賞','')}<small>${t.n}</small>`).join(' ')}</b></div>
           <div class="stat"><span>最後賞</span><b style="font-size:16px">${p.last ? (left ? '未出' : '已出') : '無'}</b></div>
         </div>
         <div class="meter ${pct<=20?'low':''}" style="margin-top:16px" role="img" aria-label="剩餘 ${Math.round(pct)}%"><i style="width:${pct}%"></i></div>
         ${g ? `<div class="panel" style="margin-top:16px;padding:16px;border-color:rgba(201,164,92,.4)">
             <div class="row between"><b style="font-size:14px">${ic('lock','width:16px;height:16px;vertical-align:-3px;color:var(--gold-2)')} 我的保底進度</b><span class="num" style="color:var(--gold-2);font-weight:700">${gc} / ${g.every}</span></div>
             <div class="meter" style="margin:12px 0"><i style="width:${gc/g.every*100}%"></i></div>
-            <p class="muted" style="margin:0;font-size:12px">累計 ${g.every} 抽未獲 ${RK[g.reserveRk].label}以上，第 ${g.every} 抽額外獲得「${g.name}」。保底專用庫存剩餘 <b class="num">${reserveLeft}</b> 件，用罄即停止保底並公告。（條件須經法務審查）</p>
+            <p class="muted" style="margin:0;font-size:12px">累計 ${g.every} 抽未獲得中獎以上獎品，第 ${g.every} 抽額外獲得「${g.name}」。保底專用庫存剩餘 <b class="num">${reserveLeft}</b> 件，用罄即停止保底並公告。</p>
           </div>` : ''}
         <div class="row" style="margin-top:24px;flex-wrap:wrap">
           <button class="btn gold" data-act="scroll" data-to="board" style="flex:1;min-width:160px">${ic('ticket')}選籤抽賞</button>
@@ -1342,7 +1369,7 @@ routes.pool = (r) => {
         <details class="disclose" open>
           <summary><span class="row">${ic('shield','width:18px;height:18px;color:var(--gold-2)')}來源與授權揭露</span>${ic('down','width:16px;height:16px')}</summary>
           <div class="in"><dl>
-            <dt>商品來源</dt><dd>${p.src==='o'?'日本官方正版套組，均附正式進貨憑證':p.src==='s'?'CHIAKI 自行規劃之獎品、賞級、數量與價格':'官方正版、CHIAKI 自製與合作工坊商品組合，來源逐項標示於獎項表'}</dd>
+            <dt>商品來源</dt><dd>${p.src==='o'?'日本官方正版套組，均附正式進貨憑證':p.src==='s'?'CHIAKI 自行規劃之獎品、數量與價格，大獎／中獎／小獎由平台設定並公開':'官方正版、CHIAKI 自製與合作工坊商品組合，來源逐項標示於獎項表'}</dd>
             <dt>平台授權</dt><dd>${p.src==='o'?'本賞池為正版商品之線上抽賞服務，非品牌官方舉辦之活動':'CHIAKI 自有企劃'}</dd>
             <dt>商品狀況</dt><dd>全新未拆，外盒可能有運輸輕微壓痕</dd>
           </dl></div>
@@ -1358,7 +1385,12 @@ routes.pool = (r) => {
         </details>
         <details class="disclose">
           <summary><span class="row">${ic('truck','width:18px;height:18px;color:var(--gold-2)')}出貨與保管</span>${ic('down','width:16px;height:16px')}</summary>
-          <div class="in">中獎商品自動存入「中獎倉庫」，可合併出貨（宅配／超商取貨）。入庫後免費保管 60 天，逾期處理方式依《退款與配送規範》辦理。</div>
+          <div class="in"><dl>
+            <dt>運費</dt><dd>於首次抽賞時按套預收：宅配到府 ${fmt(p.ship.home)} 幣／7-ELEVEN 交貨便、全家店到店 ${fmt(p.ship.cvs)} 幣</dd>
+            <dt>運費涵蓋</dt><dd>每份運費可寄送本套 20 件小獎，大獎、中獎不佔名額；小獎超過 20 件時預收下一份，回收小獎可釋出名額</dd>
+            <dt>出貨時程</dt><dd>${p.src==='o'?'依官方出貨時程':p.src==='m'?'官方商品依官方出貨時程；平台商品依平台公告時程':'依平台公告之出貨時程'}</dd>
+            <dt>保管期限</dt><dd>入庫後免費保管 ${STORE_DAYS} 天，到期前 7 天及到期當天提醒；逾期未申請出貨者，可回收之獎品依回收值自動轉為代幣，不可回收之獎品由客服通知後續處理</dd>
+          </dl></div>
         </details>
       </div>
     </div>
@@ -1366,16 +1398,17 @@ routes.pool = (r) => {
     <section class="prizes" aria-labelledby="h-pz">
       <div class="sec-h"><h2 id="h-pz"><small>PRIZE LIST</small>獎項與即時機率</h2><span class="dim" style="font-size:12px">機率 = 該賞剩餘數 ÷ 總剩餘數，每抽即時更新</span></div>
       <table class="ptable">
-        <thead><tr><th>賞級</th><th>獎品</th><th class="r">剩餘 / 總數</th><th class="r">目前機率</th></tr></thead>
+        <thead><tr><th>${p.src==='s'?'等級':'賞級'}</th><th>獎品</th><th class="r">剩餘 / 總數</th><th class="r">目前機率</th><th class="r hide-s">回收值</th></tr></thead>
         <tbody>
           ${p.prizes.map((pr,i) => { const n = remainOf(p,i); return `
           <tr class="${n?'':'soldout'}">
-            <td>${rankTag(pr.rk)}</td>
-            <td><div class="row" style="gap:12px">${art(p.hue, RK[pr.rk].label[0], 'pthumb')}<div class="pname">${pr.name}<small>${p.src==='m'?(pr.name.includes('官方')?'來源：官方正版':pr.name.includes('自製')?'來源：CHIAKI 自製':'來源：合作工坊'):(p.src==='o'?'全新未拆封・正版公仔':'CHIAKI 原創設計')}</small></div></div></td>
+            <td>${tagOf(pr)}</td>
+            <td><div class="row" style="gap:12px">${art(p.hue, glyphOf(pr), 'pthumb')}<div class="pname">${pr.name}<small>${p.src==='m'?(pr.name.includes('官方')?'來源：官方正版':pr.name.includes('自製')?'來源：CHIAKI 自製':'來源：合作工坊'):(p.src==='o'?'全新未拆封・正版公仔':'CHIAKI 原創設計')}</small></div></div></td>
             <td class="r"><b>${n}</b> / ${pr.qty}</td>
             <td class="r">${live && left ? (n/totalLeft*100).toFixed(2) + '%' : '—'}</td>
+            <td class="r hide-s">${pr.rv ? fmt(pr.rv) + ' 點' : '<span class="dim">不可回收</span>'}</td>
           </tr>`}).join('')}
-          ${p.last ? `<tr><td>${rankTag('LAST')}</td><td><div class="row" style="gap:12px">${art(p.hue,'L','pthumb')}<div class="pname">${p.last}<small>抽出本賞池最後一籤者獲得</small></div></div></td><td class="r"><b>${left?1:0}</b> / 1</td><td class="r dim">最後一籤</td></tr>` : ''}
+          ${p.last ? `<tr><td>${rankTag('LAST')}</td><td><div class="row" style="gap:12px">${art(p.hue,'L','pthumb')}<div class="pname">${p.last}<small>抽出本賞池最後一籤者獲得</small></div></div></td><td class="r"><b>${left?1:0}</b> / 1</td><td class="r dim">最後一籤</td><td class="r hide-s dim">不可回收</td></tr>` : ''}
         </tbody>
       </table>
     </section>
@@ -1384,7 +1417,7 @@ routes.pool = (r) => {
     <section class="board-wrap" id="board" aria-labelledby="h-bd">
       <div class="sec-h"><h2 id="h-bd"><small>SELECT TICKETS</small>選擇籤號${p.sets.length>1?`<span class="muted" style="font-size:14px;font-weight:400;margin-left:8px">第 ${p.setIdx+1} 套</span>`:''}</h2>
         <button class="btn s" data-act="fullboard">${ic('expand','width:16px;height:16px')}全螢幕選籤</button></div>
-      <div class="legend"><span><i style="background:#4b4643"></i>可選</span><span><i style="background:var(--gold-2)"></i>已選</span><span><i style="background:repeating-linear-gradient(135deg,#2a2a2e 0 3px,#232326 3px 6px);border:1px dashed var(--line-2)"></i>他人鎖籤中</span><span><i style="background:#1f2c30"></i>已抽出（顯示賞級）</span></div>
+      <div class="legend"><span><i style="background:#4b4643"></i>可選</span><span><i style="background:var(--gold-2)"></i>已選</span><span><i style="background:repeating-linear-gradient(135deg,#2a2a2e 0 3px,#232326 3px 6px);border:1px dashed var(--line-2)"></i>他人鎖籤中</span><span><i style="background:#1f2c30"></i>已抽出（顯示${p.src==='s'?'等級':'賞級'}）</span></div>
       <div class="board" role="group" aria-label="籤號">${boardHTML(p)}</div>
       <div class="buybar" id="buybar">${buybarHTML(p)}</div>
     </section>` : ''}
@@ -1414,7 +1447,7 @@ function quickPick(n){
 }
 function buyDialog(){
   const p = curPool(); if (!p || !S.sel.length) return;
-  const n = S.sel.length, total = n * p.price, after = S.coins - total;
+  const n = S.sel.length, sq = shipQuote(p, n, S.shipPick), total = n * p.price + sq.cost, after = S.coins - total;
   if (!S.verified){
     openModal(`<h3 id="mdlT">首次付費抽賞：年齡與身分驗證</h3>
       <p class="muted" style="margin:0 0 16px;font-size:14px">依本平台《未成年保護》規範，付費抽賞服務限年滿 18 歲之會員使用。首次抽賞前請完成以下驗證。</p>
@@ -1430,6 +1463,13 @@ function buyDialog(){
     <div class="sumrow"><span class="muted">籤號</span><b style="text-align:right;max-width:65%">${S.sel.slice().sort((a,b)=>a-b).map(pad).join('、')}</b></div>
     <div class="sumrow"><span class="muted">單價 × 數量</span><b>${fmt(p.price)} × ${n}</b></div>
     ${hasLast ? `<div class="sumrow"><span class="muted">最後賞</span><b style="color:var(--gold-2)">${p.last}</b></div>` : ''}
+    <div class="field" style="margin:16px 0 8px"><span style="font-size:13px;color:var(--tx-2)">配送方式${sq.locked?'（本套已設定）':''}</span>
+      ${sq.locked ? `<div class="sumrow" style="border-bottom:0"><b>${SHIP_M[sq.m]}</b><span class="dim" style="font-size:12px">已預收 ${sq.paid} 份・可寄 ${sq.cap} 件小獎</span></div>`
+        : `<div class="pays" role="radiogroup" aria-label="配送方式" style="grid-template-columns:repeat(3,minmax(0,1fr))">${Object.entries(SHIP_M).map(([k,t]) =>
+          `<button class="pay" role="radio" data-act="shipsel" data-k="${k}" aria-checked="${sq.m===k}" aria-pressed="${sq.m===k}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span style="white-space:nowrap">${{home:'宅配到府',c711:'7-11 交貨便',fami:'全家店到店'}[k]}</span><span class="dim" style="font-size:12px">${fmt(k==='home'?p.ship.home:p.ship.cvs)} 幣</span></button>`).join('')}</div>`}
+    </div>
+    <div class="sumrow"><span class="muted">運費預收</span><b>${sq.add ? `${fmt(sq.cost)} 幣` : '<span class="dim">已預收・本次免收</span>'}</b></div>
+    <p class="dim" style="font-size:12px;margin:8px 0 0;line-height:1.6">${sq.add ? (sq.paid ? `本套小獎累計可能超過 ${sq.cap} 件，預收第 ${sq.paid+1} 份運費。` : '本套首次抽賞，按套預收一份運費。') : ''}每份運費可寄送本套 20 件小獎，大獎、中獎不佔名額；回收小獎可釋出名額。</p>
     <div class="sumrow"><span class="muted">優惠券</span><b class="dim">未使用</b></div>
     <div class="sumrow" style="border-bottom:0;min-height:56px"><span>應付</span><b style="font-size:22px;color:var(--gold-2)">${fmt(total)} 幣</b></div>
     <div class="sumrow" style="border-bottom:0"><span class="muted">扣款後餘額</span><b class="${after<0?'':'muted'}" style="${after<0?'color:var(--bad)':''}">${fmt(after)} 幣</b></div>
@@ -1454,32 +1494,35 @@ function settle(p, nos){
     if (t.taken) return;            // race lost — in production the API rejects & refunds
     t.taken = true; t.by = 'me';
     const pr = p.prizes[t.pi];
-    results.push({no, rk:pr.rk, name:pr.name, hue:p.hue});
+    results.push({no, rk:pr.rk, g:pr.g, custom:pr.custom, tier:pr.tier, rv:pr.rv, name:pr.name, pname:pr.name, hue:p.hue});
     if (p.guar){
-      if (RK[pr.rk].tier >= p.guar.minTier) S.guar[p.id] = 0;
+      if (pr.tier >= p.guar.minTier) S.guar[p.id] = 0;
       else {
         S.guar[p.id] = (S.guar[p.id]||0) + 1;
         if (S.guar[p.id] >= p.guar.every && (p.reserveUsed||0) < p.guar.reserve){
           p.reserveUsed = (p.reserveUsed||0) + 1; S.guar[p.id] = 0;
-          results.push({no, rk:p.guar.reserveRk, name:p.guar.name, hue:p.hue, bonus:'保底獎勵'});
+          results.push({no, g:p.guar.g, custom:p.src==='s', tier:GRADE[p.guar.g].tier, rv:p.guar.rv, name:p.guar.name, pname:p.guar.name, hue:p.hue, bonus:'保底獎勵'});
         }
       }
     }
   });
-  if (p.last && remaining(p) === 0 && results.length) results.push({no:results[results.length-1].no, rk:'LAST', name:p.last, hue:p.hue, bonus:'最後一籤'});
+  if (p.last && remaining(p) === 0 && results.length) results.push({no:results[results.length-1].no, rk:'LAST', g:'G', custom:p.src==='s', tier:4, rv:0, name:p.last, pname:p.last, hue:p.hue, bonus:'最後一籤'});
   return results;
 }
 function confirmBuy(){
   const p = curPool(); if (!p) return;
   if (!$('#ruleOk').checked){ toast('請先勾選同意抽賞規則'); $('#ruleOk').focus(); return; }
   S.rulesOk = true;
-  const nos = S.sel.slice(), total = nos.length * p.price;
+  const nos = S.sel.slice(), sq = shipQuote(p, nos.length, S.shipPick), total = nos.length * p.price + sq.cost;
+  if (total > S.coins){ closeModal(); location.hash = '#/wallet'; return; }
   S.coins -= total; syncBal();
+  if (sq.add){ S.shipPaid[sq.key] = {n:sq.paid + sq.add, m:sq.m};
+    S.tx.unshift({t:`運費預收 ・ ${SHIP_M[sq.m]} ×${sq.add}（${p.ip}${p.sets.length>1?' 第 '+(p.setIdx+1)+' 套':''}）`, d:new Date().toLocaleString('zh-TW',{hour12:false}), a:-sq.cost, ic:'truck'}); }
   const results = settle(p, nos);
   const today = new Date().toISOString().slice(0,10);
-  results.forEach((x,i) => S.wh.unshift({id:'n'+Date.now()+i, pool:p.id, rk:x.rk, name:`${p.ip} ${x.name}`, hue:p.hue, at:today, st:'stored'}));
-  S.tx.unshift({t:`抽賞 ・ ${p.title} ×${nos.length}`, d:new Date().toLocaleString('zh-TW',{hour12:false}).replace(/\//g,'-'), a:-total, ic:'ticket'});
-  results.filter(x => RK[x.rk].tier >= 2).forEach(x => drawLog.unshift({u:'c***i', pool:p.ip, rk:x.rk}));
+  results.forEach((x,i) => S.wh.unshift({id:'n'+Date.now()+i, pool:p.id, set:p.setIdx, rk:x.rk, g:x.g, custom:x.custom, rv:x.rv, pname:x.pname, name:x.custom ? x.name : `${p.ip} ${x.name}`, hue:p.hue, at:today, st:'stored'}));
+  S.tx.unshift({t:`抽賞 ・ ${p.title} ×${nos.length}`, d:new Date().toLocaleString('zh-TW',{hour12:false}).replace(/\//g,'-'), a:-(nos.length * p.price), ic:'ticket'});
+  results.filter(x => x.tier >= 2).forEach(x => drawLog.unshift({u:'c***i', pool:p.ip, txt:labelOf(x)}));
   clearHold(); closeModal();
   runDraw(p, results);
 }
@@ -1520,13 +1563,21 @@ function kujiCover(){
 }
 function kujiInner(r, opts = {}){
   const id = 'ki' + (++_kid);
-  const t = RK[r.rk].tier, foil = TIER[t].foil;
+  const t = r.tier != null ? r.tier : (r.rk ? RK[r.rk].tier : 0), foil = TIER[t].foil;
   const rainbow = foil === 'rainbow';
   const letter = r.rk === 'LAST' ? 'LAST' : r.rk === 'P' ? '參加' : r.rk;
   const lsize = r.rk === 'LAST' ? 46 : r.rk === 'P' ? 44 : 66;
   const fill = t >= 1 ? `url(#${id}g)` : '#f4f6f6';
   const stroke = rainbow ? `url(#${id}r)` : (t >= 1 ? foil : 'rgba(215,223,224,.75)');
-  return `<svg viewBox="0 0 300 204" role="img" aria-label="${RK[r.rk].label}">
+  const named = r.custom && r.rk !== 'LAST';
+  const nm = named ? r.name : '', lines = nm.length > 11 ? [nm.slice(0, Math.ceil(nm.length/2)), nm.slice(Math.ceil(nm.length/2))] : [nm];
+  const nsize = lines.length > 1 ? 19 : nm.length <= 5 ? 32 : nm.length <= 8 ? 24 : 20;
+  const centre = named
+    ? lines.map((l,k) => `<text x="150" y="${lines.length>1 ? 112 + k*28 : 124}" text-anchor="middle" font-family="Noto Serif TC,Noto Serif CJK TC,serif" font-weight="700" font-size="${nsize}" letter-spacing="1" fill="${fill}">${l}</text>`).join('')
+    : `<text x="${r.rk==='LAST'||r.rk==='P'?140:142}" y="134" text-anchor="middle" font-family="Cormorant Garamond,Noto Serif TC,serif" font-weight="700" font-size="${lsize}" fill="${fill}">${letter}</text>
+    <text x="${r.rk==='LAST'?200:r.rk==='P'?194:176}" y="134" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="700" font-size="20" fill="${fill}">賞</text>`;
+  const foot = named ? GRADE[r.g].label : opts.foot;
+  return `<svg viewBox="0 0 300 204" role="img" aria-label="${labelOf(r)}">
     <defs>
       <linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1">${rainbow
         ? '<stop offset="0" stop-color="#ffe1f0"/><stop offset=".5" stop-color="#ffd56b"/><stop offset="1" stop-color="#8fd3ff"/>'
@@ -1538,9 +1589,8 @@ function kujiInner(r, opts = {}){
     ${kujiFrame(stroke, t >= 2 ? 1.6 : 1.1)}
     <text x="150" y="52" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="700" font-size="12" fill="#f4f6f6" letter-spacing="1">${opts.head || 'CHIAKI GK'}</text>
     <text x="150" y="69" text-anchor="middle" font-family="Noto Serif TC,serif" font-size="9.5" fill="#c9d3d5">${opts.sub || ''}</text>
-    <text x="${r.rk==='LAST'||r.rk==='P'?140:142}" y="134" text-anchor="middle" font-family="Cormorant Garamond,Noto Serif TC,serif" font-weight="700" font-size="${lsize}" fill="${fill}">${letter}</text>
-    <text x="${r.rk==='LAST'?200:r.rk==='P'?194:176}" y="134" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="700" font-size="20" fill="${fill}">賞</text>
-    <text x="150" y="162" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="${opts.foot?700:400}" font-size="${opts.foot?12.5:9.5}" fill="${opts.foot?'#f4f6f6':'#c9d3d5'}" letter-spacing="${opts.foot?1:0}">${opts.foot ? (opts.foot.length > 20 ? opts.foot.slice(0,19) + '…' : opts.foot) : '僅限線上抽賞・結果已於發布時鎖定'}</text>
+    ${centre}
+    <text x="150" y="${named && lines.length > 1 ? 168 : 162}" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="${foot?700:400}" font-size="${foot?12.5:9.5}" fill="${foot?(named && t>=2 ? foil : '#f4f6f6'):'#c9d3d5'}" letter-spacing="${foot?2:0}">${foot ? (foot.length > 20 ? foot.slice(0,19) + '…' : foot) : '僅限線上抽賞・結果已於發布時鎖定'}</text>
   </svg>`;
 }
 
@@ -1631,7 +1681,7 @@ function bindPeel(el){
   el.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && !D.busy && !D.done){ e.preventDefault(); autoPeel(); } });
 }
 function escalateByPeel(f){
-  const tier = RK[D.results[D.i].rk].tier;
+  const tier = D.results[D.i].tier;
   const want = Math.min(tier, Math.floor(f / 8));          // thresholds 8/16/24/32 % — never above the real tier
   if (want > D.tier){ stageTier(want); cueFx(want); }
 }
@@ -1653,7 +1703,7 @@ async function autoPeel(){
   if (!D || D.busy || D.done) return;
   D.busy = true;
   const tx = $('#tix'); tx.classList.remove('idle'); tx.classList.add('peeling'); $('#hint').innerHTML = '';
-  const tier = RK[D.results[D.i].rk].tier;
+  const tier = D.results[D.i].tier;
   await tween(D.f, Math.max(D.f, 6), 320, setPeel);
   for (let t = D.tier + 1; t <= tier; t++){
     if (!$('#stage')) return;
@@ -1671,7 +1721,7 @@ async function autoPeel(){
 async function finishPeel(){
   if (!D || D.done) return;
   D.done = true; D.busy = true;
-  const r = D.results[D.i], tier = RK[r.rk].tier;
+  const r = D.results[D.i], tier = r.tier;
   if (tier > D.tier){ stageTier(tier); }
   const tx = $('#tix'); if (!tx) return;
   await tween(D.f, 50, 220, setPeel);
@@ -1683,12 +1733,12 @@ async function finishPeel(){
     else if (tier === 2) fx.burst('purple', 80, rc);
     else if (tier === 1) fx.burst('blue', 36, rc);
   }
-  if (tier >= 3){ $('#cue').style.setProperty('--cue-c', CUE_C[tier]); $('#cue').textContent = [...RK[r.rk].label].join(' '); }
-  else $('#cue').innerHTML = `<small>${RK[r.rk].label}</small>`;
+  if (tier >= 3){ $('#cue').style.setProperty('--cue-c', CUE_C[tier]); $('#cue').textContent = r.custom && r.rk !== 'LAST' ? '大 獎' : [...labelOf(r)].join(' '); }
+  else $('#cue').innerHTML = `<small>${r.custom && r.rk !== 'LAST' ? GRADE[r.g].label : labelOf(r)}</small>`;
   await sleep(RM() ? 0 : 450);
   if (!$('#stage')) return;
   const res = $('#res');
-  res.innerHTML = `${art(r.hue, r.rk==='P'?'P':r.rk==='LAST'?'L':r.rk)}<div class="t">${rankTag(r.rk, true)}<b>${r.name}</b><span>${r.bonus?r.bonus+' ・ ':''}已存入中獎倉庫</span></div>`;
+  res.innerHTML = `${art(r.hue, glyphOf(r))}<div class="t">${tagOf(r, true)}<b>${r.name}</b><span>${r.bonus?r.bonus+' ・ ':''}已存入中獎倉庫</span></div>`;
   res.classList.add('show');
   D.i++;
   const more = D.i < D.results.length;
@@ -1703,18 +1753,18 @@ function showSummary(){
   const st = $('#stage'); if (!st) return;
   st.style.setProperty('--tc', TIER[0].c); $('.rays', st).style.opacity = 0;
   const p = D.p;
-  const sorted = D.results.slice().sort((a,b) => RK[b.rk].tier - RK[a.rk].tier);
-  const hi = sorted.filter(x => RK[x.rk].tier >= 2).length;
+  const sorted = D.results.slice().sort((a,b) => b.tier - a.tier);
+  const hi = sorted.filter(x => x.tier >= 2).length;
   const s = $('#sum');
-  s.innerHTML = `<h2>抽賞結果</h2><div class="sub">共 ${D.results.length} 件獎品${hi?`，其中 <b style="color:var(--gold-2)">${hi}</b> 件為 B 賞以上`:''} ・ 已全數存入中獎倉庫</div>
+  s.innerHTML = `<h2>抽賞結果</h2><div class="sub">共 ${D.results.length} 件獎品${hi?`，其中 <b style="color:var(--gold-2)">${hi}</b> 件為中獎以上`:''} ・ 已全數存入中獎倉庫</div>
     <div class="stub">
       <div class="hd"><b>客戶留存用</b><span class="brand" style="font-size:16px;color:#e9eeef">CHIAKI</span></div>
       <dl><dt>交易編號</dt><dd class="num">${D.txn}</dd><dt>賞池</dt><dd>${p.title}${p.sets && p.sets.length>1?` ・ <span style="white-space:nowrap">第 ${pad(p.setIdx+1)} 套</span>`:''}</dd>
         <dt>籤號</dt><dd class="num">${[...new Set(D.results.map(x=>x.no))].sort((a,b)=>a-b).map(pad).join('、')}</dd><dt>時間</dt><dd class="num">${new Date().toLocaleString('zh-TW',{hour12:false})}</dd></dl>
       <div class="links"><a href="${LINKS.line}" target="_blank" rel="noopener">${ic('users','width:16px;height:16px')}LINE 社群</a><a href="${LINKS.ig}" target="_blank" rel="noopener">${ic('ig','width:16px;height:16px')}Instagram</a><a href="${LINKS.fb}" target="_blank" rel="noopener">${ic('fb','width:16px;height:16px')}Facebook</a></div>
     </div>
-    <div class="sgrid">${sorted.map((x,i) => `<div class="sitem ${RK[x.rk].tier>=3?'hi':''}" style="animation-delay:${i*60}ms"><div class="mini">${kujiInner(x, {sub:'No.'+pad(x.no), foot:x.name})}</div>
-      ${rankTag(x.rk, true)}<b>${x.name}</b><span>${x.bonus?x.bonus+' ・ ':''}No.${pad(x.no)}</span></div>`).join('')}</div>
+    <div class="sgrid">${sorted.map((x,i) => `<div class="sitem ${x.tier>=3?'hi':''}" style="animation-delay:${i*60}ms"><div class="mini">${kujiInner(x, {sub:'No.'+pad(x.no), foot:x.name})}</div>
+      ${tagOf(x, true)}<b>${x.name}</b><span>${x.bonus?x.bonus+' ・ ':''}No.${pad(x.no)}</span></div>`).join('')}</div>
     <div class="acts"><button class="btn" data-act="close-stage">再抽一次</button><a class="btn gold" href="#/warehouse" data-act="close-stage">${ic('box')}前往中獎倉庫</a></div>`;
   s.classList.add('show');
   $('#sbtm').innerHTML = '';
@@ -1772,20 +1822,19 @@ function kujiBack(){
    WAREHOUSE (我的收藏)
    ========================================================= */
 const WH_TABS = [['stored','倉庫中'],['ship','出貨中'],['done','已完成'],['recycled','已回收']];
-const RECYCLE_PT = {LAST:0, A:0, B:0, C:300, D:150, E:100, F:60, G:40, H:20, P:10};
 routes.warehouse = () => {
   const list = S.wh.filter(w => w.st === S.whTab);
   const n = S.whSel.length;
   return `<div class="wrap">
-    <div class="page-h"><h1>中獎倉庫</h1><p>中獎獎品自動入庫。可勾選多件合併出貨，或依公開標準回收換平台點數。</p></div>
+    <div class="page-h"><h1>中獎倉庫</h1><p>中獎獎品自動入庫。可勾選多件合併出貨，或依各獎品回收值換成平台點數。</p></div>
     <div class="tabs" role="tablist" aria-label="倉庫狀態">${WH_TABS.map(([k,t]) => `<button role="tab" aria-selected="${S.whTab===k}" data-act="whtab" data-k="${k}">${t}<span class="n">${S.wh.filter(w=>w.st===k).length}</span></button>`).join('')}</div>
-    ${S.whTab==='stored' && list.length ? `<div class="row between" style="margin-bottom:16px;flex-wrap:wrap"><span class="muted" style="font-size:13px">${ic('clock','width:16px;height:16px;vertical-align:-3px')} 免費保管 60 天，到期前 7 天提醒</span><button class="btn s ghost" data-act="whall">${n===list.length?'取消全選':'全選'}</button></div>` : ''}
+    ${S.whTab==='stored' && list.length ? `<div class="row between" style="margin-bottom:16px;flex-wrap:wrap"><span class="muted" style="font-size:13px">${ic('clock','width:16px;height:16px;vertical-align:-3px')} 免費保管 ${STORE_DAYS} 天・到期前 7 天及當天提醒・逾期依回收值自動轉為代幣</span><button class="btn s ghost" data-act="whall">${n===list.length?'取消全選':'全選'}</button></div>` : ''}
     ${list.length ? `<div class="wlist">${list.map(w => `
       <label class="witem ${S.whSel.includes(w.id)?'sel':''}">
         ${S.whTab==='stored' ? `<input type="checkbox" data-act="whsel" data-id="${w.id}" ${S.whSel.includes(w.id)?'checked':''} aria-label="選取 ${w.name}">` : ''}
-        ${art(w.hue, RK[w.rk].label[0]==='參'?'P':RK[w.rk].label[0])}
-        <div class="i"><b>${w.name}</b><span>${w.at} 入庫${w.track?' ・ '+w.track:''}</span>
-          <div class="row" style="gap:8px">${rankTag(w.rk)}${w.st==='ship'?'<span class="tag info">運送中</span>':w.st==='done'?'<span class="tag ok">已簽收</span>':w.st==='recycled'?'<span class="tag">已轉點數</span>':''}</div></div>
+        ${art(w.hue, glyphOf(w))}
+        <div class="i"><b>${w.name}</b><span>${w.st==='stored' ? (() => { const x = daysLeft(w.at); return `保管至 ${x.end} ・ 回收值 ${w.rv ? fmt(w.rv)+' 點' : '不可回收'}`; })() : w.at + ' 入庫' + (w.track ? ' ・ ' + w.track : '')}</span>
+          <div class="row" style="gap:8px">${tagOf(w)}${w.st==='stored' ? (() => { const x = daysLeft(w.at); return x.d <= 0 ? '<span class="tag bad">今日到期</span>' : x.d <= 7 ? `<span class="tag warn">${x.d} 天後到期</span>` : ''; })() : w.st==='ship'?'<span class="tag info">運送中</span>':w.st==='done'?'<span class="tag ok">已簽收</span>':w.st==='recycled'?'<span class="tag">已轉點數</span>':''}</div></div>
       </label>`).join('')}</div>` : `<div class="empty">${S.whTab==='stored'?'倉庫目前是空的，去抽一抽吧！<br><br><a class="btn gold" href="#/lobby">前往抽賞大廳</a>':'沒有紀錄'}</div>`}
     ${S.whTab==='stored' && list.length ? `<div class="actbar"><span class="t">已選 <b class="num">${n}</b> 件</span>
       <button class="btn" data-act="recycle" ${n?'':'disabled'}>${ic('recycle','width:18px;height:18px')}回收換點數</button>
@@ -1796,25 +1845,24 @@ function shipDialog(){
   const n = S.whSel.length; if (!n) return;
   openModal(`<h3 id="mdlT">申請出貨（合併 ${n} 件）</h3>
     <div class="field" style="margin-bottom:16px"><span style="font-size:13px;color:var(--tx-2)">配送方式</span>
-      <div class="pays" role="radiogroup" aria-label="配送方式" style="grid-template-columns:repeat(2,minmax(0,1fr))">
-        ${[['home','宅配到府','truck'],['711','7-ELEVEN','store'],['fami','全家','store'],['hilife','萊爾富','store'],['ok','OK 超商','store']].map(([k,t,i],x) =>
+      <div class="pays" role="radiogroup" aria-label="配送方式" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+        ${[['home','宅配到府','truck'],['c711','7-ELEVEN 交貨便','store'],['fami','全家 店到店','store']].map(([k,t,i],x) =>
           `<button class="pay" role="radio" data-act="shipm" data-k="${k}" aria-pressed="${x===0}" aria-checked="${x===0}">${ic(i,'width:18px;height:18px')}${t}</button>`).join('')}
       </div></div>
     <div class="field" style="margin-bottom:16px"><label for="rcv">收件人</label><input class="input" id="rcv" value="陳○○" autocomplete="name"></div>
     <div class="field" style="margin-bottom:16px"><label for="addr" id="addrL">收件地址</label><input class="input" id="addr" placeholder="縣市／區／路段門牌" autocomplete="street-address"></div>
-    <div class="sumrow"><span class="muted">運費</span><b id="fee">150 幣</b></div>
-    <div class="sumrow" style="border-bottom:0"><span class="muted">付款</span><b>由代幣扣除</b></div>
-    <p class="dim" style="font-size:12px">材積超過超商限制之商品將自動改為宅配。出貨後可於「出貨中」查看物流追蹤。</p>
+    <div class="sumrow" style="border-bottom:0"><span class="muted">運費</span><b>已於抽賞時預收・本次免付</b></div>
+    <p class="dim" style="font-size:12px">配送方式以抽賞時預收運費之方式為準，如需變更請聯繫客服。材積超過超商限制之商品將改以宅配寄送；出貨後可於「出貨中」查看物流追蹤。</p>
     <button class="btn gold block" data-act="ship-ok">確認出貨</button>`);
 }
 function recycleDialog(){
   const items = S.wh.filter(w => S.whSel.includes(w.id));
-  const pts = items.reduce((s,w) => s + (RECYCLE_PT[w.rk]||0), 0);
-  const blocked = items.filter(w => !RECYCLE_PT[w.rk]);
+  const pts = items.reduce((s,w) => s + (w.rv||0), 0);
+  const blocked = items.filter(w => !w.rv);
   openModal(`<h3 id="mdlT">回收換平台點數</h3>
-    ${items.map(w => `<div class="sumrow"><span style="display:flex;gap:8px;align-items:center;min-width:0">${rankTag(w.rk,true)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.name}</span></span><b>${RECYCLE_PT[w.rk] ? '+'+RECYCLE_PT[w.rk]+' 點' : '不可回收'}</b></div>`).join('')}
+    ${items.map(w => `<div class="sumrow"><span style="display:flex;gap:8px;align-items:center;min-width:0">${tagOf(w,true)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.name}</span></span><b>${w.rv ? '+'+fmt(w.rv)+' 點' : '不可回收'}</b></div>`).join('')}
     <div class="sumrow" style="border-bottom:0;min-height:56px"><span>合計</span><b style="font-size:20px;color:var(--gold-2)">+${fmt(pts)} 點</b></div>
-    <p class="dim" style="font-size:12px;margin:0 0 16px">回收點數依公開之回收折算表計算。平台點數僅可於站內折抵，不得提領或兌換現金；確認回收後無法撤回。${blocked.length?'<br>A 賞、B 賞與最後賞不提供回收。':''}</p>
+    <p class="dim" style="font-size:12px;margin:0 0 16px">回收值依各套公開之設定計算。平台點數僅可於站內折抵，不得提領或兌換現金；確認回收後無法撤回。回收小獎可釋出該套運費名額。${blocked.length?`<br>其中 ${blocked.length} 件不提供回收。`:''}</p>
     <button class="btn gold block" data-act="recycle-ok" ${pts?'':'disabled'}>確認回收</button>`);
 }
 
@@ -1873,7 +1921,7 @@ routes.me = () => {
     <div style="display:grid;gap:24px">
       <div class="panel" id="me-draws"><h3>抽賞紀錄</h3>
         <div class="tbl-wrap" style="border:0;background:none"><table class="tbl" style="min-width:520px"><thead><tr><th>時間</th><th>賞池</th><th>籤號</th><th>結果</th></tr></thead><tbody>
-          ${S.wh.slice(0,6).map((w,i) => `<tr><td class="dim">${w.at}</td><td>${(poolById(w.pool)||{}).ip||'-'}</td><td class="num">No.${pad(7+i*9)}</td><td>${rankTag(w.rk,true)}</td></tr>`).join('')}
+          ${S.wh.slice(0,6).map((w,i) => `<tr><td class="dim">${w.at}</td><td>${(poolById(w.pool)||{}).ip||'-'}</td><td class="num">No.${pad(7+i*9)}</td><td>${tagOf(w,true)}</td></tr>`).join('')}
         </tbody></table></div></div>
       <div class="panel" id="me-follow"><h3>追蹤的 IP 與收藏喜好</h3>
         <p class="muted" style="font-size:13px;margin:0 0 16px">追蹤後，新賞池上架與開賣前 1 小時將通知你。</p>
@@ -1941,7 +1989,7 @@ const DOCS = {
     ['服務內容與帳號','CHIAKI 提供線上一番賞抽賞、直購商城、中獎倉庫保管與出貨等服務。會員應以真實資料註冊，每人限持有一個帳號，並妥善保管登入資訊。'],
     ['付費抽賞服務之性質','抽賞為支付固定費用、自公開獎池中隨機取得實體商品之服務。各賞池之獎項組成、數量、機率與規則均於賞池頁完整揭露，付款前請詳閱。'],
     ['代幣、點數與優惠券','儲值代幣用於抽賞與購物；平台點數取自活動或獎品回收，僅限站內折抵，不得提領或兌換現金。優惠券依各券面說明之條件與期限使用。'],
-    ['獎品所有權與保管','抽賞完成後，獎品所有權即移轉予會員並存入中獎倉庫，自入庫日起免費保管 60 天，會員可隨時申請出貨。'],
+    ['獎品所有權與保管','抽賞完成後，獎品所有權即移轉予會員並存入中獎倉庫，自入庫日起免費保管 30 天，會員可隨時申請出貨；逾期未申請者，可回收之獎品依回收值自動轉為代幣，不可回收之獎品由客服另行通知處理。'],
     ['禁止行為','禁止以程式自動化操作、多重帳號、盜用他人支付工具或其他不正當方式使用本服務。違者本平台得暫停或終止帳號，並保留法律追訴權利。'],
     ['責任限制與爭議處理','因不可抗力或第三方系統異常致服務中斷時，本平台將盡速修復並依交易紀錄處理。對抽賞結果有疑義者，可於客服中心提出工單，本平台將調閱稽核紀錄回覆。'],
     ['條款修訂','本平台得修訂本條款，修訂內容將於網站公告並自公告日起生效；已發布賞池之規則不因條款修訂而變更。']]],
@@ -1954,7 +2002,7 @@ const DOCS = {
     ['當事人權利','您可依個人資料保護法請求查詢、閱覽、製給複製本、補充更正、停止蒐集處理利用或刪除，請透過客服中心提出。'],
     ['Cookie 使用','本網站使用 Cookie 維持登入狀態與偏好設定，您可於瀏覽器設定中停用，惟部分功能可能因此無法使用。']]],
   rules:['抽賞規則與機率揭露',[
-    ['賞池組成與來源','每個賞池均公開獎項總數、剩餘數、商品來源與商品狀況。混合套組逐項標示官方正版、CHIAKI 自製或合作工坊。'],
+    ['賞池組成與來源','每個賞池均公開獎項總數、剩餘數、商品來源與商品狀況。官方套組以 A 賞、B 賞等賞級標示；自製套組直接標示獎品名稱，並由平台公開設定大獎、中獎、小獎等級。混合套組逐項標示官方正版、CHIAKI 自製或合作工坊。'],
     ['選籤與鎖籤','會員可自行選擇剩餘籤號或使用隨機選籤；選定後保留 3 分鐘，逾時未付款即自動釋出。'],
     ['機率計算方式','採固定獎品清單、無放回抽取。各賞級機率 ＝ 該賞剩餘數 ÷ 總剩餘數，每完成一抽即時更新。'],
     ['保底挑戰','保底條件與保底專用庫存數量於賞池頁事前公開；保底獎品由專用庫存另行發放，不影響原籤表機率。保底庫存用罄即停止並公告。'],
@@ -1966,9 +2014,10 @@ const DOCS = {
     ['未使用代幣退款','未使用之儲值代幣可於客服中心或錢包頁提出退款申請，經審核後退還至原付款方式或指定帳戶；活動贈送之點數不予退還。'],
     ['抽賞商品之退換貨','抽賞屬隨機取得商品之服務，結果確定後恕不接受退換或更換賞級。'],
     ['瑕疵品處理','收到商品如有非人為之瑕疵或運送破損，請於簽收後 7 日內拍照並透過工單聯繫，本平台將協助補寄或換貨。'],
-    ['配送方式與運費','提供宅配到府（150 幣）與 7-ELEVEN、全家（70 幣）、萊爾富、OK mart（60 幣）超商取貨；多件商品可合併為一筆出貨。'],
-    ['出貨時效','申請出貨後，一般於 3–5 個工作天內寄出；材積超過超商限制之商品將改以宅配寄送。'],
-    ['保管期限','獎品入庫後免費保管 60 天，到期前 7 天以站內通知提醒；逾期未申請出貨者，將依公告方式處理。']]],
+    ['配送方式與運費','提供宅配到府（每份 150–300 代幣）與 7-ELEVEN 交貨便、全家店到店（每份 60–150 代幣），實際金額依各套設定。運費於該套首次抽賞時按套預收；每份運費可寄送該套 20 件小獎，大獎、中獎不佔名額，小獎超過 20 件時再預收一份；回收之小獎不計入名額。'],
+    ['出貨時效','官方商品依官方出貨時程辦理，平台商品依平台公告之出貨時程辦理；材積超過超商限制之商品將改以宅配寄送。'],
+    ['保管期限','獎品入庫後免費保管 30 天，到期前 7 天及到期當天以站內通知提醒；逾期未申請出貨者，可回收之獎品依回收值自動轉為代幣；不可回收之獎品（如大獎）不會自動轉換，將由客服另行通知處理。'],
+    ['獎品回收','各獎品之回收值依各套設定公開於賞池頁；回收所得為平台點數，僅可站內折抵，確認回收後無法撤回。']]],
   minor:['未成年保護',[
     ['年齡限制','本平台付費抽賞服務限年滿 18 歲之會員使用。'],
     ['年齡驗證','首次付費抽賞前須完成手機驗證與出生日期確認，必要時本平台得要求提供進一步證明。'],
@@ -1988,7 +2037,9 @@ routes.support = () => `<div class="wrap">
         ${[['抽賞結果是怎麼決定的？','賞池發布時即固定全部籤號與獎品對應，並公開 SHA-256 承諾雜湊。付款後伺服器確定結果，動畫僅為呈現，略過動畫或斷線都不會改變結果。'],
            ['機率如何計算？','採固定清單、無放回抽取。每個賞級的機率 = 該賞剩餘數 ÷ 總剩餘數，每抽一次即時更新於賞池頁。'],
            ['保底挑戰怎麼運作？','於賞池頁事前公開保底條件與保底專用庫存數量；保底庫存用罄即停止並公告。實際條款以法務審定版本為準。'],
-           ['中獎後多久出貨？','獎品入庫後可隨時申請出貨，一般於 3–5 個工作天內寄出，可合併多件出貨。'],
+           ['中獎後多久出貨？','官方商品依官方出貨時程，平台商品依平台公告之出貨時程辦理；獎品入庫後可隨時申請出貨，並可合併多件。'],
+           ['運費怎麼計算？','運費於該套首次抽賞時按套預收（宅配或超商交貨便，金額依各套設定）。每份運費可寄送該套 20 件小獎，大獎、中獎不佔名額；小獎超過 20 件時會再預收一份，回收小獎則可釋出名額。'],
+           ['獎品可以放多久？','入庫後免費保管 30 天，到期前 7 天及到期當天會提醒；逾期未申請出貨的可回收獎品，將依回收值自動轉為代幣；大獎等不可回收的獎品則由客服另行通知。'],
            ['儲值代幣可以退款嗎？','未使用之儲值代幣可依《退款與配送規範》提出申請，經審核後辦理退款；已用於抽賞之代幣恕不退還。'],
            ['回收點數可以換現金嗎？','不行。平台點數僅可在站內折抵使用，不得提領或兌換現金。']].map(([q,a],i) =>
           `<details ${i===0?'open':''}><summary>${q}${ic('down','width:16px;height:16px')}</summary><p>${a}</p></details>`).join('')}
@@ -2194,10 +2245,10 @@ document.addEventListener('click', e => {
     'whall': () => { const ids = S.wh.filter(w => w.st === 'stored').map(w => w.id); S.whSel = S.whSel.length === ids.length ? [] : ids; render(true); },
     'ship': () => shipDialog(),
     'shipm': () => { $$('[data-act="shipm"]').forEach(b => { b.setAttribute('aria-pressed', b === el); b.setAttribute('aria-checked', b === el); });
-      const home = el.dataset.k === 'home'; $('#fee').textContent = ({home:150, '711':70, fami:70, hilife:60, ok:60}[el.dataset.k]) + ' 幣'; $('#addrL').textContent = home ? '收件地址' : '取貨門市'; $('#addr').placeholder = home ? '縣市／區／路段門牌' : '選擇門市（串接超商電子地圖）'; },
+      const home = el.dataset.k === 'home'; $('#addrL').textContent = home ? '收件地址' : '取貨門市'; $('#addr').placeholder = home ? '縣市／區／路段門牌' : '選擇門市（串接超商電子地圖）'; },
     'ship-ok': () => { S.wh.forEach(w => { if (S.whSel.includes(w.id)){ w.st = 'ship'; w.track = '揀貨中'; } }); const n = S.whSel.length; S.whSel = []; closeModal(); render(true); toast(`已申請出貨 ${n} 件`); },
     'recycle': () => recycleDialog(),
-    'recycle-ok': () => { let pts = 0; S.wh.forEach(w => { if (S.whSel.includes(w.id) && RECYCLE_PT[w.rk]){ w.st = 'recycled'; pts += RECYCLE_PT[w.rk]; } }); S.points += pts;
+    'recycle-ok': () => { let pts = 0; S.wh.forEach(w => { if (S.whSel.includes(w.id) && w.rv){ w.st = 'recycled'; pts += w.rv; } }); S.points += pts;
       S.tx.unshift({t:'回收獎品 → 平台點數', d:new Date().toLocaleString('zh-TW',{hour12:false}), a:pts, ic:'recycle', pt:true}); S.whSel = []; closeModal(); render(true); toast(`已回收，獲得 ${pts} 點`); },
     'pack': () => { S.pick.pack = +el.dataset.v; render(true); },
     'paym': () => { S.pick.pay = el.dataset.k; render(true); },
@@ -2211,6 +2262,7 @@ document.addEventListener('click', e => {
     'refund': () => openModal(`<h3 id="mdlT">申請未使用代幣退款</h3><p class="muted" style="font-size:14px">未使用之儲值代幣可依《退款與配送規範》申請退款，客服將以 Email 通知審核結果。</p>
         <div class="field" style="margin:16px 0"><label for="rfAmt">申請金額（代幣）</label><input class="input" id="rfAmt" inputmode="numeric" value="${S.coins}"></div><button class="btn gold block" data-act="refund-ok">送出申請</button>`),
     'copy': () => { try { navigator.clipboard.writeText('CHK8A2'); } catch(_){} toast('邀請碼已複製'); },
+    'shipsel': () => { S.shipPick = el.dataset.k; const ok = $('#ruleOk') && $('#ruleOk').checked; if (ok) S.rulesOk = true; buyDialog(); },
     'refund-ok': () => { closeModal(); toast('退款申請已送出，案件編號 RF-20261023-0012'); },
     'mfa': () => toast('已寄送兩步驟驗證設定說明至您的信箱'),
     'addcart': () => { S.cart.push(el.dataset.id); toast('已加入購物車'); render(true); },

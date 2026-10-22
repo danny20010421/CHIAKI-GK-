@@ -6,7 +6,7 @@ import { recycleItems, listWarehouse } from '../src/server/modules/warehouse/war
 import { markDelivered, markShipped, requestShipment } from '../src/server/modules/shipping/shipping';
 import { purchaseProduct } from '../src/server/modules/catalog/catalog';
 import { reconcileWallets } from '../src/server/modules/wallet/wallet';
-import { expectAppError, layoutOf, makeUser, publishPool, setupTestDb, smallPool, walletOf } from './helpers';
+import { expectAppError, FEE_CVS, FEE_HOME, layoutOf, makeUser, publishPool, setupTestDb, smallPool, walletOf } from './helpers';
 
 let env: Awaited<ReturnType<typeof setupTestDb>>;
 let k = 0;
@@ -23,14 +23,14 @@ async function winItems(coins = 5000) {
   const u = await makeUser({ coins });
   const layout = await layoutOf(poolId, 1);
   const pick = (rank: string) => layout.filter((t) => t.rank === rank).map((t) => t.ticketNo);
-  await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [...pick('A'), ...pick('C'), ...pick('D').slice(0, 3)] });
+  await executeDraw(u.id, key(), { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [...pick('A'), ...pick('C'), ...pick('D').slice(0, 3)] });
   const items = await listWarehouse(db(), u.id);
   const of = (rank: string) => items.filter((i) => i.rank === rank).map((i) => i.id);
-  return { u, of, items };
+  return { u, of, items, poolId };
 }
 
 describe('recycle → platform points', () => {
-  it('credits points per rank rate table; irreversible; non-recyclable ranks rejected atomically', async () => {
+  it('credits points per set-prize recycle value; irreversible; non-recyclable prizes rejected atomically', async () => {
     const { u, of } = await winItems();
     const before = await walletOf(u.id);
     await expectAppError(recycleItems(u.id, [of('A')[0]!, of('D')[0]!]), 'NOT_RECYCLABLE');
@@ -47,15 +47,17 @@ describe('recycle → platform points', () => {
 });
 
 describe('shipments', () => {
-  it('merges items, charges fee from config, walks STORED→SHIP_REQUESTED→SHIPPED→DELIVERED', async () => {
+  it('prepaid set items ship free; merges items; walks STORED→SHIP_REQUESTED→SHIPPED→DELIVERED', async () => {
     const { u, of } = await winItems();
     const ops = await makeUser({ roles: ['OPS'] });
     const member = await makeUser();
     const coins0 = (await walletOf(u.id)).coins;
-    const s = await requestShipment(u.id, { itemIds: [of('A')[0]!, ...of('D').slice(0, 2)], method: 'CVS_711', recipientName: '王小明', recipientPhone: '0912345678', cvsStoreId: '123456', cvsStoreName: '測試門市' });
+    assert.equal(coins0, 5000 - 600 - FEE_CVS, 'fee was prepaid at draw time');
+    const s = await requestShipment(u.id, { itemIds: [of('A')[0]!, ...of('D').slice(0, 2)], method: 'CVS_711_C2C', recipientName: '王小明', recipientPhone: '0912345678', cvsStoreId: '123456', cvsStoreName: '測試門市' });
     assert.equal(s.itemCount, 3);
-    assert.equal(s.feeCoins, 70);
-    assert.equal((await walletOf(u.id)).coins, coins0 - 70);
+    assert.equal(s.prepaidItemCount, 3);
+    assert.equal(s.feeCoins, 0, 'no fee for items whose set fee is prepaid');
+    assert.equal((await walletOf(u.id)).coins, coins0);
     assert.equal((await listWarehouse(db(), u.id, 'SHIP_REQUESTED')).length, 3);
     await expectAppError(recycleItems(u.id, [of('D')[0]!]), 'INVALID_STATE');
     await expectAppError(markShipped(member.principal, s.shipmentId, 'TRACK1'), 'FORBIDDEN');
@@ -66,14 +68,23 @@ describe('shipments', () => {
     await assert.rejects(db()`UPDATE warehouse_items SET status = 'STORED' WHERE id = ${of('A')[0]!}`, /invalid warehouse transition/);
   });
 
-  it('validates method requirements and ownership; fee failure rolls back', async () => {
-    const { u, of } = await winItems(600); // 6 tickets × 100 = 600 → 0 coins left
+  it('validates method requirements and ownership; Hi-Life/OK dropped; CVS-prepaid → home delivery pays the difference; fee failure rolls back', async () => {
+    const { u, of } = await winItems(600 + FEE_CVS); // 6 tickets × 100 + 預收超商運費 → 0 coins left
+    assert.equal((await walletOf(u.id)).coins, 0);
     await assert.rejects(requestShipment(u.id, { itemIds: [of('D')[0]!], method: 'HOME_DELIVERY', recipientName: 'A', recipientPhone: '0912345678' }), /address/);
-    await assert.rejects(requestShipment(u.id, { itemIds: [of('D')[0]!], method: 'CVS_FAMI' as const, recipientName: 'A', recipientPhone: '12345' }), /09xxxxxxxx/);
+    await assert.rejects(requestShipment(u.id, { itemIds: [of('D')[0]!], method: 'CVS_FAMI_C2C' as const, recipientName: 'A', recipientPhone: '12345' }), /09xxxxxxxx/);
+    for (const old of ['CVS_HILIFE', 'CVS_OK', 'CVS_711']) {
+      await assert.rejects(requestShipment(u.id, { itemIds: [of('D')[0]!], method: old as 'CVS_711_C2C', recipientName: 'A', recipientPhone: '0912345678', cvsStoreId: '1234' }), /Invalid enum value/);
+    }
+    // 預收的是超商運費 → 改宅配需補差額（宅配 − 超商）
     await expectAppError(requestShipment(u.id, { itemIds: [of('D')[0]!], method: 'HOME_DELIVERY', recipientName: 'A', recipientPhone: '0912345678', address: '台北市信義區測試路 1 號' }), 'INSUFFICIENT_FUNDS');
     assert.equal((await listWarehouse(db(), u.id, 'STORED')).length, 6, 'rolled back');
     const [{ n }] = (await db()`SELECT count(*)::int AS n FROM shipments WHERE user_id = ${u.id}`) as unknown as [{ n: number }];
     assert.equal(n, 0);
+    await transactionTopUp(u.id, 500);
+    const home = await requestShipment(u.id, { itemIds: [of('D')[0]!, of('D')[1]!], method: 'HOME_DELIVERY', recipientName: 'A', recipientPhone: '0912345678', address: '台北市信義區測試路 1 號' });
+    assert.equal(home.feeCoins, FEE_HOME - FEE_CVS);
+    assert.deepEqual(home.feeBreakdown.homeUpgrades.map((x) => x.amount), [FEE_HOME - FEE_CVS]);
   });
 });
 
@@ -87,6 +98,19 @@ describe('direct-buy catalog', () => {
     assert.equal(b.orderId, a.orderId);
     assert.equal((await walletOf(u.id)).coins, 5000 - 2560);
     await expectAppError(purchaseProduct(u.id, 'buy-key-0002', { productId: p!.id, qty: 1 }), 'CONFLICT');
-    assert.equal((await listWarehouse(db(), u.id)).filter((i) => i.source === 'PURCHASE').length, 2);
+    const bought = (await listWarehouse(db(), u.id)).filter((i) => i.source === 'PURCHASE');
+    assert.equal(bought.length, 2);
+    assert.ok(bought.every((i) => i.grade === null && i.rank === null && i.recyclable === false && i.storageExpiresAt instanceof Date));
+    // 直購商品沒有預收運費 → 依物流方式運費表收費
+    await transactionTopUp(u.id, 200);
+    const s = await requestShipment(u.id, { itemIds: bought.map((i) => i.id), method: 'CVS_FAMI_C2C', recipientName: 'A', recipientPhone: '0912345678', cvsStoreId: '9876' });
+    assert.equal(s.feeCoins, 70);
+    assert.equal(s.prepaidItemCount, 0);
   });
 });
+
+async function transactionTopUp(userId: string, amount: number) {
+  const { postLedger } = await import('../src/server/modules/wallet/wallet');
+  const { transaction } = await import('../src/server/db');
+  await transaction((tx) => postLedger(tx, { userId, currency: 'COINS', amount, entryType: 'ADMIN_ADJUST', refType: 'test', refId: 'x' }));
+}

@@ -1,0 +1,192 @@
+import { randomUUID } from 'node:crypto';
+import { config } from '../../config';
+import { db, transaction } from '../../db';
+import { appendAudit } from '../audit/audit';
+import { postLedger } from '../wallet/wallet';
+import { createNotification } from '../notifications/notifications';
+
+/**
+ * 寄存期限掃描（排程工作；可重複執行、可並行執行 → 結果冪等）。
+ *
+ * 規則（業主 2026-10）：
+ *  - 獎品自入庫起免費寄存 STORAGE_FREE_DAYS（預設 30）天（到期時間於入庫時寫入 storage_expires_at）。
+ *  - 到期前 STORAGE_WARN_DAYS_BEFORE（預設 7）天、以及到期當日（以台灣日期計）各發一次站內通知。
+ *  - 到期後仍為「保管中」的獎品，依「該套 × 該獎項」回收值自動回收，並以「代幣 COINS」入帳
+ *    （帳本類型 EXPIRY_AUTO_CONVERT，另寫稽核紀錄與通知）。
+ *  - 後台設定為「不可回收」的獎品（或沒有回收設定的直購商品）不自動轉換：標記並通知，留待客服處理。
+ *
+ * ⚠ 法律風險：以「可退款」代幣支付獎品價值，等同讓獎品可經由退款兌換現金，
+ *   可能使付費抽賞被認定為賭博或違法有獎銷售。因此到期轉換的代幣預設「不可退款」
+ *   （wallet_ledger.refundable = false，不計入可退款餘額）；可用 EXPIRY_COINS_REFUNDABLE=true 改變，
+ *   但請先取得台灣律師意見。
+ *
+ * 冪等性：每一步都以「條件式更新 + 列鎖」完成（狀態必須仍為 STORED、通知標記必須仍為 NULL），
+ * 第二次（或同時）執行不會重複入帳或重複通知；通知另有 dedupe_key 唯一索引。
+ */
+export interface StorageSweepResult {
+  autoConverted: number;
+  coinsCredited: number;
+  expiredHeld: number;
+  warnedToday: number;
+  warned7d: number;
+  notifications: number;
+}
+
+const TZ = 'Asia/Taipei';
+
+export async function runStorageSweep(now: Date = new Date()): Promise<StorageSweepResult> {
+  const c = config();
+  const result: StorageSweepResult = { autoConverted: 0, coinsCredited: 0, expiredHeld: 0, warnedToday: 0, warned7d: 0, notifications: 0 };
+
+  // ── 1. 到期：自動轉代幣（可回收者）或標記保留（不可回收者）。每位會員一個交易。
+  const users = await db()<{ userId: string }[]>`
+    SELECT DISTINCT wi.user_id FROM warehouse_items wi
+    LEFT JOIN set_prizes sp ON sp.set_id = wi.set_id AND sp.prize_id = wi.prize_id
+    WHERE wi.status = 'STORED' AND wi.storage_expires_at <= ${now}
+      AND (wi.storage_expired_hold_at IS NULL OR sp.recyclable)`;
+  for (const { userId } of users) {
+    const r = await transaction(async (tx) => {
+      // 鎖定順序與會員回收/出貨相同：物品（依 id）→ 錢包 → 稽核
+      const items = await tx<{ id: string; merchantId: string; prizeName: string; grade: string | null; recycleValue: number | null; recyclable: boolean | null; heldAt: Date | null; expiresAt: Date }[]>`
+        SELECT wi.id, wi.merchant_id, wi.prize_name, wi.grade, sp.recycle_value, sp.recyclable,
+               wi.storage_expired_hold_at AS held_at, wi.storage_expires_at AS expires_at
+        FROM warehouse_items wi
+        LEFT JOIN set_prizes sp ON sp.set_id = wi.set_id AND sp.prize_id = wi.prize_id
+        WHERE wi.user_id = ${userId} AND wi.status = 'STORED' AND wi.storage_expires_at <= ${now}
+        ORDER BY wi.id
+        FOR UPDATE OF wi`;
+      const convert = items.filter((i) => i.recyclable === true);
+      const hold = items.filter((i) => i.recyclable !== true && i.heldAt === null);
+      const out = { converted: 0, coins: 0, held: 0, notifications: 0 };
+
+      if (convert.length) {
+        const batchId = randomUUID();
+        for (const i of convert) {
+          await tx`UPDATE warehouse_items SET status = 'RECYCLED', recycled_coins = ${i.recycleValue!}, recycle_reason = 'STORAGE_EXPIRY',
+                          recycled_at = ${now}, updated_at = now()
+                   WHERE id = ${i.id}`;
+        }
+        const total = convert.reduce((s, i) => s + i.recycleValue!, 0);
+        let coinsAfter: number | null = null;
+        if (total > 0) {
+          coinsAfter = (
+            await postLedger(tx, {
+              userId,
+              currency: 'COINS',
+              amount: total,
+              entryType: 'EXPIRY_AUTO_CONVERT',
+              refType: 'storage_expiry_batch',
+              refId: batchId,
+              merchantId: convert[0]!.merchantId,
+              // 法律風險：見檔案開頭說明。預設不可退款 → 不計入可退款餘額。
+              refundable: c.EXPIRY_COINS_REFUNDABLE,
+              memo: `寄存到期自動轉換 ${convert.length} 件`,
+            })
+          ).balanceAfter;
+        }
+        const payloadItems = convert.map((i) => ({ id: i.id, prizeName: i.prizeName, grade: i.grade, coins: i.recycleValue! }));
+        if (
+          await createNotification(tx, {
+            userId,
+            type: 'STORAGE_AUTO_CONVERTED',
+            title: '寄存到期，獎品已自動轉為代幣',
+            body: `${convert.length} 件獎品寄存已到期，已依各獎項回收值轉為 ${total} 代幣${c.EXPIRY_COINS_REFUNDABLE ? '' : '（此代幣不可申請退款）'}。`,
+            payload: { batchId, items: payloadItems, totalCoins: total, refundable: c.EXPIRY_COINS_REFUNDABLE },
+            dedupeOn: { batch: convert.map((i) => i.id).sort() },
+          })
+        ) out.notifications++;
+        await appendAudit(tx, {
+          actorType: 'SYSTEM',
+          actorId: 'storage-sweep',
+          action: 'STORAGE_EXPIRY_AUTO_CONVERT',
+          entityType: 'storage_expiry_batch',
+          entityId: batchId,
+          merchantId: convert[0]!.merchantId,
+          payload: { userId, items: payloadItems.map(({ id, coins }) => ({ id, coins })), totalCoins: total, currency: 'COINS', refundable: c.EXPIRY_COINS_REFUNDABLE, coinsAfter, sweepAt: now.toISOString() },
+        });
+        out.converted = convert.length;
+        out.coins = total;
+      }
+
+      if (hold.length) {
+        await tx`UPDATE warehouse_items SET storage_expired_hold_at = ${now}, updated_at = now() WHERE id = ANY(${hold.map((i) => i.id)}::uuid[])`;
+        if (
+          await createNotification(tx, {
+            userId,
+            type: 'STORAGE_EXPIRED_HOLD',
+            title: '寄存已到期（不可回收獎品）',
+            body: `${hold.length} 件獎品寄存已到期且不可回收，請儘速申請出貨，客服將與您聯繫。`,
+            payload: { items: hold.map((i) => ({ id: i.id, prizeName: i.prizeName, grade: i.grade })) },
+            dedupeOn: { hold: hold.map((i) => i.id).sort() },
+          })
+        ) out.notifications++;
+        await appendAudit(tx, {
+          actorType: 'SYSTEM',
+          actorId: 'storage-sweep',
+          action: 'STORAGE_EXPIRED_HOLD',
+          entityType: 'user',
+          entityId: userId,
+          payload: { itemIds: hold.map((i) => i.id).sort(), sweepAt: now.toISOString() },
+        });
+        out.held = hold.length;
+      }
+      return out;
+    });
+    result.autoConverted += r.converted;
+    result.coinsCredited += r.coins;
+    result.expiredHeld += r.held;
+    result.notifications += r.notifications;
+  }
+
+  // ── 2. 到期當日通知（台灣日期）；同時視為已發過 7 天前通知（避免補發過時提醒）
+  // ── 3. 到期前 N 天通知
+  for (const kind of ['TODAY', '7D'] as const) {
+    const r = await transaction(async (tx) => {
+      const rows =
+        kind === 'TODAY'
+          ? await tx<{ id: string; userId: string; merchantId: string; prizeName: string; expiresAt: Date }[]>`
+              UPDATE warehouse_items SET storage_warned_day_at = ${now}, storage_warned_7d_at = COALESCE(storage_warned_7d_at, ${now})
+              WHERE id IN (
+                SELECT id FROM warehouse_items
+                WHERE status = 'STORED' AND storage_warned_day_at IS NULL AND storage_expires_at > ${now}
+                  AND (${now}::timestamptz AT TIME ZONE ${TZ})::date >= (storage_expires_at AT TIME ZONE ${TZ})::date
+                ORDER BY id FOR UPDATE SKIP LOCKED)
+                AND status = 'STORED' AND storage_warned_day_at IS NULL
+              RETURNING id, user_id, merchant_id, prize_name, storage_expires_at AS expires_at`
+          : await tx<{ id: string; userId: string; merchantId: string; prizeName: string; expiresAt: Date }[]>`
+              UPDATE warehouse_items SET storage_warned_7d_at = ${now}
+              WHERE id IN (
+                SELECT id FROM warehouse_items
+                WHERE status = 'STORED' AND storage_warned_7d_at IS NULL AND storage_expires_at > ${now}
+                  AND (${now}::timestamptz AT TIME ZONE ${TZ})::date >= (storage_expires_at AT TIME ZONE ${TZ})::date - ${c.STORAGE_WARN_DAYS_BEFORE}::int
+                ORDER BY id FOR UPDATE SKIP LOCKED)
+                AND status = 'STORED' AND storage_warned_7d_at IS NULL
+              RETURNING id, user_id, merchant_id, prize_name, storage_expires_at AS expires_at`;
+      const byUser = new Map<string, (typeof rows)[number][]>();
+      for (const row of rows) byUser.set(row.userId, [...(byUser.get(row.userId) ?? []), row]);
+      let sent = 0;
+      for (const [userId, list] of byUser) {
+        const earliest = list.reduce((a, b) => (a.expiresAt < b.expiresAt ? a : b)).expiresAt;
+        const day = new Date(earliest.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
+        const ok = await createNotification(tx, {
+          userId,
+          merchantId: list[0]!.merchantId,
+          type: kind === 'TODAY' ? 'STORAGE_EXPIRY_TODAY' : 'STORAGE_EXPIRY_7D',
+          title: kind === 'TODAY' ? '獎品寄存今日到期' : `獎品寄存將於 ${c.STORAGE_WARN_DAYS_BEFORE} 天內到期`,
+          body:
+            kind === 'TODAY'
+              ? `${list.length} 件獎品寄存今日（${day}）到期，到期未出貨的可回收獎品將依回收值自動轉為代幣。`
+              : `${list.length} 件獎品寄存將於 ${day} 起陸續到期，請於期限前申請出貨或回收；到期未處理的可回收獎品將依回收值自動轉為代幣。`,
+          payload: { items: list.map((i) => ({ id: i.id, prizeName: i.prizeName, expiresAt: i.expiresAt.toISOString() })) },
+          dedupeOn: { items: list.map((i) => i.id).sort() },
+        });
+        if (ok) sent++;
+      }
+      return { items: rows.length, sent };
+    });
+    if (kind === 'TODAY') result.warnedToday += r.items;
+    else result.warned7d += r.items;
+    result.notifications += r.sent;
+  }
+  return result;
+}

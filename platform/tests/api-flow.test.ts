@@ -47,7 +47,7 @@ describe('member journey over HTTP route handlers', () => {
     assert.equal(await (await notifyRoute(apiRequest('POST', '/api/payments/ecpay/notify', { rawBody: new URLSearchParams(n).toString() }))).text(), '1|OK');
 
     // 未年齡驗證不得抽
-    const blocked = await j<{ error: { code: string } }>(await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0001' }, body: { poolId: 'flow-pool', setNo: 1, ticketNos: [1] } }), none));
+    const blocked = await j<{ error: { code: string } }>(await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0001' }, body: { poolId: 'flow-pool', shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1] } }), none));
     assert.equal(blocked.body.error.code, 'AGE_VERIFICATION_REQUIRED');
     const minor = await ageVerify(apiRequest('POST', '/api/me/age-verification', { token, body: { birthDate: '2015-01-01' } }), none);
     assert.equal(minor.status, 403);
@@ -58,14 +58,14 @@ describe('member journey over HTTP route handlers', () => {
     assert.deepEqual(hold.body.ticketNos, [1, 2, 3]);
     const rel = await j<{ released: number[] }>(await releaseRoute(apiRequest('DELETE', '/api/pools/flow-pool/sets/1/holds', { token, body: { ticketNos: [3] } }), ctx({ id: 'flow-pool', no: '1' })));
     assert.deepEqual(rel.body.released, [3]);
-    const noKey = await drawRoute(apiRequest('POST', '/api/draws', { token, body: { poolId, setNo: 1, ticketNos: [1, 2] } }), none);
+    const noKey = await drawRoute(apiRequest('POST', '/api/draws', { token, body: { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1, 2] } }), none);
     assert.equal(noKey.status, 400);
-    const bad = await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0002' }, body: { poolId, setNo: 1, ticketNos: [1, 1] } }), none);
+    const bad = await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0002' }, body: { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1, 1] } }), none);
     assert.equal(bad.status, 400);
-    const d1 = await j<{ drawId: string; coinsAfter: number; results: { warehouseItemId: string; rank: string }[] }>(await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0003' }, body: { poolId, setNo: 1, ticketNos: [1, 2] } }), none));
+    const d1 = await j<{ drawId: string; coinsAfter: number; results: { warehouseItemId: string; rank: string }[] }>(await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0003' }, body: { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1, 2] } }), none));
     assert.equal(d1.status, 201);
-    assert.equal(d1.body.coinsAfter, 800);
-    const replay = await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0003' }, body: { poolId, setNo: 1, ticketNos: [1, 2] } }), none);
+    assert.equal(d1.body.coinsAfter, 800 - 70, 'draw + prepaid CVS shipping fee');
+    const replay = await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0003' }, body: { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1, 2] } }), none);
     assert.equal(replay.status, 200);
     assert.equal(replay.headers.get('idempotent-replayed'), 'true');
     assert.equal(((await replay.json()) as { drawId: string }).drawId, d1.body.drawId);
@@ -75,8 +75,8 @@ describe('member journey over HTTP route handlers', () => {
     assert.equal(board.body.tickets.find((t) => t.no === 1)!.state, 'TAKEN');
 
     const wallet = await j<{ coins: number; points: number; ledger: { entryType: string }[] }>(await walletRoute(apiRequest('GET', '/api/me/wallet', { token }), none));
-    assert.equal(wallet.body.coins, 800);
-    assert.deepEqual(wallet.body.ledger.map((l) => l.entryType), ['DRAW_DEBIT', 'TOPUP']);
+    assert.equal(wallet.body.coins, 800 - 70);
+    assert.deepEqual(wallet.body.ledger.map((l) => l.entryType), ['SHIPPING_PREPAID', 'DRAW_DEBIT', 'TOPUP']);
 
     const wh = await j<{ items: { id: string; rank: string; status: string }[] }>(await warehouseRoute(apiRequest('GET', '/api/me/warehouse?status=STORED', { token }), none));
     assert.equal(wh.body.items.length, 2);

@@ -5,6 +5,7 @@ import { canonicalJson, sha256Hex } from '../../lib/canonical';
  * 事前承諾（commit–reveal）。
  *
  *   canonical = canonicalJson({ scheme, poolId, setNo, rulesHash, tickets: [[ticketNo, rank, prizeId], ...] })   // 依 ticketNo 升冪
+ *   （自製賞池沒有賞級：rank 為 null；獎項以 prizeId 識別，名稱/等級由 rulesHash 綁定的規則快照提供）
  *   commitment = SHA-256( canonical + "\n" + saltHex )
  *
  * 發布時只公開 commitment 與 rulesHash；完售後公開 layout 與 salt，任何人可重算比對。
@@ -14,7 +15,7 @@ export const COMMIT_SCHEME = 'chiaki-commit-v1';
 
 export interface LayoutEntry {
   ticketNo: number;
-  rank: string;
+  rank: string | null;
   prizeId: string;
 }
 
@@ -43,8 +44,8 @@ export function generateSalt(): string {
 }
 
 /** 以 CSPRNG（crypto.randomInt）做 Fisher–Yates 洗牌，產生 1..N 籤號對應的獎項。 */
-export function generateLayout(prizes: { id: string; rank: string; qtyPerSet: number }[]): LayoutEntry[] {
-  const bag: { id: string; rank: string }[] = [];
+export function generateLayout(prizes: { id: string; rank: string | null; qtyPerSet: number }[]): LayoutEntry[] {
+  const bag: { id: string; rank: string | null }[] = [];
   for (const p of prizes) for (let i = 0; i < p.qtyPerSet; i++) bag.push({ id: p.id, rank: p.rank });
   for (let i = bag.length - 1; i > 0; i--) {
     const j = randomInt(i + 1);

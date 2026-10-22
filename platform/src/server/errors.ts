@@ -21,7 +21,8 @@ export type ErrorCode =
   | 'SELF_APPROVAL'
   | 'ALREADY_CLAIMED'
   | 'NOT_IMPLEMENTED'
-  | 'PAYMENT_INVALID';
+  | 'PAYMENT_INVALID'
+  | 'SHIPPING_METHOD_REQUIRED';
 
 const STATUS: Record<ErrorCode, number> = {
   VALIDATION: 400,
@@ -47,6 +48,7 @@ const STATUS: Record<ErrorCode, number> = {
   ALREADY_CLAIMED: 409,
   NOT_IMPLEMENTED: 501,
   PAYMENT_INVALID: 400,
+  SHIPPING_METHOD_REQUIRED: 400,
 };
 
 /** 可預期的業務錯誤：會轉成乾淨的 JSON 錯誤回應，且交易一律 rollback。 */

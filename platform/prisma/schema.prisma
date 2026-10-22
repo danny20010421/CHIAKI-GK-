@@ -6,7 +6,8 @@
 // ⚠ 本開發環境無法連線 npm registry 與 binaries.prisma.sh，因此尚未以 `prisma validate`/`prisma generate`
 //   驗證；執行期資料存取使用 postgres.js（原生 SQL、明確交易與 FOR UPDATE 列鎖）。
 //   若日後改用 Prisma Client：`npx prisma validate && npx prisma generate`，並以
-//   `npx prisma migrate resolve --applied 20261023000000_init` 標記既有 migration。
+//   `npx prisma migrate resolve --applied 20261023000000_init` 與
+//   `npx prisma migrate resolve --applied 20261024000000_grades_storage_prepaid_shipping` 標記既有 migration。
 // 關聯欄位（relation fields）刻意省略：外鍵已在 SQL migration 中定義。
 
 generator client {
@@ -72,8 +73,9 @@ model DrawResult {
   kind            String
   ticketNo        Int?    @map("ticket_no")
   prizeId         String? @map("prize_id") @db.Uuid
-  rank            String
-  tier            Int
+  rank            String?
+  tier            Int?
+  grade           String
   prizeName       String  @map("prize_name")
   warehouseItemId String  @map("warehouse_item_id") @db.Uuid
   @@unique([drawId, seq])
@@ -91,6 +93,7 @@ model Draw {
   ticketCount    Int      @map("ticket_count")
   unitPrice      BigInt   @map("unit_price")
   amountCoins    BigInt   @map("amount_coins")
+  shippingCoins  BigInt   @default(0) @map("shipping_coins")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   @@unique([userId, idempotencyKey])
   @@map("draws")
@@ -158,25 +161,29 @@ model PaymentOrder {
 }
 
 model PoolGuarantee {
-  poolId           String @id @map("pool_id") @db.Uuid
-  everyN           Int    @map("every_n")
-  minTier          Int    @map("min_tier")
-  reserveRank      String @map("reserve_rank")
-  reservePrizeName String @map("reserve_prize_name")
-  reserveTotal     Int    @map("reserve_total")
-  reserveUsed      Int    @default(0) @map("reserve_used")
+  poolId           String  @id @map("pool_id") @db.Uuid
+  everyN           Int     @map("every_n")
+  minGrade         String  @map("min_grade")
+  reserveRank      String? @map("reserve_rank")
+  reservePrizeName String  @map("reserve_prize_name")
+  reserveTotal     Int     @map("reserve_total")
+  reserveUsed      Int     @default(0) @map("reserve_used")
+  reservePrizeId   String  @map("reserve_prize_id") @db.Uuid
   @@map("pool_guarantees")
 }
 
+// 唯一性（部分索引，Prisma 無法表達）：(pool_id, rank) WHERE kind='TICKET' AND rank IS NOT NULL；(pool_id, kind, name)；每池最多一個 LAST/GUARANTEE
 model PoolPrize {
-  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  poolId    String @map("pool_id") @db.Uuid
-  rank      String
-  tier      Int
-  name      String
-  qtyPerSet Int    @map("qty_per_set")
-  sortOrder Int    @default(0) @map("sort_order")
-  @@unique([poolId, rank])
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  poolId       String  @map("pool_id") @db.Uuid
+  rank         String?
+  name         String
+  qtyPerSet    Int     @map("qty_per_set")
+  sortOrder    Int     @default(0) @map("sort_order")
+  kind         String  @default("TICKET")
+  grade        String
+  recycleValue BigInt  @default(0) @map("recycle_value")
+  recyclable   Boolean @default(false)
   @@map("pool_prizes")
 }
 
@@ -209,6 +216,8 @@ model PoolSet {
   publishedAt     DateTime  @default(now()) @map("published_at") @db.Timestamptz(6)
   onSaleAt        DateTime? @map("on_sale_at") @db.Timestamptz(6)
   soldOutAt       DateTime? @map("sold_out_at") @db.Timestamptz(6)
+  shipFeeHome     BigInt    @default(150) @map("ship_fee_home")
+  shipFeeCvs      BigInt    @default(70) @map("ship_fee_cvs")
   @@unique([poolId, setNo])
   @@map("pool_sets")
 }
@@ -231,6 +240,9 @@ model Pool {
   createdBy            String?   @map("created_by") @db.Uuid
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   publishedAt          DateTime? @map("published_at") @db.Timestamptz(6)
+  shippingNote         String    @default("") @map("shipping_note")
+  shipFeeHome          BigInt    @default(150) @map("ship_fee_home")
+  shipFeeCvs           BigInt    @default(70) @map("ship_fee_cvs")
   @@map("pools")
 }
 
@@ -270,16 +282,6 @@ model RateCounter {
 
   @@id([userId, action, windowStart])
   @@map("rate_counters")
-}
-
-model RecycleRate {
-  merchantId String  @default("chiaki") @map("merchant_id")
-  rank       String
-  points     BigInt
-  recyclable Boolean
-
-  @@id([merchantId, rank])
-  @@map("recycle_rates")
 }
 
 model RefundRequest {
@@ -343,8 +345,52 @@ model Shipment {
   trackingNo     String?   @map("tracking_no")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   shippedAt      DateTime? @map("shipped_at") @db.Timestamptz(6)
-  deliveredAt    DateTime? @map("delivered_at") @db.Timestamptz(6)
+  deliveredAt      DateTime? @map("delivered_at") @db.Timestamptz(6)
+  prepaidItemCount Int       @default(0) @map("prepaid_item_count")
   @@map("shipments")
+}
+
+model ShippingPrepayment {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId        String   @default("chiaki") @map("merchant_id")
+  userId            String   @map("user_id") @db.Uuid
+  poolId            String   @map("pool_id") @db.Uuid
+  setId             String   @map("set_id") @db.Uuid
+  drawId            String   @map("draw_id") @db.Uuid
+  seq               Int
+  method            String
+  feeCoins          BigInt   @map("fee_coins")
+  smallItemsCovered Int      @map("small_items_covered")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@unique([userId, setId, seq])
+  @@map("shipping_prepayments")
+}
+
+model SetPrize {
+  setId        String   @map("set_id") @db.Uuid
+  prizeId      String   @map("prize_id") @db.Uuid
+  recycleValue BigInt   @map("recycle_value")
+  recyclable   Boolean
+  updatedBy    String?  @map("updated_by") @db.Uuid
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@id([setId, prizeId])
+  @@map("set_prizes")
+}
+
+model Notification {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId  String    @default("chiaki") @map("merchant_id")
+  userId      String    @map("user_id") @db.Uuid
+  type        String
+  channel     String    @default("IN_APP")
+  title       String
+  body        String
+  payloadJson String    @default("{}") @map("payload_json")
+  dedupeKey   String    @unique @map("dedupe_key")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  readAt      DateTime? @map("read_at") @db.Timestamptz(6)
+  @@map("notifications")
 }
 
 model ShippingMethod {
@@ -425,9 +471,11 @@ model WalletLedgerEntry {
   entryType    String   @map("entry_type")
   refType      String   @map("ref_type")
   refId        String   @map("ref_id")
-  memo         String?
-  createdBy    String?  @map("created_by") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  memo               String?
+  createdBy          String?  @map("created_by") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  refundable         Boolean?
+  nonrefundableAfter BigInt?  @map("nonrefundable_after")
   @@map("wallet_ledger")
 }
 
@@ -435,8 +483,9 @@ model Wallet {
   userId     String   @id @map("user_id") @db.Uuid
   merchantId String   @default("chiaki") @map("merchant_id")
   coins      BigInt   @default(0)
-  points     BigInt   @default(0)
-  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  points             BigInt   @default(0)
+  updatedAt          DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  nonrefundableCoins BigInt   @default(0) @map("nonrefundable_coins")
   @@map("wallets")
 }
 
@@ -452,13 +501,20 @@ model WarehouseItem {
   prizeId        String?   @map("prize_id") @db.Uuid
   productId      String?   @map("product_id") @db.Uuid
   purchaseId     String?   @map("purchase_id") @db.Uuid
-  rank           String
-  prizeName      String    @map("prize_name")
-  status         String    @default("STORED")
-  shipmentId     String?   @map("shipment_id") @db.Uuid
-  recycledPoints BigInt?   @map("recycled_points")
-  recycledAt     DateTime? @map("recycled_at") @db.Timestamptz(6)
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  rank                 String?
+  prizeName            String    @map("prize_name")
+  status               String    @default("STORED")
+  shipmentId           String?   @map("shipment_id") @db.Uuid
+  recycledPoints       BigInt?   @map("recycled_points")
+  recycledAt           DateTime? @map("recycled_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  grade                String?
+  storageExpiresAt     DateTime  @map("storage_expires_at") @db.Timestamptz(6)
+  storageWarned7dAt    DateTime? @map("storage_warned_7d_at") @db.Timestamptz(6)
+  storageWarnedDayAt   DateTime? @map("storage_warned_day_at") @db.Timestamptz(6)
+  storageExpiredHoldAt DateTime? @map("storage_expired_hold_at") @db.Timestamptz(6)
+  recycledCoins        BigInt?   @map("recycled_coins")
+  recycleReason        String?   @map("recycle_reason")
   @@map("warehouse_items")
 }
