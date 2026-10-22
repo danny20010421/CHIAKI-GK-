@@ -796,5 +796,59 @@ body.rm .reveal{opacity:1;transform:none}
 .rules-end b{font-family:var(--serif-tc);font-size:18px}
 .rules-end p{margin:var(--s1) 0 0;color:var(--tx-2);font-size:14px;line-height:1.8}
 .gold-t{color:var(--gold-2)!important;font-weight:700}
+
+/* hero text block: optical centring (letter-spacing adds trailing space) */
+.hero .center{left:0;right:0;width:100%}
+.hero .kicker{padding-left:.42em}
+.hero .tagline{padding-left:.32em;text-align:center}
+.hero .sub{padding-left:.12em;text-align:center}
+.hero-brand{text-align:center}
+
+/* ---------- win glow ---------- */
+.tix .halo{position:absolute;left:50%;top:50%;width:150%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;z-index:-1;opacity:0;transition:opacity .6s;
+  background:conic-gradient(from 0deg,transparent 0 8%,var(--tc) 12%,transparent 20% 33%,var(--tc) 38%,transparent 46% 58%,var(--tc) 63%,transparent 71% 83%,var(--tc) 88%,transparent 96%);
+  filter:blur(14px);animation:haloSpin 7s linear infinite}
+@keyframes haloSpin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+.tix.win-t2 .halo{opacity:.45}
+.tix.win-t3 .halo,.tix.win-t4 .halo{opacity:.9}
+.tix.win .inner{animation:reveal .6s var(--ease),winPulse 1.8s ease-in-out .6s infinite}
+@keyframes winPulse{0%,100%{box-shadow:0 24px 64px rgba(0,0,0,.6),0 0 0 1px var(--tc),0 0 24px 2px var(--tc)}50%{box-shadow:0 24px 64px rgba(0,0,0,.6),0 0 0 2px var(--tc),0 0 64px 12px var(--tc)}}
+.tix.win-t4 .inner{animation:reveal .6s var(--ease),winPulse 1.2s ease-in-out .6s infinite,hueGlow 3s linear infinite}
+@keyframes hueGlow{to{filter:hue-rotate(360deg)}}
+.tix.win .shine::before{animation:sweep 1.1s var(--ease) .1s,sweep 1.6s var(--ease) 2.2s infinite}
+@media (prefers-reduced-motion:reduce){.tix .halo{animation:none}}
+body.rm .tix .halo{animation:none}
+
+/* ---------- admin: uploads, charts, settings ---------- */
+.upl{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.upl .btn{cursor:pointer}
+.upl input:focus-visible + span{outline:2px solid var(--gold-2)}
+.upl-out{flex-basis:100%}
+.upl-res{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding:12px;border-radius:var(--r-1);background:var(--bg-2);border:1px solid var(--line)}
+.upl-res ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:12px}
+.upl-res li{display:flex;align-items:center;gap:8px;white-space:normal}
+.upl-res li b{font-weight:500;min-width:64px}
+.upl-res li span{color:var(--tx-2)}
+.upl-res li.ok svg{color:var(--ok)} .upl-res li.no svg{color:var(--bad)} .upl-res li.no span{color:var(--bad)}
+.upl-res .tag{align-self:flex-start}
+.upl-prev{position:relative;width:160px;max-height:200px;border-radius:6px;overflow:hidden;background:#000}
+.upl-prev img{width:100%;height:100%;object-fit:cover}
+.upl-prev i{position:absolute;border:1px dashed rgba(230,199,127,.9);border-radius:4px;pointer-events:none}
+.bars{width:100%;height:160px;display:block}
+.bars .grid{stroke:var(--line);stroke-width:.15}
+.bars .bar rect{fill:var(--gold);transition:fill .15s}
+.bars .bar:hover rect{fill:var(--gold-2)}
+.bars-x{display:flex;justify-content:space-around;font-size:11px;color:var(--tx-3);margin-top:6px;gap:4px}
+.bars-x span{flex:1;text-align:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fun{display:grid;grid-template-columns:72px minmax(0,1fr) 64px;align-items:center;gap:12px;min-height:32px;font-size:13px}
+.fun span{color:var(--tx-2)} .fun b{text-align:right;font-weight:500}
+.fun-b{height:12px;border-radius:6px;background:var(--sf-3);overflow:hidden}
+.fun-b i{display:block;height:100%;border-radius:6px;background:var(--gold)}
+.cfg{display:flex;flex-direction:column;gap:24px;align-items:stretch}
+.cfg > .btn{align-self:flex-start}
+.cfg-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:599px){.cfg-g{grid-template-columns:minmax(0,1fr)}}
+.spec-ol{margin:0;padding-left:20px;color:var(--tx-2);font-size:14px;line-height:2}
+.stage .top{flex-wrap:wrap}
 </style>
 </head>

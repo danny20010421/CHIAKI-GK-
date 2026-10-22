@@ -9,7 +9,7 @@ routes.warehouse = () => {
   return `<div class="wrap">
     <div class="page-h"><h1>中獎倉庫</h1><p>中獎獎品自動入庫。可勾選多件合併出貨，或依各獎品回收值換成平台點數。</p></div>
     <div class="tabs" role="tablist" aria-label="倉庫狀態">${WH_TABS.map(([k,t]) => `<button role="tab" aria-selected="${S.whTab===k}" data-act="whtab" data-k="${k}">${t}<span class="n">${S.wh.filter(w=>w.st===k).length}</span></button>`).join('')}</div>
-    ${S.whTab==='stored' && list.length ? `<div class="row between" style="margin-bottom:16px;flex-wrap:wrap"><span class="muted" style="font-size:13px">${ic('clock','width:16px;height:16px;vertical-align:-3px')} 免費保管 ${STORE_DAYS} 天・到期前 7 天及當天提醒・逾期依回收值自動轉為代幣</span><button class="btn s ghost" data-act="whall">${n===list.length?'取消全選':'全選'}</button></div>` : ''}
+    ${S.whTab==='stored' && list.length ? `<div class="row between" style="margin-bottom:16px;flex-wrap:wrap"><span class="muted" style="font-size:13px">${ic('clock','width:16px;height:16px;vertical-align:-3px')} 免費保管 ${storeDays()} 天・到期前 7 天及當天提醒・逾期依回收值自動轉為代幣</span><button class="btn s ghost" data-act="whall">${n===list.length?'取消全選':'全選'}</button></div>` : ''}
     ${list.length ? `<div class="wlist">${list.map(w => `
       <label class="witem ${S.whSel.includes(w.id)?'sel':''}">
         ${S.whTab==='stored' ? `<input type="checkbox" data-act="whsel" data-id="${w.id}" ${S.whSel.includes(w.id)?'checked':''} aria-label="選取 ${w.name}">` : ''}
@@ -51,7 +51,7 @@ function recycleDialog(){
         <button class="pay" role="radio" data-act="frway" data-k="coin" aria-pressed="${S.frWay!=='bank'&&S.frWay!=='ecpay'}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span>代幣（推薦）</span><span class="dim" style="font-size:12px">+${fmt(frAmt)} 幣・即時</span></button>
         <button class="pay" role="radio" data-act="frway" data-k="bank" aria-pressed="${S.frWay==='bank'}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span>銀行轉帳</span><span class="dim" style="font-size:12px">NT$ ${fmt(frAmt)}・審核</span></button>
         <button class="pay" role="radio" data-act="frway" data-k="ecpay" aria-pressed="${S.frWay==='ecpay'}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span>綠界退刷</span><span class="dim" style="font-size:12px">NT$ ${fmt(frAmt)}・審核</span></button>
-      </div><p class="dim" style="font-size:12px;margin:8px 0 0">代幣退還為預收運費的 ${SHIP_REFUND_RATIO*100}%，屬不可退款代幣。</p></div>` : ''}
+      </div><p class="dim" style="font-size:12px;margin:8px 0 0">代幣退還為預收運費的 ${shipRefundRatio()*100}%，屬不可退款代幣。</p></div>` : ''}
     <button class="btn gold block" data-act="recycle-ok" ${pts?'':'disabled'}>確認回收</button>`);
 }
 function shipRefundCalc(items){
@@ -61,7 +61,7 @@ function shipRefundCalc(items){
     const left = S.wh.filter(w => w.pool === pid && (w.set||0) === +set && w.g === 'S' && w.st !== 'recycled' && !(items.includes(w) && w.rv)).length;
     const need = Math.floor(left / 20) + 1, surplus = Math.max(0, rec.n - need);
     const fee = rec.m === 'home' ? p.ship.home : p.ship.cvs;
-    return {key, surplus, need, fee, amt: Math.round(surplus * fee * SHIP_REFUND_RATIO)}; }).filter(x => x.surplus);
+    return {key, surplus, need, fee, amt: Math.round(surplus * fee * shipRefundRatio())}; }).filter(x => x.surplus);
 }
 
 /* =========================================================
@@ -386,7 +386,7 @@ function heroFx(){
       if (t.y > H + 120){ t.y = -120; t.x = rnd(0,W); } if (t.x < -140) t.x = W + 140; if (t.x > W + 140) t.x = -140;
       ticket(t, sy); }
     const logo = $('#heroLogo');
-    if (logo){ logo.style.transform = `translate3d(${-tx*10}px,${-ty*8 + sy*.25}px,0)`; logo.parentElement.style.opacity = Math.max(0, 1 - sy/(H*.7)); }
+    if (logo){ logo.parentElement.style.transform = `translate3d(0,${sy*.25}px,0)`; logo.parentElement.style.opacity = Math.max(0, 1 - sy/(H*.7)); }  // keep logo + tagline centred: no horizontal parallax
     if (vis && !RM()) raf = requestAnimationFrame(frame);
   }
   /* wind: pointer movement pushes nearby tickets and turns them; phone shake throws them around */
@@ -448,6 +448,7 @@ document.addEventListener('click', e => {
     'fullboard': () => fullBoard(),
     'verify': () => { if (!$('#vOk').checked){ toast('請勾選年齡確認'); return; } S.verified = true; closeModal(); toast('年齡驗證完成'); buyDialog(); },
     'confirm-buy': () => confirmBuy(),
+    'next': () => { if (!D || D.busy) return; if (D.i >= D.results.length) showSummary(); else nextTicket(); },
     'auto': () => { if (!D) return; D.auto = !D.auto; el.setAttribute('aria-pressed', D.auto); el.textContent = D.auto ? '自動撕開中' : '全部自動撕開';
       if (D.auto){ if (!D.done && !D.busy) autoPeel(); else if (D.done && !D.busy && D.i < D.results.length) nextTicket(); } },
     'skip': () => { if (D){ D.auto = false; showSummary(); } },

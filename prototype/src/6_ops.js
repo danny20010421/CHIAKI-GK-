@@ -5,7 +5,7 @@
    plus member-side notification settings and full rules page.
    ========================================================= */
 const ADMIN_HASH = '4be1a191ec62fa1deb76d7c64fc6eaa259207c898a1ea1a621069a3ca4fc99ab'; // front-end test gate only
-const SHIP_REFUND_RATIO = 0.5;
+const shipRefundRatio = () => ((S.cfg && S.cfg.refundPct != null) ? S.cfg.refundPct : 50) / 100;
 const CARRIERS = {
   tcat:{n:'黑貓宅急便', url:'https://www.t-cat.com.tw/inquire/trace.aspx'},
   hct:{n:'新竹物流', url:'https://www.hct.com.tw/search/searchgoods_n.aspx'},
@@ -120,7 +120,7 @@ ADM_VIEWS.ship = () => `<div class="flow">${SHIP_FLOW.map(st => `<div class="flo
     </tbody></table></div>
     <p class="dim" style="font-size:12px;margin-top:12px">標記「已出貨」時必須填寫物流單號，系統會自動以簡訊／站內通知告知會員，會員可於中獎倉庫查看並查詢物流。</p>`;
 ADM_VIEWS.refund = () => `<div class="panel" style="margin-bottom:24px"><h3>運費退款設定</h3>
-      <div class="kv"><span>代幣部分退還比例（優先）</span><b>${SHIP_REFUND_RATIO*100}%・不可退款代幣</b></div>
+      <div class="kv"><span>代幣部分退還比例（優先）</span><b>${shipRefundRatio()*100}%・不可退款代幣</b></div>
       <div class="kv"><span>台幣退款管道</span><b>銀行轉帳／綠界刷卡退刷</b></div>
       <div class="kv"><span>台幣退款撥款</span><b>需第二位管理員覆核</b></div></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>編號</th><th>會員</th><th>類型</th><th>管道</th><th class="r">金額</th><th>說明</th><th>狀態</th><th></th></tr></thead><tbody>

@@ -98,7 +98,8 @@ const tagOf = (x, small) => x.rk === 'LAST' ? rankTag('LAST', small) : x.custom
 const labelOf = x => x.rk === 'LAST' ? '最後賞' : x.custom ? x.name : RK[x.rk].label;
 const glyphOf = x => x.rk === 'LAST' ? 'L' : x.custom ? ({G:'★',M:'◆',S:'・'}[x.g]) : (x.rk === 'P' ? 'P' : x.rk);
 const SHIP_M = {home:'宅配到府', c711:'7-ELEVEN 交貨便', fami:'全家 店到店'};
-const STORE_DAYS = 30;
+const STORE_DAYS_DEFAULT = 30;
+const storeDays = () => (S.cfg && S.cfg.storeDays) || STORE_DAYS_DEFAULT;
 const SRC = {o:{t:'官方套組',c:'src-o'}, s:{t:'自製套組',c:'src-s'}, m:{t:'混合套組',c:'src-m'}};
 const PLAY = {std:'標準選籤', guar:'保底挑戰', solo:'單挑賞池'};
 
@@ -180,7 +181,7 @@ function shipQuote(p, n, pick){
   const add = Math.max(0, need - rec.n);
   return {key, m, fee, add, cost:add*fee, paid:rec.n, locked:!!rec.m, small, cap:rec.n*20};
 }
-const daysLeft = at => { const end = new Date(at); end.setDate(end.getDate() + STORE_DAYS); return {end:end.toISOString().slice(0,10), d:Math.ceil((end - new Date(new Date().toISOString().slice(0,10))) / 864e5)}; };
+const daysLeft = at => { const end = new Date(at); end.setDate(end.getDate() + storeDays()); return {end:end.toISOString().slice(0,10), d:Math.ceil((end - new Date(new Date().toISOString().slice(0,10))) / 864e5)}; };
 
 /* ---------- App state (demo user) ---------- */
 const S = {
