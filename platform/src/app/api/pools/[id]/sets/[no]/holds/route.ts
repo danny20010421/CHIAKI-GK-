@@ -14,7 +14,7 @@ export const POST = route(async (req: Request, ctx: RouteContext<{ id: string; n
   const { id, no } = await ctx.params;
   const b = await body(req, HoldBody);
   return json(await holdTickets(p.userId, id, intParam(no, 'setNo'), b.ticketNos), 201);
-});
+}, { bot: 'HOLD' });
 
 /** DELETE /api/pools/:id/sets/:no/holds — 釋出自己的鎖籤（body 可省略＝全部） */
 export const DELETE = route(async (req: Request, ctx: RouteContext<{ id: string; no: string }>) => {

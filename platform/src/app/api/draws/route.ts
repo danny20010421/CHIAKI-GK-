@@ -20,4 +20,4 @@ export const POST = route(async (req: Request) => {
   }
   const { response, replayed } = await executeDraw(p.userId, req.headers.get('idempotency-key'), raw);
   return json(response, replayed ? 200 : 201, replayed ? { 'idempotent-replayed': 'true' } : {});
-});
+}, { bot: 'DRAW' });

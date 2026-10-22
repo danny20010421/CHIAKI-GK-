@@ -5,6 +5,9 @@ import { transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
 import { displayName, type Grade } from '../pool/grades';
+import { lockUserSetShipping, refundSurplusShippingFees, type SurplusRefund } from '../shipping/prepaid';
+import { notifyEvent } from '../notifications/outbox';
+import { requirePermission, type Principal } from '../auth/rbac';
 
 /**
  * 中獎倉庫。狀態機（資料庫 trigger 同步強制）：
@@ -69,14 +72,31 @@ export async function lockStoredItems(tx: Tx, userId: string, itemIds: string[])
   return rows;
 }
 
+export interface RecycleResult {
+  batchId: string;
+  points: number;
+  pointsAfter: number;
+  items: { id: string; prizeName: string; grade: Grade | null; points: number }[];
+  /** 因持有小獎減少而自動部分退還的運費（不可退款代幣） */
+  shippingFeeRefunds: SurplusRefund[];
+  /** 會員選擇新台幣退款時：可申請退款的多收運費（prepaymentId） */
+  shippingFeesRefundableInCash: { setId: string; prepaymentIds: string[] }[];
+}
+
 /**
  * 會員主動回收 → 平台點數（不可逆）。回收值依「該套 × 該獎項」的後台設定（set_prizes），
  * recyclable=false 或無設定（例如直購商品）者不可回收。點數性質與折算標準待法遵確認。
+ *
+ * 回收小獎後若預收運費多收：預設（shippingRefund='COINS'）自動以 SHIPPING_REFUND_RATIO 退還為不可退款代幣；
+ * 'CASH' 表示會員要改申請新台幣退款 → 不自動退代幣，回傳可申請的運費份數（POST /api/me/shipping-refunds）。
  */
-export async function recycleItems(userId: string, itemIds: string[]): Promise<{ batchId: string; points: number; pointsAfter: number; items: { id: string; prizeName: string; grade: Grade | null; points: number }[] }> {
+export async function recycleItems(userId: string, itemIds: string[], opts: { shippingRefund?: 'COINS' | 'CASH' } = {}): Promise<RecycleResult> {
   const ids = ItemIdsSchema.parse(itemIds);
   return transaction(async (tx) => {
     const items = await lockStoredItems(tx, userId, ids);
+    // 鎖順序：物品 → 運費 advisory lock → 錢包 → 稽核
+    const smallSets = [...new Set(items.filter((i) => i.grade === 'SMALL' && i.setId).map((i) => i.setId!))].sort();
+    for (const sid of smallSets) await lockUserSetShipping(tx, userId, sid);
     const cfg = await tx<{ id: string; recycleValue: number; recyclable: boolean }[]>`
       SELECT wi.id, sp.recycle_value, sp.recyclable FROM warehouse_items wi
       JOIN set_prizes sp ON sp.set_id = wi.set_id AND sp.prize_id = wi.prize_id
@@ -98,14 +118,63 @@ export async function recycleItems(userId: string, itemIds: string[]): Promise<{
     } else {
       pointsAfter = (await tx<{ points: number }[]>`SELECT points FROM wallets WHERE user_id = ${userId}`)[0]!.points;
     }
+    const fr = smallSets.length
+      ? await refundSurplusShippingFees(tx, userId, smallSets, { mode: opts.shippingRefund === 'CASH' ? 'KEEP' : 'COINS', reason: 'USER_RECYCLE' })
+      : { refunds: [], keptSurplus: [], coinsAfter: null };
+    if (fr.refunds.length) {
+      await notifyEvent(tx, {
+        userId,
+        event: 'SHIPPING_FEE_REFUND',
+        data: { count: fr.refunds.length, coins: fr.refunds.reduce((a, r) => a + r.refundCoins, 0) },
+        payload: { refunds: fr.refunds },
+        dedupeOn: { refunds: fr.refunds.map((r) => r.refundId).sort() },
+      });
+    }
     await appendAudit(tx, {
       actorType: 'USER',
       actorId: userId,
       action: 'ITEMS_RECYCLED',
       entityType: 'recycle_batch',
       entityId: batchId,
-      payload: { items: priced.map((p) => ({ id: p.id, grade: p.grade, points: p.points })), totalPoints: total },
+      payload: {
+        items: priced.map((p) => ({ id: p.id, grade: p.grade, points: p.points })),
+        totalPoints: total,
+        shippingFeeRefunds: fr.refunds.map((r) => ({ refundId: r.refundId, prepaymentId: r.prepaymentId, coins: r.refundCoins })),
+      },
     });
-    return { batchId, points: total, pointsAfter, items: priced };
+    return { batchId, points: total, pointsAfter, items: priced, shippingFeeRefunds: fr.refunds, shippingFeesRefundableInCash: fr.keptSurplus };
+  });
+}
+
+export const ExtendStorageSchema = z.object({
+  userId: z.string().uuid(),
+  days: z.number().int().min(1).max(90),
+  itemIds: ItemIdsSchema.optional(),
+  reason: z.string().max(500).default(''),
+});
+
+/**
+ * 延長寄存期限（客服一鍵動作）：會員「保管中」的獎品（或指定物品）到期日延後 N 天，
+ * 並重設到期提醒標記與「到期保留」標記，讓新期限仍會收到 7 天前／當日通知。
+ */
+export async function extendStorage(actor: Principal, input: z.input<typeof ExtendStorageSchema>) {
+  requirePermission(actor, 'storage.extend');
+  const v = ExtendStorageSchema.parse(input);
+  return transaction(async (tx) => {
+    const rows = await tx<{ id: string; storageExpiresAt: Date }[]>`
+      UPDATE warehouse_items SET storage_expires_at = storage_expires_at + make_interval(days => ${v.days}),
+             storage_warned_7d_at = NULL, storage_warned_day_at = NULL, storage_expired_hold_at = NULL, updated_at = now()
+      WHERE user_id = ${v.userId} AND status = 'STORED' ${v.itemIds ? tx`AND id = ANY(${v.itemIds}::uuid[])` : tx``}
+      RETURNING id, storage_expires_at`;
+    if (!rows.length) throw new AppError('INVALID_STATE', '沒有可延長的保管中獎品');
+    await appendAudit(tx, {
+      actorType: 'ADMIN',
+      actorId: actor.userId,
+      action: 'STORAGE_EXTENDED',
+      entityType: 'user',
+      entityId: v.userId,
+      payload: { days: v.days, itemIds: rows.map((r) => r.id).sort(), reason: v.reason },
+    });
+    return { userId: v.userId, days: v.days, items: rows.map((r) => ({ id: r.id, storageExpiresAt: r.storageExpiresAt })) };
   });
 }

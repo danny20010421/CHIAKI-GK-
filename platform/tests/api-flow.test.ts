@@ -44,7 +44,7 @@ describe('member journey over HTTP route handlers', () => {
     const co = await j<{ merchantTradeNo: string; params: Record<string, string> }>(await checkoutRoute(apiRequest('POST', '/api/payments/ecpay/checkout', { token, body: { packageCode: 'P1000' } }), none));
     const n: Record<string, string> = { MerchantID: '3002607', MerchantTradeNo: co.body.merchantTradeNo, RtnCode: '1', RtnMsg: 'Succeeded', TradeNo: '9999', TradeAmt: '1000', PaymentDate: '2026/10/23 10:00:00', PaymentType: 'Credit_CreditCard', PaymentTypeChargeFee: '0', TradeDate: '2026/10/23 09:59:00', SimulatePaid: '0' };
     n.CheckMacValue = computeCheckMacValue(n, 'pwFHCqoQZGmho4w6', 'EkRm7iFT261dpevs');
-    assert.equal(await (await notifyRoute(apiRequest('POST', '/api/payments/ecpay/notify', { rawBody: new URLSearchParams(n).toString() }))).text(), '1|OK');
+    assert.equal(await (await notifyRoute(apiRequest('POST', '/api/payments/ecpay/notify', { rawBody: new URLSearchParams(n).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded' } }))).text(), '1|OK');
 
     // 未年齡驗證不得抽
     const blocked = await j<{ error: { code: string } }>(await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0001' }, body: { poolId: 'flow-pool', shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1] } }), none));

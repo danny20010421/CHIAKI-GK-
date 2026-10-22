@@ -3,9 +3,10 @@ import { AppError } from '../../errors';
 import { transaction, type Db } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
-import { requirePermission, type Principal } from '../auth/rbac';
+import type { Principal } from '../auth/rbac';
 import { ItemIdsSchema, lockStoredItems } from '../warehouse/warehouse';
 import { methodCategory, SHIPPING_METHODS } from './fees';
+import { advanceShipment, listMemberShipments } from './fulfilment';
 
 export { SHIPPING_METHODS };
 
@@ -92,34 +93,10 @@ export async function requestShipment(userId: string, input: z.input<typeof Ship
   });
 }
 
-export async function listShipments(db: Db, userId: string) {
-  return db`SELECT id, method, status, fee_coins, item_count, prepaid_item_count, tracking_no, created_at, shipped_at, delivered_at
-            FROM shipments WHERE user_id = ${userId} ORDER BY created_at DESC`;
-}
+/** 會員出貨單列表（含物流商、追蹤編號與查詢網址），見 fulfilment.ts */
+export const listShipments = listMemberShipments;
 
-async function transition(actor: Principal, shipmentId: string, from: 'REQUESTED' | 'SHIPPED', to: 'SHIPPED' | 'DELIVERED', trackingNo?: string) {
-  requirePermission(actor, 'shipment.manage');
-  return transaction(async (tx) => {
-    const [s] = await tx<{ id: string; status: string }[]>`SELECT id, status FROM shipments WHERE id = ${shipmentId} FOR UPDATE`;
-    if (!s) throw new AppError('NOT_FOUND', 'shipment not found');
-    if (s.status !== from) throw new AppError('INVALID_STATE', `shipment is ${s.status}`);
-    if (to === 'SHIPPED') {
-      await tx`UPDATE shipments SET status = 'SHIPPED', tracking_no = ${trackingNo ?? null}, shipped_at = now() WHERE id = ${s.id}`;
-    } else {
-      await tx`UPDATE shipments SET status = 'DELIVERED', delivered_at = now() WHERE id = ${s.id}`;
-    }
-    const items = await tx`UPDATE warehouse_items SET status = ${to}, updated_at = now() WHERE shipment_id = ${s.id} RETURNING id`;
-    await appendAudit(tx, {
-      actorType: 'ADMIN',
-      actorId: actor.userId,
-      action: to === 'SHIPPED' ? 'SHIPMENT_SHIPPED' : 'SHIPMENT_DELIVERED',
-      entityType: 'shipment',
-      entityId: s.id,
-      payload: { trackingNo: trackingNo ?? null, items: items.length },
-    });
-    return { shipmentId: s.id, status: to };
-  });
-}
-
-export const markShipped = (actor: Principal, shipmentId: string, trackingNo: string) => transition(actor, shipmentId, 'REQUESTED', 'SHIPPED', trackingNo);
-export const markDelivered = (actor: Principal, shipmentId: string) => transition(actor, shipmentId, 'SHIPPED', 'DELIVERED');
+/** 相容舊 API：標記已出貨（出貨單須已在「包裝」狀態；必須填物流商與追蹤編號） */
+export const markShipped = (actor: Principal, shipmentId: string, trackingNo: string, carrier?: string) =>
+  advanceShipment(actor, shipmentId, { to: 'SHIPPED', trackingNo, carrier });
+export const markDelivered = (actor: Principal, shipmentId: string) => advanceShipment(actor, shipmentId, { to: 'DELIVERED' });

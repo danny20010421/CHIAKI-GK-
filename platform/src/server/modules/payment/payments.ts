@@ -6,6 +6,8 @@ import { appendAudit, type ActorType } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
 import { flagLargeTopup, recordRiskEvent } from '../risk/risk';
 import { buildAioCheckoutParams, generateMerchantTradeNo, verifyCheckMacValue } from './ecpay';
+import { ipInList } from '../../security/ip';
+import { recordSecurityEvent } from '../../security/events';
 
 export const CheckoutSchema = z.object({
   packageCode: z.string().min(1).max(20),
@@ -94,23 +96,57 @@ export async function creditPaidOrder(
   return { credited: true, coinsAfter: balanceAfter };
 }
 
-export type NotifyOutcome = 'CREDITED' | 'DUPLICATE' | 'BAD_MAC' | 'BAD_MERCHANT' | 'UNKNOWN_ORDER' | 'AMOUNT_MISMATCH' | 'NOT_PAID' | 'SIMULATED_IGNORED';
+export type NotifyOutcome =
+  | 'CREDITED'
+  | 'DUPLICATE'
+  | 'BAD_MAC'
+  | 'BAD_MERCHANT'
+  | 'UNKNOWN_ORDER'
+  | 'AMOUNT_MISMATCH'
+  | 'NOT_PAID'
+  | 'SIMULATED_IGNORED'
+  | 'IP_NOT_ALLOWED'
+  | 'STALE'
+  | 'REPLAY_MISMATCH';
+
+/** 綠界日期格式 yyyy/MM/dd HH:mm:ss（台灣時間）→ Date */
+function parseEcpayDate(s: string | undefined): Date | null {
+  const m = s && /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(s);
+  if (!m) return null;
+  return new Date(Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]! - 8, +m[5]!, +m[6]!));
+}
 
 /**
  * 綠界 ReturnURL 付款結果通知（server-to-server, application/x-www-form-urlencoded）。
- * 驗證 CheckMacValue → 比對商店代號/金額 → 每個 MerchantTradeNo 只入帳一次；成功或重複皆回 1|OK。
+ * 防護：來源 IP 允許清單（ECPAY_NOTIFY_IP_ALLOWLIST，選用）→ CheckMacValue（timing-safe）→ 商店代號 →
+ *   通知時間新鮮度（ECPAY_NOTIFY_MAX_AGE_HOURS，選用）→ 金額 → 每個 MerchantTradeNo 只入帳一次。
+ * 重放防護：同一份已簽章的通知重送 → 冪等（訂單已 PAID → 1|OK 不再入帳）；已入帳訂單收到「不同 TradeNo」的通知
+ *   （以舊簽章資料拼湊/重放）→ 拒絕並記錄風控事件。綠界在未收到 1|OK 時會重送，因此重複的合法通知一律回 1|OK。
  */
-export async function handleEcpayNotify(rawBody: string): Promise<{ body: string; status: number; outcome: NotifyOutcome }> {
+export async function handleEcpayNotify(rawBody: string, meta: { ip?: string } = {}): Promise<{ body: string; status: number; outcome: NotifyOutcome }> {
   const c = config();
   const params = Object.fromEntries(new URLSearchParams(rawBody)) as Record<string, string>;
   const tradeNo = params.MerchantTradeNo ?? null;
+  const ip = meta.ip ?? 'unknown';
+  if (c.ECPAY_NOTIFY_IP_ALLOWLIST && !ipInList(ip, c.ECPAY_NOTIFY_IP_ALLOWLIST)) {
+    await recordSecurityEvent('ECPAY_NOTIFY_REJECTED', { ip, severity: 'HIGH', details: { reason: 'ip_not_allowed', merchantTradeNo: tradeNo } });
+    await db()`INSERT INTO payment_notifications (provider, merchant_trade_no, raw_body, mac_valid, outcome)
+               VALUES ('ECPAY', ${tradeNo}, ${rawBody.slice(0, 10_000)}, false, 'IP_NOT_ALLOWED')`;
+    return { body: '0|Forbidden', status: 403, outcome: 'IP_NOT_ALLOWED' };
+  }
   const macValid = verifyCheckMacValue(params, c.ECPAY_HASH_KEY, c.ECPAY_HASH_IV);
+  const paidAt = parseEcpayDate(params.PaymentDate);
+  const stale = c.ECPAY_NOTIFY_MAX_AGE_HOURS > 0 && (!paidAt || Date.now() - paidAt.getTime() > c.ECPAY_NOTIFY_MAX_AGE_HOURS * 3600_000);
 
   let result: { body: string; status: number; outcome: NotifyOutcome };
   if (!macValid) {
+    await recordSecurityEvent('ECPAY_NOTIFY_REJECTED', { ip, details: { reason: 'bad_mac', merchantTradeNo: tradeNo } });
     result = { body: '0|CheckMacValue Error', status: 400, outcome: 'BAD_MAC' };
   } else if (params.MerchantID !== c.ECPAY_MERCHANT_ID) {
     result = { body: '0|MerchantID Error', status: 400, outcome: 'BAD_MERCHANT' };
+  } else if (stale) {
+    await recordSecurityEvent('ECPAY_NOTIFY_REJECTED', { ip, details: { reason: 'stale', merchantTradeNo: tradeNo, paymentDate: params.PaymentDate ?? null } });
+    result = { body: '0|Stale Notification', status: 400, outcome: 'STALE' };
   } else {
     result = await transaction(async (tx) => {
       const [order] = await tx<OrderRow[]>`
@@ -121,7 +157,14 @@ export async function handleEcpayNotify(rawBody: string): Promise<{ body: string
         await recordRiskEvent(tx, { userId: order.userId, type: 'PAYMENT_MISMATCH', severity: 'HIGH', details: { orderId: order.id, expected: order.amountTwd, got: params.TradeAmt ?? null } });
         return { body: '0|TradeAmt Error', status: 400, outcome: 'AMOUNT_MISMATCH' as const };
       }
-      if (order.status === 'PAID') return { body: '1|OK', status: 200, outcome: 'DUPLICATE' as const };
+      if (order.status === 'PAID') {
+        const [o] = await tx<{ providerTradeNo: string | null }[]>`SELECT provider_trade_no FROM payment_orders WHERE id = ${order.id}`;
+        if (o?.providerTradeNo && params.TradeNo && o.providerTradeNo !== params.TradeNo) {
+          await recordRiskEvent(tx, { userId: order.userId, type: 'PAYMENT_MISMATCH', severity: 'HIGH', details: { orderId: order.id, reason: 'trade_no_mismatch_on_paid_order', got: params.TradeNo } });
+          return { body: '0|TradeNo Mismatch', status: 400, outcome: 'REPLAY_MISMATCH' as const };
+        }
+        return { body: '1|OK', status: 200, outcome: 'DUPLICATE' as const };
+      }
       if (params.RtnCode !== '1') {
         await tx`UPDATE payment_orders SET status = 'FAILED', updated_at = now() WHERE id = ${order.id} AND status = 'PENDING'`;
         return { body: '1|OK', status: 200, outcome: 'NOT_PAID' as const };

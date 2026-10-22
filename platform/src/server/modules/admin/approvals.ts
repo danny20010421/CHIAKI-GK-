@@ -9,12 +9,13 @@ import { publishPool, publishRuleVersion } from '../pool/admin';
 import { executeRefund } from '../wallet/refunds';
 import { postLedger } from '../wallet/wallet';
 import { executeBankTransferConfirm } from '../payment/payments';
+import { notifyEvent } from '../notifications/outbox';
 
 /**
  * 高風險後台動作採「雙人覆核」：A 提出申請 → 另一位具核准權限的 B 核准後才「在同一交易內」執行。
  * 資料庫另有 CHECK (decided_by <> requested_by) 作為最後防線。
  */
-export type ApprovalType = 'PUBLISH_POOL' | 'PUBLISH_RULE_VERSION' | 'REFUND' | 'BALANCE_ADJUST' | 'BANK_TRANSFER_CONFIRM';
+export type ApprovalType = 'PUBLISH_POOL' | 'PUBLISH_RULE_VERSION' | 'REFUND' | 'BALANCE_ADJUST' | 'BANK_TRANSFER_CONFIRM' | 'CS_COMPENSATION';
 
 const APPROVE_PERMISSION: Record<ApprovalType, Permission> = {
   PUBLISH_POOL: 'pool.publish.approve',
@@ -22,6 +23,7 @@ const APPROVE_PERMISSION: Record<ApprovalType, Permission> = {
   REFUND: 'refund.approve',
   BALANCE_ADJUST: 'wallet.adjust.approve',
   BANK_TRANSFER_CONFIRM: 'payment.bank.confirm.approve',
+  CS_COMPENSATION: 'cs.compensation.approve',
 };
 
 interface ApprovalRow {
@@ -37,7 +39,7 @@ interface ApprovalRow {
   resultJson: string | null;
 }
 
-async function createApproval(tx: Tx, actor: Principal, type: ApprovalType, targetId: string, payload: Record<string, unknown>): Promise<{ approvalId: string }> {
+export async function createApproval(tx: Tx, actor: Principal, type: ApprovalType, targetId: string, payload: Record<string, unknown>): Promise<{ approvalId: string }> {
   const rows = await tx<{ id: string }[]>`
     INSERT INTO approval_requests (type, target_id, payload_json, requested_by)
     VALUES (${type}, ${targetId}, ${canonicalJson(payload)}, ${actor.userId})
@@ -96,6 +98,13 @@ export async function decideRefundRequest(actor: Principal, refundId: string, de
     if (r.status !== 'REQUESTED') throw new AppError('INVALID_STATE', `refund is ${r.status}`);
     if (decision === 'REJECT') {
       await tx`UPDATE refund_requests SET status = 'REJECTED', decided_by = ${actor.userId}, decided_at = now() WHERE id = ${refundId}`;
+      await notifyEvent(tx, {
+        userId: r.userId,
+        event: 'REFUND_STATUS',
+        data: { kindLabel: '代幣退款', amountLabel: `${r.amountCoins} 代幣`, statusLabel: '已駁回', note: note ?? null },
+        payload: { refundId, status: 'REJECTED' },
+        dedupeOn: { refundId, status: 'REJECTED' },
+      });
       await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'REFUND_REJECTED', entityType: 'refund_request', entityId: refundId, payload: { note: note ?? null } });
       return { refundId, status: 'REJECTED' as const };
     }
@@ -116,6 +125,19 @@ export async function requestBankTransferConfirm(actor: Principal, orderId: stri
   });
 }
 
+export const CompensationSchema = z.object({
+  userId: z.string().uuid(),
+  points: z.number().int().positive().max(1_000_000),
+  memo: z.string().min(2).max(500),
+  ticketId: z.string().uuid().optional(),
+});
+
+/** 客服補償點數（CS_COMPENSATION，入平台點數）。由 cs 模組依門檻決定直接入帳或走雙人覆核。 */
+export async function postCompensation(tx: Tx, v: z.infer<typeof CompensationSchema>, actorId: string, refType: string, refId: string) {
+  const r = await postLedger(tx, { userId: v.userId, currency: 'POINTS', amount: v.points, entryType: 'CS_COMPENSATION', refType, refId, memo: v.memo, createdBy: actorId });
+  return { userId: v.userId, points: v.points, ...r };
+}
+
 // ───────────── 覆核 ─────────────
 
 async function execute(tx: Tx, a: ApprovalRow, approverId: string): Promise<Record<string, unknown>> {
@@ -129,6 +151,15 @@ async function execute(tx: Tx, a: ApprovalRow, approverId: string): Promise<Reco
       return executeRefund(tx, a.targetId, approverId);
     case 'BANK_TRANSFER_CONFIRM':
       return executeBankTransferConfirm(tx, a.targetId, approverId);
+    case 'CS_COMPENSATION': {
+      const v = CompensationSchema.parse(payload);
+      const r = await postCompensation(tx, v, approverId, 'approval_request', a.id);
+      if (v.ticketId) {
+        await tx`INSERT INTO cs_messages (ticket_id, author_type, author_id, body, internal)
+                 VALUES (${v.ticketId}, 'SYSTEM', ${approverId}, ${`補償 ${v.points} 點已核准入帳（覆核 ${a.id}）`}, true)`;
+      }
+      return r;
+    }
     case 'BALANCE_ADJUST': {
       const v = BalanceAdjustSchema.parse(payload);
       const r = await postLedger(tx, {

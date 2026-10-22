@@ -6,9 +6,11 @@ import { appendAudit } from '../audit/audit';
 import { ensureWallet } from '../wallet/wallet';
 import { recordDevice } from '../risk/risk';
 import { otpProvider } from './providers';
-import type { Principal, Role } from './rbac';
+import type { AuthMethod, Principal, Role } from './rbac';
+import { assertNotLocked, clearLoginFailures, recordLoginFailure } from '../../security/lockout';
+import { qualifyPendingReferral, registerReferral } from '../referral/referral';
 
-const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
+export const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
 
 export async function createUser(
   d: Db,
@@ -24,11 +26,17 @@ export async function createUser(
   return row!;
 }
 
-export async function createSession(d: Db, userId: string): Promise<string> {
+/**
+ * 建立 session。authMethod=PASSWORD（後台密碼登入）時 reauth_at = now()；mfa=true 表示本次登入已通過 TOTP。
+ * 後台 session 存活時間較短（12 小時）；會員 session 為 SESSION_TTL_DAYS。
+ */
+export async function createSession(d: Db, userId: string, opts: { authMethod?: AuthMethod; mfa?: boolean } = {}): Promise<string> {
   const token = randomBytes(32).toString('base64url');
-  const ttlDays = config().SESSION_TTL_DAYS;
-  await d`INSERT INTO auth_sessions (token_hash, user_id, expires_at)
-          VALUES (${hashToken(token)}, ${userId}, now() + make_interval(days => ${ttlDays}))`;
+  const method = opts.authMethod ?? 'OTP';
+  const ttl = method === 'PASSWORD' ? { hours: 12 } : { days: config().SESSION_TTL_DAYS };
+  await d`INSERT INTO auth_sessions (token_hash, user_id, expires_at, auth_method, reauth_at, mfa_verified_at)
+          VALUES (${hashToken(token)}, ${userId}, now() + make_interval(days => ${ttl.days ?? 0}, hours => ${ttl.hours ?? 0}),
+                  ${method}, ${method === 'PASSWORD' ? new Date() : null}, ${opts.mfa ? new Date() : null})`;
   return token;
 }
 
@@ -36,36 +44,63 @@ export async function revokeSession(d: Db, token: string): Promise<void> {
   await d`UPDATE auth_sessions SET revoked_at = now() WHERE token_hash = ${hashToken(token)}`;
 }
 
-export async function authenticate(d: Db, token: string): Promise<Principal | null> {
-  const rows = await d<{ userId: string; status: string; ageVerifiedAt: Date | null; roles: Role[] }[]>`
-    SELECT u.id AS user_id, u.status, u.age_verified_at,
+export async function authenticate(d: Db, token: string, via: 'BEARER' | 'COOKIE' = 'BEARER'): Promise<Principal | null> {
+  const th = hashToken(token);
+  const rows = await d<{ userId: string; status: string; ageVerifiedAt: Date | null; roles: Role[]; authMethod: AuthMethod; reauthAt: Date | null; mfaVerifiedAt: Date | null }[]>`
+    SELECT u.id AS user_id, u.status, u.age_verified_at, s.auth_method, s.reauth_at, s.mfa_verified_at,
            COALESCE(array_agg(r.role) FILTER (WHERE r.role IS NOT NULL), '{}') AS roles
     FROM auth_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN user_roles r ON r.user_id = u.id
-    WHERE s.token_hash = ${hashToken(token)} AND s.revoked_at IS NULL AND s.expires_at > now()
-    GROUP BY u.id`;
+    WHERE s.token_hash = ${th} AND s.revoked_at IS NULL AND s.expires_at > now()
+    GROUP BY u.id, s.auth_method, s.reauth_at, s.mfa_verified_at`;
   const r = rows[0];
   if (!r || r.status !== 'ACTIVE') return null;
-  return { userId: r.userId, roles: r.roles, ageVerified: r.ageVerifiedAt !== null };
+  return {
+    userId: r.userId,
+    roles: r.roles,
+    ageVerified: r.ageVerifiedAt !== null,
+    session: { tokenHash: th, authMethod: r.authMethod, reauthAt: r.reauthAt, mfaVerifiedAt: r.mfaVerifiedAt, via },
+  };
 }
 
 export async function requestOtp(phone: string): Promise<void> {
   await otpProvider().send(phone);
 }
 
-/** 手機 OTP 登入（不存在則建立會員＋錢包），並記錄裝置指紋供風控。 */
-export async function loginWithOtp(phone: string, code: string, deviceFingerprint?: string): Promise<{ token: string; userId: string; isNew: boolean }> {
+/**
+ * 手機 OTP 登入（不存在則建立會員＋錢包），並記錄裝置指紋供風控。
+ * OTP 驗證成功即視為「完成手機驗證」（phone_verified_at）。新會員帶邀請碼 → 建立邀請關係並即時評估邀請獎勵。
+ * 暴力破解防護：同一手機連續失敗會指數退避/鎖定（security/lockout.ts）。
+ */
+export async function loginWithOtp(
+  phone: string,
+  code: string,
+  deviceFingerprint?: string,
+  opts: { inviteCode?: string | null; ip?: string | null } = {},
+): Promise<{ token: string; userId: string; isNew: boolean; referral?: { status: string; reasons?: string[] } | null }> {
+  const lockKey = `otp:${phone}`;
+  await assertNotLocked(lockKey);
   const ok = await otpProvider().verify(phone, code);
-  if (!ok) throw new AppError('UNAUTHENTICATED', 'invalid OTP');
+  if (!ok) {
+    await recordLoginFailure(lockKey, { ip: opts.ip });
+    throw new AppError('UNAUTHENTICATED', 'invalid OTP');
+  }
+  await clearLoginFailures(lockKey);
   const result = await transaction(async (tx) => {
     const [existing] = await tx<{ id: string; status: string }[]>`SELECT id, status FROM users WHERE phone = ${phone}`;
     if (existing && existing.status !== 'ACTIVE') throw new AppError('FORBIDDEN', 'account suspended');
     const isNew = !existing;
     const user = existing ?? (await createUser(tx, { phone }));
+    const newlyVerified = await tx`UPDATE users SET phone_verified_at = now() WHERE id = ${user.id} AND phone_verified_at IS NULL RETURNING id`;
+    if (newlyVerified.length && !isNew) await qualifyPendingReferral(tx, user.id);
     const token = await createSession(tx, user.id);
     if (isNew) {
-      await appendAudit(tx, { actorType: 'USER', actorId: user.id, action: 'USER_REGISTERED', entityType: 'user', entityId: user.id });
+      await appendAudit(tx, { actorType: 'USER', actorId: user.id, action: 'USER_REGISTERED', entityType: 'user', entityId: user.id, payload: { invited: Boolean(opts.inviteCode) } });
     }
-    return { token, userId: user.id, isNew };
+    const referral =
+      isNew && opts.inviteCode
+        ? await registerReferral(tx, { inviteeId: user.id, inviteCode: opts.inviteCode, phone, ip: opts.ip ?? null, deviceFingerprint: deviceFingerprint ?? null })
+        : null;
+    return { token, userId: user.id, isNew, referral };
   });
   if (deviceFingerprint) await recordDevice(db(), result.userId, deviceFingerprint);
   return result;

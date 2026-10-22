@@ -26,11 +26,65 @@ const EnvSchema = z.object({
   // 寄存：自入庫起免費保管天數、到期前幾天通知
   STORAGE_FREE_DAYS: z.coerce.number().int().positive().default(30),
   STORAGE_WARN_DAYS_BEFORE: z.coerce.number().int().positive().default(7),
-  // 寄存到期自動轉換的「代幣」是否可退款。預設 false（不可退款）：
-  // 若可退款，獎品 → 代幣 → 退款即形成「獎品可兌換現金」，恐涉賭博/有獎銷售疑慮（待法務確認）。
-  EXPIRY_COINS_REFUNDABLE: bool,
+  // 業主規則（2026-10 第二批）：到期自動轉換、邀請獎勵、運費部分退還的代幣一律「不可退款・無法轉換」。
+  // 舊的 EXPIRY_COINS_REFUNDABLE 開關已移除（設定了也不會生效）。
   // 運費按套預收：一份運費涵蓋同一會員在同一套的「小獎」件數上限（發布時寫入規則快照）
   SHIPPING_SMALL_ITEMS_PER_FEE: z.coerce.number().int().positive().default(20),
+  // 回收小獎後多收的運費：自動以「不可退款代幣」部分退還的比例（0–1）；新台幣退款申請同一比例
+  SHIPPING_REFUND_RATIO: z.coerce.number().min(0).max(1).default(0.5),
+  // 綠界信用卡刷退 API 替身（開發用；正式環境必須關閉）
+  ECPAY_REFUND_STUB: bool,
+  // 綠界 ReturnURL 防護：來源 IP 允許清單（逗號分隔，可用 CIDR；空＝不限制）、通知時間新鮮度（小時，0＝不檢查）
+  ECPAY_NOTIFY_IP_ALLOWLIST: z.string().default(''),
+  ECPAY_NOTIFY_MAX_AGE_HOURS: z.coerce.number().int().min(0).default(0),
+
+  // 邀請獎勵：達成人數、獎勵代幣（不可退款）、防濫用門檻
+  REFERRAL_REWARD_THRESHOLD: z.coerce.number().int().positive().default(20),
+  REFERRAL_REWARD_COINS: z.coerce.number().int().positive().default(1000),
+  REFERRAL_PHONE_PREFIX_LEN: z.coerce.number().int().min(4).max(10).default(8),
+  REFERRAL_PHONE_PREFIX_MAX: z.coerce.number().int().positive().default(3),
+  REFERRAL_IP_BURST_MAX: z.coerce.number().int().positive().default(3),
+  REFERRAL_IP_BURST_WINDOW_MIN: z.coerce.number().int().positive().default(60),
+
+  // 防火牆（應用層）：用戶端 IP 來源 header（部署於 Vercel/Cloudflare 等反向代理之後）
+  CLIENT_IP_HEADER: z.string().default('x-forwarded-for'),
+  RATE_LIMIT_IP_CAPACITY: z.coerce.number().int().positive().default(120),
+  RATE_LIMIT_IP_REFILL_PER_SEC: z.coerce.number().positive().default(2),
+  RATE_LIMIT_USER_CAPACITY: z.coerce.number().int().positive().default(60),
+  RATE_LIMIT_USER_REFILL_PER_SEC: z.coerce.number().positive().default(1),
+  MAX_BODY_BYTES: z.coerce.number().int().positive().default(64 * 1024),
+  BLOCKLIST_CACHE_MS: z.coerce.number().int().min(0).default(30_000),
+  // 機器人偵測：抽賞/鎖籤在 BOT_WINDOW_MS 內超過 BOT_MAX_REQUESTS 次 → 拒絕並記錄風控事件
+  BOT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
+  BOT_WINDOW_MS: z.coerce.number().int().positive().default(3000),
+  // 登入暴力破解防護：連續失敗 LOGIN_BACKOFF_AFTER 次起指數退避，達 LOGIN_MAX_FAILURES 次鎖定 LOGIN_LOCK_MINUTES 分鐘
+  LOGIN_BACKOFF_AFTER: z.coerce.number().int().positive().default(3),
+  LOGIN_BACKOFF_BASE_SEC: z.coerce.number().int().positive().default(2),
+  LOGIN_MAX_FAILURES: z.coerce.number().int().positive().default(10),
+  LOGIN_LOCK_MINUTES: z.coerce.number().int().positive().default(30),
+
+  // 後台：重新驗證有效時間、MFA 是否必須、IP 允許清單（逗號分隔，可用 CIDR；空＝不限制）
+  ADMIN_REAUTH_MAX_AGE_MIN: z.coerce.number().int().positive().default(30),
+  ADMIN_MFA_REQUIRED: bool,
+  ADMIN_IP_ALLOWLIST: z.string().default(''),
+  // TOTP 秘密金鑰加密用（32 bytes，hex 或 base64）；production 必填
+  MFA_ENCRYPTION_KEY: z.string().default(''),
+
+  // 客服補償點數：超過此數需第二人核准
+  CS_COMPENSATION_APPROVAL_THRESHOLD: z.coerce.number().int().positive().default(500),
+
+  // 通知外送：重試次數與退避、外部管道替身（開發用；正式環境必須關閉）
+  NOTIFY_MAX_ATTEMPTS: z.coerce.number().int().positive().default(6),
+  NOTIFY_BACKOFF_BASE_SEC: z.coerce.number().int().positive().default(30),
+  NOTIFY_STUB_SEND: bool,
+  MITAKE_API_URL: z.string().default('https://smsapi.mitake.com.tw/api/mtk/SmSend'),
+  MITAKE_USERNAME: z.string().default(''),
+  MITAKE_PASSWORD: z.string().default(''),
+  LINE_CHANNEL_ACCESS_TOKEN: z.string().default(''),
+  VAPID_PUBLIC_KEY: z.string().default(''),
+  VAPID_PRIVATE_KEY: z.string().default(''),
+  VAPID_SUBJECT: z.string().default('mailto:service@chiaki.example'),
+  EMAIL_FROM: z.string().default('CHIAKI <no-reply@chiaki.example>'),
 
   // 綠界 ECPay（預設為官方公開 STAGE 測試商店）
   ECPAY_MERCHANT_ID: z.string().default('3002607'),
@@ -75,8 +129,11 @@ let cached: AppConfig | null = null;
 export function config(): AppConfig {
   if (!cached) {
     const env = EnvSchema.parse(process.env);
-    if (env.NODE_ENV === 'production' && (env.AUTH_DEV_STUB || env.REWARD_VERIFY_STUB || env.ECPAY_ACCEPT_SIMULATED)) {
+    if (env.NODE_ENV === 'production' && (env.AUTH_DEV_STUB || env.REWARD_VERIFY_STUB || env.ECPAY_ACCEPT_SIMULATED || env.ECPAY_REFUND_STUB || env.NOTIFY_STUB_SEND)) {
       throw new Error('Dev stubs / simulated payments must be disabled in production');
+    }
+    if (env.NODE_ENV === 'production' && !env.MFA_ENCRYPTION_KEY) {
+      throw new Error('MFA_ENCRYPTION_KEY is required in production');
     }
     cached = { ...env, topupPackages: DEFAULT_PACKAGES };
   }

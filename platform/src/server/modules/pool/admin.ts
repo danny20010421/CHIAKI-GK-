@@ -8,6 +8,7 @@ import { requirePermission, type Principal } from '../auth/rbac';
 import { COMMIT_SCHEME, computeCommitment, generateLayout, generateSalt } from './commitment';
 import { defaultGradeForRank, GradeSchema, type Grade } from './grades';
 import { rulesHash, type PoolRules } from './rules';
+import { linkPoolIp } from '../catalog/ips';
 import { CVS_FEE_RANGE, CvsFeeSchema, DEFAULT_SHIPPING_NOTE, HOME_FEE_RANGE, HomeFeeSchema } from '../shipping/fees';
 
 const MAX_TICKETS_PER_SET = 10_000;
@@ -26,6 +27,8 @@ export const PoolDraftSchema = z
     slug: z.string().regex(/^[a-z0-9][a-z0-9-]{2,63}$/),
     title: z.string().min(1).max(200),
     ip: z.string().max(100).default(''),
+    /** 連結 IP（作品）；設定時 ip 文字會同步為 IP 名稱 */
+    ipId: z.string().uuid().nullable().default(null),
     description: z.string().max(5000).default(''),
     terms: z.string().max(10000).default(''),
     source: z.enum(['OFFICIAL', 'CUSTOM', 'MIXED']),
@@ -110,6 +113,7 @@ export async function createPoolDraft(actor: Principal, input: PoolDraftInput): 
       VALUES (${v.slug}, ${v.title}, ${v.ip}, ${v.description}, ${v.terms}, ${v.source}, ${v.playType}, ${v.priceCoins}, ${v.setCount},
               ${v.lastPrizeName}, ${actor.userId}, ${v.shippingNote ?? DEFAULT_SHIPPING_NOTE[v.source]}, ${v.shippingFeeHome}, ${v.shippingFeeCvs})
       RETURNING id`;
+    if (v.ipId) await linkPoolIp(tx, pool!.id, v.ipId);
     const custom = v.source === 'CUSTOM';
     let i = 0;
     for (const p of v.prizes) {
@@ -268,18 +272,22 @@ async function lockPublishedPool(tx: Tx, idOrSlug: string): Promise<{ id: string
   return rows[0];
 }
 
-export const PoolSettingsSchema = z.object({ shippingNote: z.string().max(500) });
+export const PoolSettingsSchema = z
+  .object({ shippingNote: z.string().max(500).optional(), ipId: z.string().uuid().nullable().optional() })
+  .refine((v) => v.shippingNote !== undefined || v.ipId !== undefined, 'nothing to update');
 
-/** 更新賞池出貨時程說明（無固定 SLA；例：官方商品依官方出貨時程；平台商品依平台公告時程）。 */
+/** 更新賞池營運設定：出貨時程說明（無固定 SLA）、連結 IP（作品；null = 取消連結）。 */
 export async function updatePoolSettings(actor: Principal, idOrSlug: string, input: z.input<typeof PoolSettingsSchema>) {
   requirePermission(actor, 'pool.config.manage');
   const v = PoolSettingsSchema.parse(input);
   return transaction(async (tx) => {
     const p = await lockPublishedPool(tx, idOrSlug);
-    const [before] = await tx<{ shippingNote: string }[]>`SELECT shipping_note FROM pools WHERE id = ${p.id}`;
-    await tx`UPDATE pools SET shipping_note = ${v.shippingNote} WHERE id = ${p.id}`;
-    await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'POOL_SETTINGS_UPDATED', entityType: 'pool', entityId: p.id, payload: { before: before!.shippingNote, shippingNote: v.shippingNote } });
-    return { poolId: p.id, shippingNote: v.shippingNote };
+    const [before] = await tx<{ shippingNote: string; ipId: string | null }[]>`SELECT shipping_note, ip_id FROM pools WHERE id = ${p.id}`;
+    if (v.shippingNote !== undefined) await tx`UPDATE pools SET shipping_note = ${v.shippingNote} WHERE id = ${p.id}`;
+    if (v.ipId !== undefined) await linkPoolIp(tx, p.id, v.ipId);
+    await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'POOL_SETTINGS_UPDATED', entityType: 'pool', entityId: p.id, payload: { before, ...v } });
+    const [after] = await tx<{ shippingNote: string; ipId: string | null }[]>`SELECT shipping_note, ip_id FROM pools WHERE id = ${p.id}`;
+    return { poolId: p.id, shippingNote: after!.shippingNote, ipId: after!.ipId };
   });
 }
 

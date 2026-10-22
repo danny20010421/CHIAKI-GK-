@@ -34,6 +34,10 @@ export async function setupTestDb(env: Record<string, string> = {}) {
     DATABASE_POOL_MAX: '80',
     AUTH_DEV_STUB: '1',
     REWARD_VERIFY_STUB: '1',
+    // 應用層防火牆：測試檔內所有請求都來自同一個（未知）IP，預設放寬；security.test.ts 會覆寫
+    RATE_LIMIT_IP_CAPACITY: '100000',
+    RATE_LIMIT_USER_CAPACITY: '100000',
+    BOT_MAX_REQUESTS: '100000',
     ...env,
   });
   resetConfig();
@@ -67,7 +71,9 @@ export async function makeUser(opts: { roles?: Role[]; coins?: number; points?: 
       if (opts.points) await postLedger(tx, { userId: u.id, currency: 'POINTS', amount: opts.points, entryType: 'ADMIN_ADJUST', refType: 'test_seed', refId: u.id });
     });
   }
-  const token = await createSession(db(), u.id);
+  // 員工：模擬「後台帳號密碼登入」的 session（後台 API 需要 PASSWORD session＋近期重新驗證）
+  const staff = roles.some((r) => r !== 'MEMBER');
+  const token = await createSession(db(), u.id, staff ? { authMethod: 'PASSWORD', mfa: true } : {});
   return { id: u.id, token, principal: { userId: u.id, roles, ageVerified: opts.ageVerified ?? true } };
 }
 

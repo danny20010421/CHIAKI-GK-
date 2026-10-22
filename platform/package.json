@@ -18,6 +18,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "job:storage-sweep": "tsx scripts/storage-sweep.ts",
+    "job:draw-archive": "tsx scripts/draw-archive.ts",
+    "job:notify": "tsx scripts/notify-dispatch.ts",
     "verify:set": "tsx scripts/verify-set.ts",
     "test": "node scripts/run-tests.mjs"
   },

@@ -10,10 +10,20 @@ export type LedgerEntryType =
   | 'SHIPPING_FEE'
   | 'SHIPPING_PREPAID' // 抽賞時按套預收運費
   | 'RECYCLE_CREDIT'
-  | 'EXPIRY_AUTO_CONVERT' // 寄存到期自動轉換為代幣
+  | 'EXPIRY_AUTO_CONVERT' // 寄存到期自動轉換為代幣（不可退款）
+  | 'SHIPPING_REFUND_COINS' // 回收小獎後多收運費的部分退還（不可退款）
+  | 'REFERRAL_REWARD' // 邀請獎勵（不可退款）
+  | 'CS_COMPENSATION' // 客服補償（平台點數）
   | 'REFUND_DEBIT'
   | 'ADMIN_ADJUST'
   | 'BIND_REWARD';
+
+/**
+ * 業主規則：以下來源入帳的代幣一律「不可退款・無法轉換」（不計入可退款餘額、不可申請退款或新台幣退還）。
+ * postLedger 強制 refundable=false，資料庫另有 CHECK（ledger_nonrefundable_sources）。
+ */
+export const NONREFUNDABLE_COIN_SOURCES: readonly LedgerEntryType[] = ['EXPIRY_AUTO_CONVERT', 'SHIPPING_REFUND_COINS', 'REFERRAL_REWARD'];
+export const NONREFUNDABLE_LABEL = '不可退款・無法轉換，如有疑問請聯絡官方小編';
 
 export interface LedgerPost {
   userId: string;
@@ -27,7 +37,7 @@ export interface LedgerPost {
   merchantId?: string;
   /**
    * 只用於「代幣入帳」：此筆代幣是否計入可退款餘額。預設 true（儲值、人工調整）；
-   * 寄存到期自動轉換的代幣預設 false（見 EXPIRY_COINS_REFUNDABLE）。
+   * NONREFUNDABLE_COIN_SOURCES（到期轉換、邀請獎勵、運費部分退還）一律 false，不可覆寫。
    */
   refundable?: boolean;
 }
@@ -48,7 +58,9 @@ export async function ensureWallet(db: Db, userId: string, merchantId = 'chiaki'
 export async function postLedger(tx: Tx, p: LedgerPost): Promise<{ ledgerId: number; balanceAfter: number }> {
   if (!Number.isSafeInteger(p.amount) || p.amount === 0) throw new AppError('VALIDATION', 'ledger amount must be a non-zero integer');
   if (p.refundable !== undefined && !(p.currency === 'COINS' && p.amount > 0)) throw new Error('refundable flag only applies to coin credits');
-  const refundable = p.currency === 'COINS' && p.amount > 0 ? (p.refundable ?? true) : null;
+  const forcedNonRefundable = NONREFUNDABLE_COIN_SOURCES.includes(p.entryType);
+  if (forcedNonRefundable && p.refundable === true) throw new Error(`${p.entryType} coins are always non-refundable`);
+  const refundable = p.currency === 'COINS' && p.amount > 0 ? (forcedNonRefundable ? false : (p.refundable ?? true)) : null;
   let rows: { balance: number; nonrefundable: number | null }[];
   if (p.currency === 'POINTS') {
     rows = await tx<{ balance: number; nonrefundable: null }[]>`
@@ -96,6 +108,36 @@ export async function getWallet(db: Db, userId: string): Promise<WalletBalance> 
     SELECT coins, points, nonrefundable_coins FROM wallets WHERE user_id = ${userId}`;
   if (!w) throw new AppError('NOT_FOUND', 'wallet not found');
   return { coins: w.coins, points: w.points, refundableCoins: w.coins - w.nonrefundableCoins, nonRefundableCoins: w.nonrefundableCoins };
+}
+
+export interface CoinBreakdown {
+  coins: number;
+  refundableCoins: number;
+  nonRefundableCoins: number;
+  /** 不可退款代幣的說明文字（前台照原文顯示） */
+  nonRefundableLabel: string;
+  /** 各不可退款來源的累計入帳（僅供說明；目前不可退款餘額以 nonRefundableCoins 為準，消費時優先扣除不可退款代幣） */
+  nonRefundableCredited: Record<'EXPIRY_AUTO_CONVERT' | 'SHIPPING_REFUND_COINS' | 'REFERRAL_REWARD', number>;
+  spendingOrder: string;
+}
+
+/** 會員代幣明細：可退款 vs 不可退款（含標示文字與來源）。 */
+export async function getCoinBreakdown(db: Db, userId: string): Promise<CoinBreakdown> {
+  const w = await getWallet(db, userId);
+  const rows = await db<{ entryType: string; total: number }[]>`
+    SELECT entry_type, COALESCE(sum(amount), 0)::bigint AS total FROM wallet_ledger
+    WHERE user_id = ${userId} AND currency = 'COINS' AND amount > 0 AND refundable = false
+    GROUP BY entry_type`;
+  const credited = { EXPIRY_AUTO_CONVERT: 0, SHIPPING_REFUND_COINS: 0, REFERRAL_REWARD: 0 };
+  for (const r of rows) if (r.entryType in credited) credited[r.entryType as keyof typeof credited] = r.total;
+  return {
+    coins: w.coins,
+    refundableCoins: w.refundableCoins,
+    nonRefundableCoins: w.nonRefundableCoins,
+    nonRefundableLabel: NONREFUNDABLE_LABEL,
+    nonRefundableCredited: credited,
+    spendingOrder: '消費時優先扣除不可退款代幣',
+  };
 }
 
 export interface LedgerRow {

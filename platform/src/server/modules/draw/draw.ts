@@ -11,7 +11,8 @@ import { resolvePublicPool } from '../pool/queries';
 import type { PoolRules } from '../pool/rules';
 import { displayName, gradeAtLeast, type Grade } from '../pool/grades';
 import { ShippingMethodSchema } from '../shipping/fees';
-import { computeShippingCharge, type ShippingCharge } from '../shipping/prepaid';
+import { computeShippingCharge, lockUserSetShipping, type ShippingCharge } from '../shipping/prepaid';
+import { notifyEvent } from '../notifications/outbox';
 import { getWallet } from '../wallet/wallet';
 import { TicketNosSchema } from './holds';
 
@@ -130,8 +131,8 @@ export async function executeDraw(
 
     // 3. 鎖定套
     const { id: poolId } = await resolvePublicPool(tx, req.poolId);
-    const [set] = await tx<{ id: string; status: string; merchantId: string; ruleVersionId: string; poolStatus: string; rulesJson: string; shipFeeHome: number; shipFeeCvs: number }[]>`
-      SELECT s.id, s.status, s.merchant_id, s.rule_version_id, p.status AS pool_status, rv.rules_json, s.ship_fee_home, s.ship_fee_cvs
+    const [set] = await tx<{ id: string; status: string; merchantId: string; ruleVersionId: string; poolStatus: string; poolTitle: string; rulesJson: string; shipFeeHome: number; shipFeeCvs: number }[]>`
+      SELECT s.id, s.status, s.merchant_id, s.rule_version_id, p.status AS pool_status, p.title AS pool_title, rv.rules_json, s.ship_fee_home, s.ship_fee_cvs
       FROM pool_sets s JOIN pools p ON p.id = s.pool_id JOIN pool_rule_versions rv ON rv.id = s.rule_version_id
       WHERE s.pool_id = ${poolId} AND s.set_no = ${req.setNo}
       FOR UPDATE OF s`;
@@ -176,6 +177,8 @@ export async function executeDraw(
     const unitPrice = rules.priceCoins;
     const amount = unitPrice * nos.length;
     if (!Number.isSafeInteger(amount)) throw new AppError('VALIDATION', 'amount overflow');
+    // 同一會員同一套的運費計算與回收退還序列化（鎖順序：set → tickets → advisory → wallet）
+    await lockUserSetShipping(tx, userId, set.id);
     const ship = await computeShippingCharge(tx, {
       userId,
       set,
@@ -204,7 +207,7 @@ export async function executeDraw(
       const id = randomUUID();
       await tx`
         INSERT INTO shipping_prepayments (id, merchant_id, user_id, pool_id, set_id, draw_id, seq, method, fee_coins, small_items_covered)
-        VALUES (${id}, ${set.merchantId}, ${userId}, ${poolId}, ${set.id}, ${drawId}, ${ship.feesPaidBefore + i + 1}, ${ship.method!}, ${ship.unitFee}, ${ship.smallItemsPerFee})`;
+        VALUES (${id}, ${set.merchantId}, ${userId}, ${poolId}, ${set.id}, ${drawId}, ${ship.nextSeq + i}, ${ship.method!}, ${ship.unitFee}, ${ship.smallItemsPerFee})`;
       ({ balanceAfter } = await postLedger(tx, {
         userId,
         currency: 'COINS',
@@ -328,6 +331,18 @@ export async function executeDraw(
       createdAt: new Date().toISOString(),
     };
 
+    // 7d. 通知（預設只走 Web Push；站內/其他管道依會員偏好）
+    const gradeOrder: Record<Grade, number> = { GRAND: 0, MID: 1, SMALL: 2 };
+    const best = [...response.results].sort((a, b) => gradeOrder[a.grade] - gradeOrder[b.grade])[0]!;
+    await notifyEvent(tx, {
+      userId,
+      merchantId: set.merchantId,
+      event: 'DRAW_RESULT',
+      data: { drawId, poolTitle: set.poolTitle, setNo: req.setNo, count: nos.length, summary: response.results.length > 1 ? `${best.displayName} 等 ${response.results.length} 件` : best.displayName },
+      payload: { drawId, poolId, setNo: req.setNo },
+      dedupeOn: { drawId },
+    });
+
     // 8. 稽核 + 冪等回應
     await appendAudit(tx, {
       actorType: 'USER',
@@ -391,7 +406,7 @@ export async function quoteDraw(userId: string, body: unknown) {
     shipping: {
       ...ship,
       setFees: { HOME_DELIVERY: set.shipFeeHome, CVS_711_C2C: set.shipFeeCvs, CVS_FAMI_C2C: set.shipFeeCvs },
-      rule: `運費按套預收：本套首次付費抽賞時收取一份；一份涵蓋本套最多 ${ship.smallItemsPerFee} 件小獎（大獎/中獎不計），超過時於抽賞時補收；回收的小獎不計入。`,
+      rule: `運費按套預收：本套首次付費抽賞時收取一份；需要份數 = floor((本套持有小獎 + 本次籤數) / ${ship.smallItemsPerFee}) + 1（滿 ${ship.smallItemsPerFee} 件即再收一份；大獎/中獎不計）；回收的小獎不計入，多收的運費會依比例退還為不可退款代幣。`,
     },
     totalCoins,
     coinsBalance: wallet.coins,

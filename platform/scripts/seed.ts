@@ -4,6 +4,7 @@
  */
 import { db, closeDb } from '../src/server/db';
 import { createUser } from '../src/server/modules/auth/users';
+import { setAdminCredentials } from '../src/server/modules/auth/admin-auth';
 import type { Principal, Role } from '../src/server/modules/auth/rbac';
 import { createPoolDraft } from '../src/server/modules/pool/admin';
 import { approve, requestBalanceAdjust, requestPoolPublish } from '../src/server/modules/admin/approvals';
@@ -13,17 +14,33 @@ import type { PoolDraftInput } from '../src/server/modules/pool/admin';
 const sql = db();
 await seedReferenceData(sql);
 
-async function staff(phone: string, name: string, roles: Role[]): Promise<Principal> {
+/**
+ * 後台帳號密碼：只從環境變數 ADMIN_INITIAL_PASSWORD 讀取（絕不寫在程式碼或版控中），資料庫只存 scrypt 雜湊。
+ * ADMIN_PASSWORD_HINT（選用）會顯示在後台登入頁 —— 提示會降低安全性，請斟酌使用。
+ * 未設定 ADMIN_INITIAL_PASSWORD 時不建立/不變更任何後台密碼（後台 API 需要密碼登入的 session）。
+ */
+const initialPassword = process.env.ADMIN_INITIAL_PASSWORD ?? '';
+const passwordHint = process.env.ADMIN_PASSWORD_HINT || null;
+const credentialsSet: string[] = [];
+
+async function staff(phone: string, name: string, roles: Role[], loginId?: string): Promise<Principal> {
   const [u] = await sql<{ id: string }[]>`SELECT id FROM users WHERE phone = ${phone}`;
   const id = u?.id ?? (await createUser(sql, { phone, displayName: name, roles })).id;
+  if (loginId && initialPassword) {
+    const [has] = await sql`SELECT 1 FROM admin_credentials WHERE user_id = ${id}`;
+    if (!has) {
+      await setAdminCredentials(sql, { userId: id, loginId, password: initialPassword, hint: passwordHint });
+      credentialsSet.push(loginId);
+    }
+  }
   return { userId: id, roles, ageVerified: true };
 }
 
-const admin = await staff('0900000001', '超級管理員', ['SUPER_ADMIN']);
-const ops = await staff('0900000002', '營運', ['OPS']);
-const fin1 = await staff('0900000003', '財務 A', ['FINANCE']);
-const fin2 = await staff('0900000004', '財務 B', ['FINANCE']);
-await staff('0900000005', '客服', ['CS']);
+const admin = await staff('0900000001', '超級管理員', ['SUPER_ADMIN'], 'admin');
+const ops = await staff('0900000002', '營運', ['OPS'], 'ops');
+const fin1 = await staff('0900000003', '財務 A', ['FINANCE'], 'finance-a');
+const fin2 = await staff('0900000004', '財務 B', ['FINANCE'], 'finance-b');
+await staff('0900000005', '客服', ['CS'], 'support');
 const member = await staff('0900000010', '示範會員', ['MEMBER']);
 await sql`UPDATE users SET age_verified_at = COALESCE(age_verified_at, now()), birth_date = COALESCE(birth_date, '1995-01-01') WHERE id = ${member.userId}`;
 
@@ -55,7 +72,8 @@ console.log(await ensurePool(GK_FIRST_POOL));
 console.log(await ensurePool(GUARANTEE_SAMPLE_POOL));
 
 console.log(`
-Seed complete. Dev login (AUTH_DEV_STUB=1): POST /api/auth/otp/verify {"phone": "<below>", "code": "000000"}
-  0900000001 SUPER_ADMIN | 0900000002 OPS | 0900000003 FINANCE A | 0900000004 FINANCE B | 0900000005 CS
-  0900000010 示範會員（已年齡驗證，5000 代幣）`);
+Seed complete.
+  會員登入（AUTH_DEV_STUB=1）：POST /api/auth/otp/verify {"phone": "0900000010", "code": "000000"}（示範會員，已年齡驗證，5000 代幣）
+  後台登入：POST /api/auth/admin/login {"loginId": "admin|ops|finance-a|finance-b|support", "password": "<ADMIN_INITIAL_PASSWORD>"}
+  ${initialPassword ? `已設定後台密碼（scrypt 雜湊）：${credentialsSet.join(', ') || '（皆已存在，未變更）'}` : '⚠ 未設定 ADMIN_INITIAL_PASSWORD：未建立後台密碼，後台 API 將無法登入'}`);
 await closeDb();

@@ -58,6 +58,8 @@ createServer(async (req, res) => {
     for await (const c of req) chunks.push(c as Buffer);
     const headers = new Headers();
     for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
+    // 本機開發伺服器沒有反向代理：以 socket 位址作為用戶端 IP（覆寫可被偽造的 x-forwarded-for）
+    headers.set('x-forwarded-for', req.socket.remoteAddress ?? 'unknown');
     const body = chunks.length && req.method !== 'GET' && req.method !== 'HEAD' ? Buffer.concat(chunks) : undefined;
     const response = await fn(new Request(url, { method: req.method, headers, body }), { params: Promise.resolve(params) });
     res.writeHead(response.status, Object.fromEntries(response.headers));

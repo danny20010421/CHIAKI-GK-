@@ -21,6 +21,7 @@ export interface PoolSummary {
   slug: string;
   title: string;
   ip: string;
+  ipId: string | null;
   source: string;
   playType: string;
   priceCoins: number;
@@ -32,9 +33,9 @@ export interface PoolSummary {
   currentSet: { setNo: number; remaining: number; total: number } | null;
 }
 
-export async function listPools(db: Db, filter: { source?: string; playType?: string } = {}): Promise<PoolSummary[]> {
+export async function listPools(db: Db, filter: { source?: string; playType?: string; ipId?: string; ipCategoryId?: string } = {}): Promise<PoolSummary[]> {
   const rows = await db<(Omit<PoolSummary, 'currentSet' | 'hasLastPrize'> & { lastPrizeName: string | null; curSetNo: number | null; curRemaining: number | null; curTotal: number | null })[]>`
-    SELECT p.id, p.slug, p.title, p.ip, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.last_prize_name, p.shipping_note,
+    SELECT p.id, p.slug, p.title, p.ip, p.ip_id, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.last_prize_name, p.shipping_note,
            cs.set_no AS cur_set_no, cs.remaining AS cur_remaining, cs.total_tickets AS cur_total
     FROM pools p
     LEFT JOIN LATERAL (
@@ -45,12 +46,15 @@ export async function listPools(db: Db, filter: { source?: string; playType?: st
     WHERE p.status IN ('PUBLISHED', 'ENDED')
       ${filter.source ? db`AND p.source = ${filter.source}` : db``}
       ${filter.playType ? db`AND p.play_type = ${filter.playType}` : db``}
+      ${filter.ipId ? db`AND p.ip_id = ${filter.ipId}` : db``}
+      ${filter.ipCategoryId ? db`AND p.ip_id IN (SELECT id FROM ips WHERE category_id = ${filter.ipCategoryId})` : db``}
     ORDER BY p.published_at DESC NULLS LAST`;
   return rows.map((r) => ({
     id: r.id,
     slug: r.slug,
     title: r.title,
     ip: r.ip,
+    ipId: r.ipId,
     source: r.source,
     playType: r.playType,
     priceCoins: r.priceCoins,
@@ -121,7 +125,7 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
             reserveRemaining: g.reserveTotal - g.reserveUsed,
           }
         : null,
-    shippingPolicy: { mode: 'PREPAID_PER_SET', note: '運費於本套首次付費抽賞時預收；一份運費涵蓋本套最多 20 件小獎（大獎/中獎不計入）', rules: (JSON.parse(p.rulesJson) as PoolRules).shippingPolicy ?? null },
+    shippingPolicy: { mode: 'PREPAID_PER_SET', note: '運費於本套首次付費抽賞時預收；需要份數 = floor((本套持有小獎 + 本次籤數) / 20) + 1（滿 20 件即再收一份；大獎/中獎不計入）', rules: (JSON.parse(p.rulesJson) as PoolRules).shippingPolicy ?? null },
     rules: { ruleVersionId: p.ruleVersionId, version: p.ruleVersion, rulesHash: p.rulesHash, content: JSON.parse(p.rulesJson) as PoolRules },
     sets: sets.map(({ shipFeeHome, shipFeeCvs, ...s }) => ({ ...s, shippingFees: { HOME_DELIVERY: shipFeeHome, CVS_711_C2C: shipFeeCvs, CVS_FAMI_C2C: shipFeeCvs } })),
   };

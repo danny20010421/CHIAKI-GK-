@@ -4,6 +4,7 @@ import { db } from '../src/server/db';
 import { executeDraw } from '../src/server/modules/draw/draw';
 import { recycleItems, listWarehouse } from '../src/server/modules/warehouse/warehouse';
 import { markDelivered, markShipped, requestShipment } from '../src/server/modules/shipping/shipping';
+import { advanceShipment } from '../src/server/modules/shipping/fulfilment';
 import { purchaseProduct } from '../src/server/modules/catalog/catalog';
 import { reconcileWallets } from '../src/server/modules/wallet/wallet';
 import { expectAppError, FEE_CVS, FEE_HOME, layoutOf, makeUser, publishPool, setupTestDb, smallPool, walletOf } from './helpers';
@@ -60,9 +61,14 @@ describe('shipments', () => {
     assert.equal((await walletOf(u.id)).coins, coins0);
     assert.equal((await listWarehouse(db(), u.id, 'SHIP_REQUESTED')).length, 3);
     await expectAppError(recycleItems(u.id, [of('D')[0]!]), 'INVALID_STATE');
-    await expectAppError(markShipped(member.principal, s.shipmentId, 'TRACK1'), 'FORBIDDEN');
+    await expectAppError(markShipped(member.principal, s.shipmentId, 'TRACK1', 'SEVEN_C2C'), 'FORBIDDEN');
     await expectAppError(markDelivered(ops.principal, s.shipmentId), 'INVALID_STATE');
-    await markShipped(ops.principal, s.shipmentId, 'TW123456789');
+    // 出貨流程：申請 → 揀貨 → 包裝 → 已出貨（必填物流商＋追蹤編號）→ 已送達
+    await expectAppError(markShipped(ops.principal, s.shipmentId, 'TW123456789', 'SEVEN_C2C'), 'INVALID_STATE');
+    await advanceShipment(ops.principal, s.shipmentId, { to: 'PICKING' });
+    await advanceShipment(ops.principal, s.shipmentId, { to: 'PACKING' });
+    await expectAppError(markShipped(ops.principal, s.shipmentId, 'TW123456789'), 'VALIDATION');
+    await markShipped(ops.principal, s.shipmentId, 'TW123456789', 'SEVEN_C2C');
     await markDelivered(ops.principal, s.shipmentId);
     assert.equal((await listWarehouse(db(), u.id, 'DELIVERED')).length, 3);
     await assert.rejects(db()`UPDATE warehouse_items SET status = 'STORED' WHERE id = ${of('A')[0]!}`, /invalid warehouse transition/);

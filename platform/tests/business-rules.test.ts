@@ -132,7 +132,7 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
 
     // 掃描是全域的（本檔其他測試的會員也會被處理），因此以下以「本會員」的資料驗證
     const DAY = 86_400_000;
-    const ZERO = { autoConverted: 0, coinsCredited: 0, expiredHeld: 0, warnedToday: 0, warned7d: 0, notifications: 0 };
+    const ZERO = { autoConverted: 0, coinsCredited: 0, expiredHeld: 0, warnedToday: 0, warned7d: 0, notifications: 0, shippingFeesRefunded: 0 };
     const notesOf = async (type: string) =>
       ((await db()`SELECT count(*)::int AS n FROM notifications WHERE user_id = ${u.id} AND type = ${type}`) as unknown as [{ n: number }])[0].n;
     const marks = async (col: 'storage_warned_7d_at' | 'storage_warned_day_at') =>
@@ -198,7 +198,7 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     await expectAppError(recycleItems(u.id, [after2.find((i) => i.recycleReason === 'STORAGE_EXPIRY')!.id]), 'INVALID_STATE');
   });
 
-  it('EXPIRY_COINS_REFUNDABLE=true makes auto-converted coins refundable (configurable)', async () => {
+  it('the old EXPIRY_COINS_REFUNDABLE toggle is removed: auto-converted coins are always non-refundable', async () => {
     process.env.EXPIRY_COINS_REFUNDABLE = 'true';
     resetConfig();
     try {
@@ -208,10 +208,13 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
       const [it0] = await listWarehouse(db(), u.id);
       await runStorageSweep(new Date(it0!.storageExpiresAt.getTime() + 1000));
       const conv = await ledgerTypes(u.id, 'EXPIRY_AUTO_CONVERT');
-      assert.equal(conv[0]!.refundable, true);
+      assert.equal(conv[0]!.refundable, false);
       const w = await getWallet(db(), u.id);
-      assert.equal(w.nonRefundableCoins, 0);
-      assert.equal(w.refundableCoins, w.coins);
+      assert.equal(w.nonRefundableCoins, 100);
+      assert.equal(w.refundableCoins, w.coins - 100);
+      await assert.rejects(transaction((tx) => postLedger(tx, { userId: u.id, currency: 'COINS', amount: 1, entryType: 'EXPIRY_AUTO_CONVERT', refType: 't', refId: 't', refundable: true })), /always non-refundable/);
+      await assert.rejects(db()`INSERT INTO wallet_ledger (user_id, currency, amount, balance_after, entry_type, ref_type, ref_id, refundable, nonrefundable_after)
+                                VALUES (${u.id}, 'COINS', 1, 1, 'REFERRAL_REWARD', 't', 't', true, 0)`, /ledger_nonrefundable_sources/);
     } finally {
       delete process.env.EXPIRY_COINS_REFUNDABLE;
       resetConfig();
@@ -227,7 +230,7 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
 });
 
 describe('rule 4 — shipping prepaid per set (按套收取)', () => {
-  it('first paid draw charges the chosen method fee atomically; method required; within 20 SMALL no extra fee; >20 charges again; GRAND/MID do not count', async () => {
+  it('first paid draw charges the chosen method fee atomically; method required; fees = floor(small/20)+1; GRAND/MID do not count', async () => {
     const poolId = await publishPool(customPool());
     const u = await makeUser({ coins: 5000 });
     const t = await ticketsByGrade(poolId);
@@ -237,7 +240,7 @@ describe('rule 4 — shipping prepaid per set (按套收取)', () => {
     assert.equal((await walletOf(u.id)).coins, 5000);
     // 首抽：5 小獎，全家店到店 → 收一份超商運費（同一交易）
     let r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(0, 5), shippingMethod: 'CVS_FAMI_C2C' })).response;
-    assert.deepEqual([r.shipping.feesToCharge, r.shipping.amount, r.shipping.method, r.shipping.feesPaidAfter, r.shipping.coverageAfter], [1, FEE_CVS, 'CVS_FAMI_C2C', 1, 20]);
+    assert.deepEqual([r.shipping.feesToCharge, r.shipping.amount, r.shipping.method, r.shipping.feesPaidAfter, r.shipping.coverageAfter], [1, FEE_CVS, 'CVS_FAMI_C2C', 1, 19]);
     assert.equal(r.coinsAfter, 5000 - 50 - FEE_CVS);
     const [pp] = await db()`SELECT draw_id, seq, method, fee_coins, small_items_covered FROM shipping_prepayments WHERE user_id = ${u.id}`;
     assert.deepEqual(pp, { drawId: r.drawId, seq: 1, method: 'CVS_FAMI_C2C', feeCoins: FEE_CVS, smallItemsCovered: 20 });
@@ -247,7 +250,7 @@ describe('rule 4 — shipping prepaid per set (按套收取)', () => {
     // 大獎、中獎不計入：15 小獎 + 大獎 + 2 中獎 + 5 小獎 → 最壞 15 + 8 = 23 > 20 → 再收一份（沿用上次方式）
     r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.GRAND[0]!, ...t.MID, ...t.SMALL.slice(15, 20)] })).response;
     assert.deepEqual([r.shipping.smallItemsHeld, r.shipping.worstCaseSmallItems, r.shipping.feesToCharge, r.shipping.method], [15, 23, 1, 'CVS_FAMI_C2C']);
-    // 實際只持有 20 小獎（大獎/中獎不算）→ 下一抽 20 + 1 = 21 ≤ 40 → 不收
+    // 實際只持有 20 小獎（大獎/中獎不算）→ 下一抽 20 + 1 = 21 → floor(21/20)+1 = 2 = 已付 → 不收
     r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.SMALL[20]!] })).response;
     assert.deepEqual([r.shipping.smallItemsHeld, r.shipping.feesToCharge], [20, 0]);
     assert.equal(await prepaidCount(u.id), 2);
@@ -272,7 +275,7 @@ describe('rule 4 — shipping prepaid per set (按套收取)', () => {
     await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(0, 18), shippingMethod: 'CVS_711_C2C' });
     const smalls = (await listWarehouse(db(), a.id, 'STORED')).filter((i) => i.grade === 'SMALL');
     await recycleItems(a.id, smalls.slice(0, 5).map((i) => i.id)); // 持有 13
-    const r = (await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(18, 25) })).response; // 13 + 7 = 20
+    const r = (await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(18, 24) })).response; // 13 + 6 = 19 → floor(19/20)+1 = 1
     assert.deepEqual([r.shipping.smallItemsHeld, r.shipping.feesToCharge], [13, 0], 'user who recycled small prizes is not charged again');
     assert.equal(await prepaidCount(a.id), 1);
 
@@ -319,11 +322,11 @@ describe('rule 4 — shipping prepaid per set (按套收取)', () => {
     assert.equal((await layoutOf(poolId, 1)).filter((x) => x.status === 'TAKEN').length, 0);
   });
 
-  it('race: many concurrent draws by the same user in one set charge exactly ceil(tickets / 20) fees', async () => {
+  it('race: many concurrent draws by the same user in one set charge exactly floor(tickets / 20) + 1 fees', async () => {
     const poolId = await publishPool(customPool({ priceCoins: 5, prizes: [{ name: '小獎', grade: 'SMALL', qtyPerSet: 80 }] }));
     const START = 10_000;
     const u = await makeUser({ coins: START });
-    const N = 30; // 30 筆 × 2 籤 = 60 籤 → 恰 3 份運費
+    const N = 30; // 30 筆 × 2 籤 = 60 籤 → 依序累積 floor(60/20)+1 = 恰 4 份運費
     const keys = Array.from({ length: N }, () => key());
     const calls = keys.flatMap((kk, i) => {
       const body = { poolId, setNo: 1, ticketNos: [2 * i + 1, 2 * i + 2], shippingMethod: 'CVS_711_C2C' as const };
@@ -333,11 +336,11 @@ describe('rule 4 — shipping prepaid per set (按套收取)', () => {
     const rs = await Promise.all(calls);
     assert.equal(rs.filter((r) => !r.replayed).length, N);
     const charged = rs.filter((r) => !r.replayed).reduce((s, r) => s + r.response.shipping.feesToCharge, 0);
-    assert.equal(charged, 3);
-    assert.equal(await prepaidCount(u.id), 3);
-    assert.deepEqual((await db()`SELECT seq FROM shipping_prepayments WHERE user_id = ${u.id} ORDER BY seq`).map((x) => x.seq), [1, 2, 3]);
-    assert.equal((await ledgerTypes(u.id, 'SHIPPING_PREPAID')).length, 3);
-    assert.equal((await walletOf(u.id)).coins, START - 60 * 5 - 3 * FEE_CVS);
+    assert.equal(charged, 4);
+    assert.equal(await prepaidCount(u.id), 4);
+    assert.deepEqual((await db()`SELECT seq FROM shipping_prepayments WHERE user_id = ${u.id} ORDER BY seq`).map((x) => x.seq), [1, 2, 3, 4]);
+    assert.equal((await ledgerTypes(u.id, 'SHIPPING_PREPAID')).length, 4);
+    assert.equal((await walletOf(u.id)).coins, START - 60 * 5 - 4 * FEE_CVS);
     assert.ok((await reconcileWallets(db(), u.id))[0]!.ok);
     assert.equal((await verifyAuditChain(db())).ok, true);
   });
@@ -369,7 +372,7 @@ describe('POST /api/draws/quote', () => {
     const q2 = (await (await quoteRoute(apiRequest('POST', '/api/draws/quote', { token: u.token, body: { poolId, setNo: 1, count: 30 } }), none)).json()) as Q;
     assert.equal(q2.shipping.method, 'HOME_DELIVERY');
     assert.ok(q2.shipping.worstCaseSmallItems > 20 && q2.shipping.worstCaseSmallItems <= 33);
-    assert.equal(q2.shipping.feesToCharge, Math.ceil(q2.shipping.worstCaseSmallItems / 20) - 1);
+    assert.equal(q2.shipping.feesToCharge, Math.floor(q2.shipping.worstCaseSmallItems / 20) + 1 - 1);
   });
 });
 

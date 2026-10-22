@@ -2,6 +2,7 @@ import { AppError } from '../../errors';
 import { transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { postLedger } from './wallet';
+import { notifyEvent } from '../notifications/outbox';
 
 /**
  * 未使用儲值代幣退款：僅建立「申請單」（工作流程紀錄），不自動退款。
@@ -65,5 +66,12 @@ export async function executeRefund(tx: Tx, refundId: string, approverId: string
     createdBy: approverId,
   });
   await tx`UPDATE refund_requests SET status = 'APPROVED', decided_by = ${approverId}, decided_at = now() WHERE id = ${r.id}`;
+  await notifyEvent(tx, {
+    userId: r.userId,
+    event: 'REFUND_STATUS',
+    data: { kindLabel: '代幣退款', amountLabel: `${r.amountCoins} 代幣`, statusLabel: '已核准，將於撥款後通知' },
+    payload: { refundId: r.id, status: 'APPROVED' },
+    dedupeOn: { refundId: r.id, status: 'APPROVED' },
+  });
   return { refundId: r.id, userId: r.userId, amountCoins: r.amountCoins, ledgerId, balanceAfter };
 }
