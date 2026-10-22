@@ -336,7 +336,7 @@ function runDraw(p, results){
   $('#stageRoot').innerHTML = `<div class="stage" id="stage" role="dialog" aria-modal="true" aria-label="抽賞演出">
     <div class="amb"></div><div class="rays"></div><canvas id="fxCv"></canvas>
     <div class="top">
-      <button class="btn s ghost" data-act="rm-toggle" aria-pressed="${document.body.classList.contains('rm')}">${ic('motion','width:16px;height:16px')}減少動態</button>
+      <span class="tl"><button class="btn s ghost" data-act="rm-toggle" aria-pressed="${document.body.classList.contains('rm')}" aria-label="減少動態">${ic('motion','width:16px;height:16px')}<span class="lbl">減少動態</span></button></span>
       <span class="ctr num" id="ctr" aria-live="polite"></span>
       <button class="btn s" data-act="skip">略過${ic('skip','width:16px;height:16px')}</button>
     </div>

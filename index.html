@@ -849,7 +849,11 @@ body.rm .tix .halo{animation:none}
 .cfg-g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 @media (max-width:599px){.cfg-g{grid-template-columns:minmax(0,1fr)}}
 .spec-ol{margin:0;padding-left:20px;color:var(--tx-2);font-size:14px;line-height:2}
-.stage .top{flex-wrap:wrap}
+.stage .top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center}
+.stage .top .tl{display:flex;align-items:center;gap:var(--s1);justify-self:start}
+.stage .top .ctr{justify-self:center}
+.stage .top > .btn{justify-self:end}
+@media (max-width:599px){.stage .top{padding-left:var(--s2);padding-right:var(--s2)} .stage .top .lbl{display:none} .stage .top .tl .btn{width:40px;padding:0} .stage .ctr span{display:none} .stage .ctr{gap:6px}}
 </style>
 </head>
 <body>
@@ -1699,7 +1703,7 @@ function runDraw(p, results){
   $('#stageRoot').innerHTML = `<div class="stage" id="stage" role="dialog" aria-modal="true" aria-label="抽賞演出">
     <div class="amb"></div><div class="rays"></div><canvas id="fxCv"></canvas>
     <div class="top">
-      <button class="btn s ghost" data-act="rm-toggle" aria-pressed="${document.body.classList.contains('rm')}">${ic('motion','width:16px;height:16px')}減少動態</button>
+      <span class="tl"><button class="btn s ghost" data-act="rm-toggle" aria-pressed="${document.body.classList.contains('rm')}" aria-label="減少動態">${ic('motion','width:16px;height:16px')}<span class="lbl">減少動態</span></button></span>
       <span class="ctr num" id="ctr" aria-live="polite"></span>
       <button class="btn s" data-act="skip">略過${ic('skip','width:16px;height:16px')}</button>
     </div>
@@ -2718,9 +2722,9 @@ const SFX = {
 (() => {
   const wrap = (name, before, after) => { const orig = window[name]; window[name] = function(...a){ before && before.apply(this, a); const r = orig.apply(this, a); after && after.apply(this, a); return r; }; };
   wrap('runDraw', () => SFX.ensure(), () => {
-    const top = $('#stage .top'); if (!top) return;
-    const b = document.createElement('span'); b.innerHTML = `<button class="btn s ghost" data-act="x-sfx" aria-pressed="${SFX.on}">${ic(SFX.on ? 'sound' : 'mute','width:16px;height:16px')}音效${SFX.on ? '開' : '關'}</button>`;
-    top.insertBefore(b.firstChild, top.children[1]);
+    const tl = $('#stage .top .tl'); if (!tl) return;
+    const b = document.createElement('span'); b.innerHTML = `<button class="btn s ghost" data-act="x-sfx" aria-pressed="${SFX.on}" aria-label="音效${SFX.on ? '開' : '關'}">${ic(SFX.on ? 'sound' : 'mute','width:16px;height:16px')}<span class="lbl">音效${SFX.on ? '開' : '關'}</span></button>`;
+    tl.appendChild(b.firstChild);
   });
   wrap('nextTicket', null, () => SFX.enter());
   wrap('setPeel', null, f => { if (f > 1 && f < 49 && D && !D.done) SFX.peel(); });
@@ -2754,7 +2758,7 @@ fx.sparkle = function(rc, ms){
 IP.sound = '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>';
 IP.mute = '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/>';
 document.addEventListener('click', e => { const b = e.target.closest('[data-act="x-sfx"]'); if (!b) return;
-  const on = SFX.toggle(); b.setAttribute('aria-pressed', on); b.innerHTML = `${ic(on ? 'sound' : 'mute','width:16px;height:16px')}音效${on ? '開' : '關'}`; });
+  const on = SFX.toggle(); b.setAttribute('aria-pressed', on); b.setAttribute('aria-label', '音效' + (on ? '開' : '關')); b.innerHTML = `${ic(on ? 'sound' : 'mute','width:16px;height:16px')}<span class="lbl">音效${on ? '開' : '關'}</span>`; });
 </script>
 <script>
 /* =========================================================

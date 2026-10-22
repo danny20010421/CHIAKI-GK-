@@ -58,9 +58,9 @@ const SFX = {
 (() => {
   const wrap = (name, before, after) => { const orig = window[name]; window[name] = function(...a){ before && before.apply(this, a); const r = orig.apply(this, a); after && after.apply(this, a); return r; }; };
   wrap('runDraw', () => SFX.ensure(), () => {
-    const top = $('#stage .top'); if (!top) return;
-    const b = document.createElement('span'); b.innerHTML = `<button class="btn s ghost" data-act="x-sfx" aria-pressed="${SFX.on}">${ic(SFX.on ? 'sound' : 'mute','width:16px;height:16px')}音效${SFX.on ? '開' : '關'}</button>`;
-    top.insertBefore(b.firstChild, top.children[1]);
+    const tl = $('#stage .top .tl'); if (!tl) return;
+    const b = document.createElement('span'); b.innerHTML = `<button class="btn s ghost" data-act="x-sfx" aria-pressed="${SFX.on}" aria-label="音效${SFX.on ? '開' : '關'}">${ic(SFX.on ? 'sound' : 'mute','width:16px;height:16px')}<span class="lbl">音效${SFX.on ? '開' : '關'}</span></button>`;
+    tl.appendChild(b.firstChild);
   });
   wrap('nextTicket', null, () => SFX.enter());
   wrap('setPeel', null, f => { if (f > 1 && f < 49 && D && !D.done) SFX.peel(); });
@@ -94,5 +94,5 @@ fx.sparkle = function(rc, ms){
 IP.sound = '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/>';
 IP.mute = '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/>';
 document.addEventListener('click', e => { const b = e.target.closest('[data-act="x-sfx"]'); if (!b) return;
-  const on = SFX.toggle(); b.setAttribute('aria-pressed', on); b.innerHTML = `${ic(on ? 'sound' : 'mute','width:16px;height:16px')}音效${on ? '開' : '關'}`; });
+  const on = SFX.toggle(); b.setAttribute('aria-pressed', on); b.setAttribute('aria-label', '音效' + (on ? '開' : '關')); b.innerHTML = `${ic(on ? 'sound' : 'mute','width:16px;height:16px')}<span class="lbl">音效${on ? '開' : '關'}</span>`; });
 </script>
