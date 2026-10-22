@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { config } from '../../config';
 import { canonicalJson } from '../../lib/canonical';
 import { db, type Db, type Tx } from '../../db';
-import { appendAudit } from '../audit/audit';
+import { appendAudit, type AuditEntry } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
 import { notifyEvent } from '../notifications/outbox';
 
@@ -77,8 +77,10 @@ export async function registerReferral(
     await tx`INSERT INTO risk_events (user_id, type, severity, details_json, ip)
              VALUES (${a.inviteeId}, 'REFERRAL_ABUSE', 'MEDIUM', ${canonicalJson({ inviterId, reasons })}, ${a.ip})`;
   }
+  // 鎖順序：referral_codes → 錢包 → 稽核（audit_head 必須最後取得）
+  const granted = status === 'QUALIFIED' ? await maybeGrantReferralReward(tx, inviterId) : null;
   await appendAudit(tx, { actorType: 'USER', actorId: a.inviteeId, action: 'REFERRAL_REGISTERED', entityType: 'referral', entityId: a.inviteeId, payload: { inviterId, status, reasons } });
-  if (status === 'QUALIFIED') await maybeGrantReferralReward(tx, inviterId);
+  if (granted) await appendAudit(tx, granted);
   return { status, ...(reasons.length ? { reasons } : {}) };
 }
 
@@ -89,17 +91,18 @@ export async function qualifyPendingReferral(tx: Tx, inviteeId: string): Promise
   await tx`SELECT 1 FROM referral_codes WHERE user_id = ${r.inviterId} FOR UPDATE`;
   const upd = await tx`UPDATE referrals SET status = 'QUALIFIED', qualified_at = now() WHERE invitee_id = ${inviteeId} AND status = 'PENDING' RETURNING invitee_id`;
   if (!upd.length) return false;
-  await maybeGrantReferralReward(tx, r.inviterId);
+  const granted = await maybeGrantReferralReward(tx, r.inviterId);
+  if (granted) await appendAudit(tx, granted);
   return true;
 }
 
-/** 呼叫端須已鎖定邀請人的 referral_codes 列 */
-async function maybeGrantReferralReward(tx: Tx, inviterId: string): Promise<boolean> {
+/** 呼叫端須已鎖定邀請人的 referral_codes 列。回傳待寫入的稽核紀錄（由呼叫端最後寫入，維持鎖順序）。 */
+async function maybeGrantReferralReward(tx: Tx, inviterId: string): Promise<AuditEntry | null> {
   const c = config();
   const [cnt] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM referrals WHERE inviter_id = ${inviterId} AND status = 'QUALIFIED'`;
-  if (cnt!.n < c.REFERRAL_REWARD_THRESHOLD) return false;
+  if (cnt!.n < c.REFERRAL_REWARD_THRESHOLD) return null;
   const [done] = await tx`SELECT 1 FROM referral_rewards WHERE inviter_id = ${inviterId}`;
-  if (done) return false;
+  if (done) return null;
   const { ledgerId, balanceAfter } = await postLedger(tx, {
     userId: inviterId,
     currency: 'COINS',
@@ -117,15 +120,14 @@ async function maybeGrantReferralReward(tx: Tx, inviterId: string): Promise<bool
     payload: { coins: c.REFERRAL_REWARD_COINS },
     dedupeOn: { referralReward: inviterId },
   });
-  await appendAudit(tx, {
+  return {
     actorType: 'SYSTEM',
     actorId: 'referral',
     action: 'REFERRAL_REWARD_GRANTED',
     entityType: 'user',
     entityId: inviterId,
     payload: { coins: c.REFERRAL_REWARD_COINS, qualified: cnt!.n, ledgerId, coinsAfter: balanceAfter, refundable: false },
-  });
-  return true;
+  };
 }
 
 export async function getReferralSummary(userId: string) {

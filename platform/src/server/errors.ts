@@ -31,7 +31,8 @@ export type ErrorCode =
   | 'ACCOUNT_LOCKED'
   | 'INVALID_CREDENTIALS'
   | 'MFA_REQUIRED'
-  | 'REAUTH_REQUIRED';
+  | 'REAUTH_REQUIRED'
+  | 'ASSET_REJECTED';
 
 const STATUS: Record<ErrorCode, number> = {
   VALIDATION: 400,
@@ -67,6 +68,7 @@ const STATUS: Record<ErrorCode, number> = {
   INVALID_CREDENTIALS: 401,
   MFA_REQUIRED: 401,
   REAUTH_REQUIRED: 401,
+  ASSET_REJECTED: 422,
 };
 
 /** 可預期的業務錯誤：會轉成乾淨的 JSON 錯誤回應，且交易一律 rollback。 */

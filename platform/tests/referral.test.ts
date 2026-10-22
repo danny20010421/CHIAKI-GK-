@@ -24,7 +24,7 @@ let n = 0;
 /** 前 8 碼各不相同的手機號碼 */
 const distinctPhone = () => {
   n++;
-  return `09${String(100000 + n * 7919).slice(-6)}${String(n % 100).padStart(2, '0')}`;
+  return `098${String(n).padStart(3, '0')}${String((n * 7919) % 10000).padStart(4, '0')}`;
 };
 let ipN = 0;
 const distinctIp = () => `100.64.${(++ipN >> 8) & 255}.${ipN & 255}`;

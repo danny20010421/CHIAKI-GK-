@@ -53,6 +53,8 @@ const EnvSchema = z.object({
   RATE_LIMIT_USER_CAPACITY: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_USER_REFILL_PER_SEC: z.coerce.number().positive().default(1),
   MAX_BODY_BYTES: z.coerce.number().int().positive().default(64 * 1024),
+  // 圖片素材上傳（base64 JSON）本文上限：最大 1500 KB 的檔案 base64 後約 2.0 MB
+  ASSET_UPLOAD_MAX_BODY_BYTES: z.coerce.number().int().positive().default(2_200_000),
   BLOCKLIST_CACHE_MS: z.coerce.number().int().min(0).default(30_000),
   // 機器人偵測：抽賞/鎖籤在 BOT_WINDOW_MS 內超過 BOT_MAX_REQUESTS 次 → 拒絕並記錄風控事件
   BOT_MAX_REQUESTS: z.coerce.number().int().positive().default(10),

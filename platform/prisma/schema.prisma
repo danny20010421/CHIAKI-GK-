@@ -8,7 +8,8 @@
 //   若日後改用 Prisma Client：`npx prisma validate && npx prisma generate`，並以
 //   `npx prisma migrate resolve --applied 20261023000000_init` 與
 //   `npx prisma migrate resolve --applied 20261024000000_grades_storage_prepaid_shipping` 與
-//   `npx prisma migrate resolve --applied 20261025000000_owner_rules_ops_security` 標記既有 migration。
+//   `npx prisma migrate resolve --applied 20261025000000_owner_rules_ops_security` 與
+//   `npx prisma migrate resolve --applied 20261026000000_image_assets` 標記既有 migration。
 // 檢視 member_draw_history（會員可見的近 90 天抽賞紀錄）未列於此（Prisma 視圖需 previewFeatures = ["views"]）。
 // 關聯欄位（relation fields）刻意省略：外鍵已在 SQL migration 中定義。
 
@@ -61,6 +62,36 @@ model ApprovalRequest {
   resultJson   String?   @map("result_json")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   @@map("approval_requests")
+}
+
+model Asset {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId         String   @default("chiaki") @map("merchant_id")
+  type               String
+  format             String
+  width              Int
+  height             Int
+  bytes              Int
+  sha256             String
+  altText            String   @map("alt_text")
+  copyrightConfirmed Boolean  @map("copyright_confirmed")
+  originalFilename   String?  @map("original_filename")
+  uploadedBy         String   @map("uploaded_by") @db.Uuid
+  content            Bytes
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@unique([type, sha256])
+  @@map("assets")
+}
+
+model AssetLink {
+  assetId    String   @map("asset_id") @db.Uuid
+  targetType String   @map("target_type")
+  targetId   String   @map("target_id")
+  role       String   @default("main")
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@id([assetId, targetType, targetId, role])
+  @@map("asset_links")
 }
 
 model AuditHead {

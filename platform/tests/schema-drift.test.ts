@@ -11,6 +11,7 @@ const PRISMA_TO_PG: Record<string, string[]> = {
   Int: ['integer'],
   Boolean: ['boolean'],
   DateTime: ['timestamp with time zone', 'date'],
+  Bytes: ['bytea'],
 };
 
 function parsePrisma(src: string) {

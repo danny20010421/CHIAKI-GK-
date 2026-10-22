@@ -62,7 +62,8 @@ export interface TestUser {
 let phoneSeq = 0;
 export async function makeUser(opts: { roles?: Role[]; coins?: number; points?: number; ageVerified?: boolean; phone?: string | null } = {}): Promise<TestUser> {
   const roles = opts.roles ?? ['MEMBER'];
-  const phone = opts.phone === undefined ? `09${String(process.pid % 100).padStart(2, '0')}${String(++phoneSeq).padStart(6, '0')}` : opts.phone;
+  // 096 開頭：與種子（0900…）及各測試寫死的號碼（0911…、0977…、0987…、0988…）不會相撞（舊格式在 pid 尾數 00/11 時會撞號）
+  const phone = opts.phone === undefined ? `096${String(process.pid % 1000).padStart(3, '0')}${String(++phoneSeq).padStart(4, '0')}` : opts.phone;
   const u = await createUser(db(), { phone, roles });
   if (opts.ageVerified ?? true) await db()`UPDATE users SET age_verified_at = now(), birth_date = '1990-01-01' WHERE id = ${u.id}`;
   if (opts.coins || opts.points) {

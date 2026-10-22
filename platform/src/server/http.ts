@@ -37,6 +37,8 @@ export interface RouteOptions {
   allowForm?: boolean;
   /** 後台路由中「登入後即可使用」的端點（MFA 綁定、重新驗證本身）：不要求近期重新驗證與 MFA */
   adminAuthOnly?: boolean;
+  /** 覆寫請求本文上限（預設 MAX_BODY_BYTES；例如圖片上傳） */
+  maxBodyBytes?: number | (() => number);
 }
 
 const BASE_HEADERS = { 'cache-control': 'no-store' } as const;
@@ -139,7 +141,8 @@ async function firewall(req: Request, opts: RouteOptions): Promise<Request> {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     let buf: Uint8Array;
     try {
-      buf = await readBody(req, c.MAX_BODY_BYTES);
+      const max = typeof opts.maxBodyBytes === 'function' ? opts.maxBodyBytes() : (opts.maxBodyBytes ?? c.MAX_BODY_BYTES);
+      buf = await readBody(req, max);
     } catch (e) {
       await recordSecurityEvent('PAYLOAD_REJECTED', { ip, key: `size:${ip}`, details: { path, reason: 'too large' } });
       throw e;

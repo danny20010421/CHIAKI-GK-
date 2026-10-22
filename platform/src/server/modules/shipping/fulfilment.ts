@@ -159,8 +159,11 @@ export async function batchAdvance(actor: Principal, input: z.input<typeof Batch
   requirePermission(actor, 'shipment.manage');
   const v = BatchAdvanceSchema.parse(input);
   return transaction(async (tx) => {
+    // 先依 id 鎖定全部出貨單，再逐一推進（每筆推進會寫稽核；audit_head 必須在所有列鎖之後才取得）
+    const ids = [...v.shipmentIds].sort();
+    await tx`SELECT id FROM shipments WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
     const out = [];
-    for (const id of [...v.shipmentIds].sort()) out.push(await advanceInTx(tx, actor, id, { to: v.to }));
+    for (const id of ids) out.push(await advanceInTx(tx, actor, id, { to: v.to }));
     return { updated: out.length, shipments: out };
   });
 }

@@ -93,13 +93,14 @@ export async function loginWithOtp(
     const newlyVerified = await tx`UPDATE users SET phone_verified_at = now() WHERE id = ${user.id} AND phone_verified_at IS NULL RETURNING id`;
     if (newlyVerified.length && !isNew) await qualifyPendingReferral(tx, user.id);
     const token = await createSession(tx, user.id);
-    if (isNew) {
-      await appendAudit(tx, { actorType: 'USER', actorId: user.id, action: 'USER_REGISTERED', entityType: 'user', entityId: user.id, payload: { invited: Boolean(opts.inviteCode) } });
-    }
+    // 邀請（會鎖邀請人的邀請碼與錢包）須在任何稽核寫入之前：audit_head 一律最後取得
     const referral =
       isNew && opts.inviteCode
         ? await registerReferral(tx, { inviteeId: user.id, inviteCode: opts.inviteCode, phone, ip: opts.ip ?? null, deviceFingerprint: deviceFingerprint ?? null })
         : null;
+    if (isNew) {
+      await appendAudit(tx, { actorType: 'USER', actorId: user.id, action: 'USER_REGISTERED', entityType: 'user', entityId: user.id, payload: { invited: Boolean(opts.inviteCode) } });
+    }
     return { token, userId: user.id, isNew, referral };
   });
   if (deviceFingerprint) await recordDevice(db(), result.userId, deviceFingerprint);

@@ -30,6 +30,7 @@ export const PERMISSIONS = [
   'shipment.resend', // 退件/異常重新出貨
   'security.manage', // 封鎖清單（IP/裝置）
   'catalog.ip.manage', // IP（作品）與分類管理
+  'asset.manage', // 圖片素材上傳與連結
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -51,6 +52,7 @@ const MATRIX: Record<Role, readonly Permission[]> = {
     'storage.extend',
     'security.manage',
     'catalog.ip.manage',
+    'asset.manage',
   ],
   FINANCE: [
     'refund.decide',
