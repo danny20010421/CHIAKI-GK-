@@ -1111,6 +1111,19 @@ a.vip:hover{background:rgba(201,164,92,.08)}
 .bd-log .bd-items{display:flex;flex-wrap:wrap;gap:4px}
 .bd-bgm{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px}
 .bd-bgm svg{flex:none;display:block}
+.bd-log-h{gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+.bd-log-h h3{margin:0}
+.bd-log-h .dim{font-size:12px;line-height:16px}
+.pz-det{margin-top:8px}
+.pz-det summary{list-style:none;display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 16px;border:1px solid var(--line);border-radius:12px;background:var(--sf);cursor:pointer;font-size:14px;line-height:20px;color:var(--tx-1)}
+.pz-det summary::-webkit-details-marker{display:none}
+.pz-det summary svg{flex:none;display:block;transition:transform .2s}
+.pz-det[open] summary svg{transform:rotate(180deg)}
+.pz-det .pz-o{display:none}
+.pz-det[open] .pz-o{display:inline}
+.pz-det[open] .pz-c{display:none}
+.pz-det[open] summary{margin-bottom:16px}
+.pz-det summary:hover{border-color:rgba(201,164,92,.5)}
 </style>
 </head>
 <body>
@@ -4570,7 +4583,7 @@ document.head.insertAdjacentHTML('beforeend', `<style>
    每輪結束後需等 10 秒・每輪抽完恢復原配率・獎項皆不可回收・抽獎紀錄保留
    ========================================================= */
 PLAY.bday = '生日限定';
-const _probPctB = probPct; probPct = (p, i) => p.play === 'bday' ? '依規則' : _probPctB(p, i);
+const _probPctB = probPct; probPct = (p, i) => p.play === 'bday' ? '<span style="white-space:nowrap">依規則</span>' : _probPctB(p, i);
 (() => { const I = k => DEMO_IMG(k);
   const B = {id:'bday', title:'漩漩生日一番賞', ip:'CHIAKI 限定', src:'s', play:'bday', price:0, hue:330, seed:1126, drawn:0, locked:true, isNew:true, img:I('bdcover'),
     desc:'每輪 3 抽，有機會中多個獎品，每輪保底一個獎品；抽到「再來兩抽」本輪再多抽 2 次。每輪結束後需等待 10 秒才能再玩，每次抽完都會恢復原配率。獎項皆不提供回收，抽中紀錄會保留。',
@@ -4611,18 +4624,20 @@ const _probPctB = probPct; probPct = (p, i) => p.play === 'bday' ? '依規則' :
 /* ---------- 解鎖（密碼只存雜湊；靜態網站僅能隱藏，不是真正的權限控管） ---------- */
 const BD_HASH = '77de9c41af602e47';
 const fnv = s => { let h1 = 0x811c9dc5, h2 = 0x01000193; for (const c of s){ h1 ^= c.charCodeAt(0); h1 = Math.imul(h1, 16777619) >>> 0; h2 = Math.imul(h2 ^ c.charCodeAt(0), 2246822519) >>> 0; } return h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0'); };
-S.unlocked = (() => { try { return JSON.parse(localStorage.getItem('ck_unlock') || '[]'); } catch(_){ return []; } })();
-const isUnlocked = p => !p.locked || S.unlocked.includes(p.id);
+/* 解鎖只在停留於該賞池頁時有效：離開頁面或重新整理就會重新上鎖 */
+S.unlocked = [];
+try { localStorage.removeItem('ck_unlock'); } catch(_){}
+const isUnlocked = p => !p.locked || (S.unlocked.includes(p.id) && parseHash().name === 'pool' && parseHash().arg === p.id);
 const hiddenPool = p => p.locked && !isUnlocked(p);
 function unlockModal(goto){
-  openModal(`<h3 id="mdlT">限定賞池</h3><p class="muted" style="font-size:13px;margin:0 0 16px">請輸入通關密碼，解鎖後會出現在抽賞大廳。</p>
+  openModal(`<h3 id="mdlT">限定賞池</h3><p class="muted" style="font-size:13px;margin:0 0 16px">請輸入通關密碼。離開賞池頁後會自動重新上鎖。</p>
     <form data-act="bd-unlock" data-go="${goto || ''}" class="cfg" style="gap:16px"><div class="field"><label for="bdPw">通關密碼</label><input class="input num" id="bdPw" type="password" inputmode="numeric" autocomplete="off" maxlength="16" placeholder="請輸入密碼"></div>
     <button class="btn gold block" type="submit">${ic('lock','width:18px;height:18px')}解鎖</button></form>`);
   setTimeout(() => { const f = $('#bdPw'); f && f.focus(); }, 60); }
 document.addEventListener('submit', e => { const f = e.target; if (f.dataset.act !== 'bd-unlock') return; e.preventDefault();
   const v = ($('#bdPw').value || '').trim(); if (!v){ toast('請輸入通關密碼'); return $('#bdPw').focus(); }
   if (fnv(v) !== BD_HASH){ toast('密碼不正確'); $('#bdPw').value = ''; return $('#bdPw').focus(); }
-  POOLS.filter(p => p.locked).forEach(p => { if (!S.unlocked.includes(p.id)) S.unlocked.push(p.id); }); try { localStorage.setItem('ck_unlock', JSON.stringify(S.unlocked)); } catch(_){}
+  POOLS.filter(p => p.locked).forEach(p => { if (!S.unlocked.includes(p.id)) S.unlocked.push(p.id); });
   closeModal(); toast('已解鎖限定賞池'); location.hash = '#/pool/bday'; if (parseHash().arg === 'bday') render(); });
 document.addEventListener('click', e => { const el = e.target.closest('[data-act="bd-lock"]'); if (!el) return; e.preventDefault(); unlockModal(); });
 
@@ -4644,8 +4659,13 @@ routes.play = r => { const keep = POOLS.slice(); POOLS.filter(p => hiddenPool(p)
 if (_playB.after) routes.play.after = _playB.after;
 
 /* ---------- 賞池頁 ---------- */
-S.bdLog = (() => { try { return JSON.parse(localStorage.getItem('ck_bdlog') || '[]'); } catch(_){ return []; } })();
-const bdSave = () => { try { localStorage.setItem('ck_bdlog', JSON.stringify(S.bdLog.slice(0, 200))); } catch(_){} };
+/* 抽獎紀錄每 30 分鐘清除一次：以整點、半點為界（例如 23:00–23:29 一段，23:30 起清空） */
+const BD_WIN = 30 * 60 * 1000, bdWin = () => Math.floor(Date.now() / BD_WIN);
+const bdNextClear = () => twISO(new Date((bdWin() + 1) * BD_WIN)).slice(11, 16);
+const bdLoad = () => { try { const o = JSON.parse(localStorage.getItem('ck_bdlog') || 'null'); return o && o.win === bdWin() && Array.isArray(o.items) ? o.items : []; } catch(_){ return []; } };
+S.bdLog = bdLoad(); S.bdLogWin = bdWin();
+const bdSave = () => { try { localStorage.setItem('ck_bdlog', JSON.stringify({win:S.bdLogWin, items:S.bdLog.slice(0, 200)})); } catch(_){} };
+const bdCheckClear = () => { if (S.bdLogWin === bdWin()) return false; S.bdLog = []; S.bdLogWin = bdWin(); bdSave(); return true; };
 S.bdCd = 0;
 const BD_CD = 10;
 const bdLeft = () => Math.max(0, Math.ceil((S.bdCd - Date.now()) / 1000));
@@ -4653,16 +4673,23 @@ const _poolB = routes.pool, _poolBA = routes.pool.after;
 routes.pool = r => { const p = poolById(r.arg);
   if (p && hiddenPool(p)) return `<div class="wrap"><div class="empty lockpage">${ic('lock','width:40px;height:40px')}<h2>限定賞池</h2><p>這是限定賞池，請先輸入通關密碼。</p><button class="btn gold" type="button" data-act="bd-lock">輸入通關密碼</button></div></div>`;
   let h = _poolB(r); if (!p || p.play !== 'bday') return h;
+  bdCheckClear();
   h = h.replace(/<span class="coin" style="width:28px;height:28px;font-size:14px;align-self:center">C<\/span>\s*<b class="num" style="font-size:32px;line-height:1">0<\/b><span class="muted">CC幣 \/ 抽<\/span>/, '<b class="bd-free">免費</b><span class="muted">每輪 3 抽・保底 1 個獎品</span>');
-  h = h.replace(/<small class="shipm">[\s\S]*?<\/small>/g, '').replace(/CHIAKI 原創設計/g, '生日限定').replace(/<a class="odds-lock"[\s\S]*?<\/a>/g, '<span class="dim">依規則</span>');
+  h = h.replace('機率 = 該賞剩餘數 ÷ 總剩餘數，每抽即時更新', '每輪抽完恢復原配率');
+  h = h.replace(/<small class="shipm">[\s\S]*?<\/small>/g, '').replace(/CHIAKI 原創設計/g, '生日限定').replace(/<a class="odds-lock"[\s\S]*?<\/a>/g, '<span class="dim" style="white-space:nowrap">依規則</span>');
   const log = S.bdLog.length ? S.bdLog.map(x => `<li><span class="dim num">${x.at}</span><div class="bd-items">${x.items.map(n => `<span class="tag ${/再來兩抽|銘謝惠顧/.test(n) ? '' : 'ok'}">${hx(n)}</span>`).join('')}</div></li>`).join('') : '<li class="dim">還沒有抽獎紀錄</li>';
-  const sec = `<section class="panel bd-log" aria-labelledby="h-bdlog"><h3 id="h-bdlog">我的抽獎紀錄</h3><ol>${log}</ol></section>`;
+  const sec = `<section class="panel bd-log" aria-labelledby="h-bdlog"><div class="row between bd-log-h"><h3 id="h-bdlog">我的抽獎紀錄</h3><span class="dim">每 30 分鐘清除・下次清除 ${bdNextClear()}</span></div><ol>${log}</ol></section>`;
   const i = h.indexOf('<section class="prizes"'); if (i > -1) h = h.slice(0, i) + sec + h.slice(i);
+  /* 獎品內容可展開／收合（預設收合） */
+  const t0 = h.indexOf('<table class="ptable">'), t1 = h.indexOf('</table>', t0);
+  if (t0 > -1 && t1 > -1){ const n = p.prizes.length;
+    h = h.slice(0, t0) + `<details class="pz-det"${S.bdPzOpen ? ' open' : ''}><summary><span class="pz-c">展開獎品內容（${n} 項）</span><span class="pz-o">收合獎品內容</span>${ic('down','width:18px;height:18px')}</summary><div class="tbl-wrap">` + h.slice(t0, t1 + 8) + '</div></details>' + h.slice(t1 + 8); }
   return h; };
+document.addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('pz-det')) S.bdPzOpen = e.target.open; }, true);
 routes.pool.after = r => { if (_poolBA) _poolBA(r); const p = poolById(r.arg); if (!p || p.play !== 'bday') return;
   const tick = () => { const b = $('#bdGo'); if (!b) return; const s = bdLeft(), left = remaining(p);
     b.disabled = !!s || !left; b.innerHTML = !left ? '已全部抽完' : s ? `${ic('clock','width:18px;height:18px')}${s} 秒後可再抽` : `${ic('ticket','width:18px;height:18px')}抽 3 抽（免費）`; };
-  tick(); const iv = setInterval(tick, 500); cleanup.push(() => clearInterval(iv)); BGM.ui(); };
+  tick(); const iv = setInterval(() => { tick(); if (bdCheckClear() && !$('#stage')) render(true); }, 500); cleanup.push(() => clearInterval(iv)); BGM.ui(); };
 
 /* ---------- 背景音樂：生日快樂歌（旋律為公有領域，Web Audio 即時合成，不需音檔） ---------- */
 const BGM = {
@@ -4698,7 +4725,7 @@ const onBday = () => { const r = parseHash(); return r.name === 'pool' && r.arg 
 /* 瀏覽器規定要先有使用者操作才能出聲：在生日賞池頁第一次點擊／觸控時開始播放 */
 document.addEventListener('pointerdown', e => { if (onBday() && BGM.on && !BGM.playing && !e.target.closest('[data-act="bd-bgm"]')) BGM.start(); }, true);
 document.addEventListener('click', e => { const el = e.target.closest('[data-act="bd-bgm"]'); if (!el) return; e.preventDefault(); BGM.toggle(); });
-addEventListener('hashchange', () => { if (!onBday()) BGM.stop(); });
+addEventListener('hashchange', () => { if (!onBday()){ BGM.stop(); if (S.unlocked.length){ S.unlocked = []; } } });
 document.addEventListener('visibilitychange', () => { if (document.hidden) BGM.stop(); else if (onBday() && BGM.on && BGM.ctx) BGM.start(); });
 const _packsB = packsSection;
 packsSection = function(p){ if (p.play !== 'bday') return _packsB(p);
@@ -4723,7 +4750,7 @@ document.addEventListener('click', e => { const el = e.target.closest('[data-act
   if (bdLeft()) return toast(`請再等 ${bdLeft()} 秒`); if (!remaining(p)) return toast('已全部抽完');
   const snap = p.tickets.map(t => t.taken), res = bdRound(p); p.tickets.forEach((t, i) => { t.taken = snap[i]; if (!snap[i]) delete t.by; });   // 每輪抽完恢復原配率
   if (!res.length) return;
-  S.bdLog.unshift({at:twNow(), items:res.map(x => x.name)}); bdSave();
+  bdCheckClear(); S.bdLog.unshift({at:twNow(), items:res.map(x => x.name)}); bdSave();
   S.audit.unshift({t:'剛剛', who:'Chiaki 玩家', a:`漩漩生日一番賞：${res.filter(x => x.lv < 6).map(x => x.name).join('、') || '未中獎'}`});
   S.bdCd = Date.now() + 864e5;   // 演出期間先鎖住，結束後才開始 10 秒倒數
   runDraw(p, res); });
