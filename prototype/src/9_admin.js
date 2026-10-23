@@ -67,7 +67,7 @@ Object.assign(S, {
     {id:'OD-120911', type:'抽賞', user:'w***l', amt:3000, st:'異常：重複扣款已沖正', inv:'—'}
   ],
   coupons: [{code:'WELCOME90', d:'新會員首抽 9 折', used:128, exp:'2026-11-30', on:true}, {code:'VALLEY200', d:'雲頂終結谷 滿 1,000 折 200', used:0, exp:'2026-12-31', on:true}],
-  banners: [{t:'CHIAKI GK 雕像一番賞 第一彈', from:'2026-10-20', to:'2026-11-20', ok:true}],
+  banners: [{t:'一番賞 烙印勇士 ～宿命的雙極～', from:'2026-10-20', to:'2026-11-20', ok:true}],
   staff: [{n:'輝（擁有者）', role:'超級管理員', mfa:true, last:'剛剛'}, {n:'營運 A', role:'營運', mfa:true, last:'10/22 21:40'}, {n:'客服 B', role:'客服', mfa:false, last:'10/22 18:05'}],
   audit: [{t:'10/23 08:30', who:'輝', a:'運費改為一律到付'}, {t:'10/22 21:40', who:'營運 A', a:'送審：CHIAKI GK 第一彈 第 3 套'}, {t:'10/22 18:05', who:'客服 B', a:'結案 CS-1019'}],
   cfg: {storeDays:30, warnDays:7, homeMin:150, homeMax:300, cvsMin:60, cvsMax:150, refundDiv:20, inviteGoal:20, inviteReward:1000, ageMin:18, holdSec:180, notice:'CHIAKI GK 雕像一番賞 第一彈 熱賣中！'},

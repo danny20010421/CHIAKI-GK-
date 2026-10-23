@@ -135,7 +135,7 @@ routes.pool = (r) => {
     <section class="prizes" aria-labelledby="h-pz">
       <div class="sec-h"><h2 id="h-pz"><small>PRIZE LIST</small>獎項與即時機率</h2><span class="dim" style="font-size:12px">${p.play === 'prob' ? '固定機率等級依設定；其餘依剩餘數量隨機' : '機率 = 該賞剩餘數 ÷ 總剩餘數，每抽即時更新'}</span></div>
       <table class="ptable">
-        <thead><tr><th>等級</th><th>獎品</th><th class="r">剩餘 / 總數</th><th class="r">目前機率</th><th class="r hide-s">回收值</th></tr></thead>
+        <thead><tr><th>等級</th><th>獎品</th><th class="r">剩餘 / 總數</th><th class="r">目前機率</th></tr></thead>
         <tbody>
           ${[...new Set(p.prizes.map(x => x.lv))].map(lv => { const its = p.prizes.map((pr,i) => ({pr,i})).filter(x => x.pr.lv === lv), ln = its.reduce((s,x) => s + remainOf(p,x.i), 0), lq = its.reduce((s,x) => s + x.pr.qty, 0);
             return its.map(({pr,i}, k) => { const n = remainOf(p,i); return `
@@ -143,10 +143,9 @@ routes.pool = (r) => {
             ${k === 0 ? `<td rowspan="${its.length}" class="lv-cell">${pr.lvName === lv + ' 等' ? `<span class="lv-no">${lv}</span>` : ''}${tagOf(pr)}${its.length > 1 ? `<small>${its.length} 種・剩 ${ln}/${lq}</small>` : ''}</td>` : ''}
             <td><div class="row" style="gap:12px">${art(p.hue, glyphOf(pr), 'pthumb', '', pr.img)}<div class="pname">${pr.name}<small>${p.src==='m'?(pr.name.includes('官方')?'來源：官方正版':pr.name.includes('自製')?'來源：CHIAKI 自製':'來源：合作工坊'):(p.src==='o'?'全新未拆封・正版商品':'CHIAKI 原創設計')}</small><small class="shipm">${ic(pr.ship === 'home' ? 'truck' : 'store', 'width:14px;height:14px')}${SHIP_M[pr.ship]}<span class="hide-s">・運費到付</span></small></div></div></td>
             <td class="r"><b>${n}</b> / ${pr.qty}</td>
-            <td class="r">${live && left ? probPct(p, i) : '—'}</td>
-            <td class="r hide-s">${pr.rv ? fmt(pr.rv)  + ' CC幣' : '<span class="dim">不可回收</span>'}</td>
+            <td class="r">${!(live && left) ? '—' : vipCan('odds') ? probPct(p, i) : oddsLock()}</td>
           </tr>`; }).join(''); }).join('')}
-          ${p.last ? `<tr><td class="lv-cell">${rankTag('LAST')}</td><td><div class="row" style="gap:12px">${art(p.hue,'L','pthumb','',p.lastImg)}<div class="pname">${p.last}<small>抽出本賞池最後一籤者獲得</small><small class="shipm">${ic('truck','width:14px;height:14px')}宅配到府<span class="hide-s">・運費到付</span></small></div></div></td><td class="r"><b>${left?1:0}</b> / 1</td><td class="r dim">最後一籤</td><td class="r hide-s dim">不可回收</td></tr>` : ''}
+          ${p.last ? `<tr><td class="lv-cell">${rankTag('LAST')}</td><td><div class="row" style="gap:12px">${art(p.hue,'L','pthumb','',p.lastImg)}<div class="pname">${p.last}<small>抽出本賞池最後一籤者獲得</small><small class="shipm">${ic('truck','width:14px;height:14px')}宅配到府<span class="hide-s">・運費到付</span></small></div></div></td><td class="r"><b>${left?1:0}</b> / 1</td><td class="r dim">最後一籤</td></tr>` : ''}
         </tbody>
       </table>
     </section>
@@ -499,7 +498,7 @@ function showSummary(){
       <div class="links"><a href="${LINKS.line}" target="_blank" rel="noopener">${ic('users','width:16px;height:16px')}LINE 社群</a><a href="${LINKS.ig}" target="_blank" rel="noopener">${ic('ig','width:16px;height:16px')}Instagram</a><a href="${LINKS.fb}" target="_blank" rel="noopener">${ic('fb','width:16px;height:16px')}Facebook</a></div>
     </div>
     <div class="sgrid">${sorted.map((x,i) => `<div class="sitem ${x.tier>=3?'hi':''}" style="animation-delay:${i*60}ms"><div class="mini">${kujiInner(x, {sub:'No.'+pad(x.no), foot:x.name})}</div>
-      ${tagOf(x, true)}<b>${x.name}</b><span>${x.bonus?x.bonus+' ・ ':''}No.${pad(x.no)}</span></div>`).join('')}</div>
+      ${tagOf(x, true)}<b>${x.name}</b><span>${x.bonus?x.bonus+' ・ ':''}No.${pad(x.no)}</span><span class="srv">${x.rv ? '回收值 ' + fmt(x.rv) + ' CC幣' : '不可回收'}</span></div>`).join('')}</div>
     <div class="acts"><button class="btn" data-act="close-stage">再抽一次</button><a class="btn gold" href="#/warehouse" data-act="close-stage">${ic('box')}前往中獎倉庫</a></div>`;
   }
   s.classList.add('show');

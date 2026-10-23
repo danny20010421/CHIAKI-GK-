@@ -24,7 +24,7 @@ Object.assign(S, {
   notifPref: {inapp:true, sms:true, line:false, push:false, email:true},
   notifEv: {draw:true, expiry:true, ship:true, refund:true, ticket:true, news:false},
   notifs: [
-    {t:'航海王 鏡面徽章（魯夫）將於 6 天後到期，請盡快申請出貨', d:'今天 09:00', ic:'clock'},
+    {t:'烙印勇士 緹花毛巾（狂戰士紋章）將於 6 天後到期，請盡快申請出貨', d:'今天 09:00', ic:'clock'},
     {t:'出貨單 SH-0011 已寄出，7-ELEVEN 交貨便單號 F2610231188', d:'10/21 14:20', ic:'truck'}
   ],
   tickets: [

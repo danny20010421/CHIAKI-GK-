@@ -25,11 +25,12 @@
   buildPool(G); POOLS.splice(1, 0, G); })();
 /* 自製一番賞：雲頂終結谷（機率賞：70% 直接中 4 獎，其餘依剩餘數量隨機；寄送方式逐件預設） */
 (() => { const N = {id:'nr', title:'雲頂終結谷', ip:'火影忍者', src:'s', play:'prob', price:200, hue:22, seed:707, drawn:0, hot:true, isNew:true, img:DEMO_IMG('nrcover'),
-    desc:'鳴人 vs 佐助 終結谷決戰雙雕像。70% 機率直接獲得 4 獎「火影墨影霓亂徽章」（回收值 250），大獎佐助回收值高達 40,000。',
+    desc:'鳴人 vs 佐助 終結谷決戰雙雕像。70% 機率直接獲得 4 獎「火影墨影霓亂徽章」，3 獎火影盲盒隨機款共 300 個。',
     ship:{home:0, cvs:0}, packs:[1,5,10],
     levels:[
       {name:'大獎', items:[{n:'雲頂終結谷 佐助', q:1, rv:40000, tag:'GK', ship:'home', img:DEMO_IMG('nrsasuke')}]},
       {name:'2 獎', items:[{n:'雲頂終結谷 鳴人', q:1, rv:18000, tag:'GK', ship:'home', img:DEMO_IMG('nrnaruto')}]},
+      {name:'3 獎', items:[{n:'火影盲盒隨機款', q:300, rv:500, tag:'景品盲盒', ship:'c711', img:DEMO_IMG('nrblind')}]},
       {name:'4 獎', small:false, odds:0.7, items:[{n:'火影墨影霓亂徽章（一枚）', q:500, rv:250, tag:'其他', ship:'c711', img:DEMO_IMG('nrbadge')}]},
       {name:'5 獎', items:[{n:'火影同人貼紙', q:9498, rv:10, tag:'其他', ship:'c711', img:DEMO_IMG('nrsticker')},
                          {n:'隨機一番賞小獎', q:10000, rv:100, tag:'一番賞', ship:'c711', img:DEMO_IMG('nrmystery')}]}], last:null};

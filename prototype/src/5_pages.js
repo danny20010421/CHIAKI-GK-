@@ -101,7 +101,7 @@ routes.me = () => {
     <span class="avatar" aria-hidden="true">C</span>
     <div class="who"><b>Chiaki 玩家</b><span class="dim" style="font-size:12px">UID 20261023-0001 ・ 2026-03 加入</span>
       <div class="row" style="gap:8px;flex-wrap:wrap"><span class="tag ok">手機已驗證</span>${S.verified?'<span class="tag ok">年齡已驗證</span>':'<span class="tag warn">年齡未驗證</span>'}<span class="tag">MFA 未啟用</span></div></div>
-    <div class="vip"><div class="row"><b style="color:var(--gold-2);font-size:14px">${ic('crown','width:16px;height:16px;vertical-align:-3px')} VIP 2 ・ 銀籤</b><span>距 VIP 3 還差 6,200</span></div><div class="meter"><i style="width:58%"></i></div><span class="dim" style="font-size:11px">權益：生日點數、出貨優惠、新賞優先通知</span></div>
+    ${vipCard()}
   </div>
   <div class="menu-grid">
     <button class="mg" data-act="scroll" data-to="me-draws">${ic('ticket')}抽賞紀錄</button><a class="mg" href="#/wallet">${ic('list')}消費紀錄</a>
@@ -143,7 +143,7 @@ routes.me = () => {
         <div class="kv"><span>兩步驟驗證 MFA</span><button class="btn s" data-act="mfa">啟用</button></div>
         <div class="kv"><span>減少動態效果</span><button class="btn s" data-act="rm-toggle" aria-pressed="${document.body.classList.contains('rm')}">${document.body.classList.contains('rm')?'已開啟':'關閉中'}</button></div>
         <div class="kv"><span>登入裝置</span><span class="dim" style="font-size:13px">iPhone ・ 台北 ・ 目前</span></div>
-        <div class="kv"><span>收貨地址</span><a href="#/warehouse">管理</a></div></div>
+        <div class="kv"><span>收貨地址</span><button class="kv-link btn s ghost" type="button" data-act="y-prof">管理</button></div></div>
     </div>
   </div></div>`;
 };
@@ -309,7 +309,7 @@ routes.admin = () => {
     <div class="agrid">
       <div><div class="row between" style="margin-bottom:12px"><b>賞池管理</b><button class="btn s gold" data-act="x-pooled">${ic('plus','width:16px;height:16px')}建立賞池</button></div>${poolTable}</div>
       <div class="panel"><h3>風控警示 <span class="tag bad">1</span></h3>
-        <div class="risk"><span class="dot" style="background:var(--bad)"></span><div><b>同裝置 4 帳號連續搶籤</b><div class="dim">航海王 ・ 10:42 ・ 已暫停鎖籤權限</div></div></div>
+        <div class="risk"><span class="dot" style="background:var(--bad)"></span><div><b>同裝置 4 帳號連續搶籤</b><div class="dim">烙印勇士 ・ 10:42 ・ 已暫停鎖籤權限</div></div></div>
         <h3 style="margin-top:24px">待辦覆核</h3>
         <div class="risk"><span class="dot" style="background:var(--info)"></span><div><b>賞池發布：CHIAKI GK 第一彈 第 3 套</b><div class="dim">建立者：營運 A ・ 需第二人覆核</div></div></div>
       </div>

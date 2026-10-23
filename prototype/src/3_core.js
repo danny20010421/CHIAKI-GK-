@@ -2,7 +2,7 @@
 "use strict";
 const GUAR_IMG = "__GUAR__";
 /* product photos (inlined at build time from media/*.b64) */
-const DEMO_IMG = k => ({beats:'__DEMO_beats__', bkart:'__DEMO_bkart__', bkbeast:'__DEMO_bkbeast__', bkboard:'__DEMO_bkboard__', bkcover:'__DEMO_bkcover__', bkguts:'__DEMO_bkguts__', bkmagnet:'__DEMO_bkmagnet__', bksword:'__DEMO_bksword__', bktowel:'__DEMO_bktowel__', bktowelL:'__DEMO_bktowelL__', bkzodd:'__DEMO_bkzodd__', bkzoddh:'__DEMO_bkzoddh__', cable:'__DEMO_cable__', case:'__DEMO_case__', cover:'__DEMO_cover__', duo:'__DEMO_duo__', gbbox:'__DEMO_gbbox__', gbcalc:'__DEMO_gbcalc__', gbcover:'__DEMO_gbcover__', gbrug:'__DEMO_gbrug__', gbsticker:'__DEMO_gbsticker__', kgbook:'__DEMO_kgbook__', kgcharm:'__DEMO_kgcharm__', kgchihiro:'__DEMO_kgchihiro__', kgcover:'__DEMO_kgcover__', kgfolder:'__DEMO_kgfolder__', kghakuri:'__DEMO_kghakuri__', kglast:'__DEMO_kglast__', kgposter:'__DEMO_kgposter__', kgpouch:'__DEMO_kgpouch__', kgstand:'__DEMO_kgstand__', kgtowel:'__DEMO_kgtowel__', nrbadge:'__DEMO_nrbadge__', nrcover:'__DEMO_nrcover__', nrmystery:'__DEMO_nrmystery__', nrnaruto:'__DEMO_nrnaruto__', nrsasuke:'__DEMO_nrsasuke__', nrsticker:'__DEMO_nrsticker__', pods:'__DEMO_pods__', pro:'__DEMO_pro__', strap:'__DEMO_strap__', watch:'__DEMO_watch__'}[k] || '').replace(/^__DEMO_.*__$/, '');
+const DEMO_IMG = k => ({beats:'__DEMO_beats__', bkart:'__DEMO_bkart__', bkbeast:'__DEMO_bkbeast__', bkboard:'__DEMO_bkboard__', bkcover:'__DEMO_bkcover__', bkguts:'__DEMO_bkguts__', bkmagnet:'__DEMO_bkmagnet__', bksword:'__DEMO_bksword__', bktowel:'__DEMO_bktowel__', bktowelL:'__DEMO_bktowelL__', bkzodd:'__DEMO_bkzodd__', bkzoddh:'__DEMO_bkzoddh__', cable:'__DEMO_cable__', case:'__DEMO_case__', cover:'__DEMO_cover__', duo:'__DEMO_duo__', gbbox:'__DEMO_gbbox__', gbcalc:'__DEMO_gbcalc__', gbcover:'__DEMO_gbcover__', gbrug:'__DEMO_gbrug__', gbsticker:'__DEMO_gbsticker__', kgbook:'__DEMO_kgbook__', kgcharm:'__DEMO_kgcharm__', kgchihiro:'__DEMO_kgchihiro__', kgcover:'__DEMO_kgcover__', kgfolder:'__DEMO_kgfolder__', kghakuri:'__DEMO_kghakuri__', kglast:'__DEMO_kglast__', kgposter:'__DEMO_kgposter__', kgpouch:'__DEMO_kgpouch__', kgstand:'__DEMO_kgstand__', kgtowel:'__DEMO_kgtowel__', nrbadge:'__DEMO_nrbadge__', nrblind:'__DEMO_nrblind__', nrcover:'__DEMO_nrcover__', nrmystery:'__DEMO_nrmystery__', nrnaruto:'__DEMO_nrnaruto__', nrsasuke:'__DEMO_nrsasuke__', nrsticker:'__DEMO_nrsticker__', pods:'__DEMO_pods__', pro:'__DEMO_pro__', strap:'__DEMO_strap__', watch:'__DEMO_watch__'}[k] || '').replace(/^__DEMO_.*__$/, '');
 const LINKS = {
   ig:'https://www.instagram.com/chiaki_gk.studies/',
   line:'https://line.me/ti/g2/onOPVpRAYARR2bqRz3DKN4IP-XTIayGKwt9QRw?utm_source=invitation&utm_medium=link_copy&utm_campaign=default',
@@ -103,7 +103,7 @@ const labelOf = x => x.rk === 'LAST' ? '最後賞' : x.custom ? x.name : lvLabel
 const glyphOf = x => x.rk === 'LAST' ? 'L' : x.custom ? ({G:'★',M:'◆',S:'・'}[x.g]) : (x.rk === 'P' ? 'P' : x.rk);
 const SHIP_M = {home:'宅配到府', c711:'7-11 交貨便', fami:'全家店到店'};
 const STORE_DAYS_DEFAULT = 30;
-const storeDays = () => (S.cfg && S.cfg.storeDays) || STORE_DAYS_DEFAULT;
+const storeDays = () => ((S.cfg && S.cfg.storeDays) || STORE_DAYS_DEFAULT) + (typeof vipExtraDays === 'function' ? vipExtraDays() : 0);
 const SRC = {o:{t:'官方套組',c:'src-o'}, s:{t:'自製套組',c:'src-s'}, m:{t:'混合套組',c:'src-m'}};
 const PLAY = {std:'標準賞', guar:'保底挑戰', solo:'單挑賞池', prob:'機率賞'};
 
@@ -301,7 +301,7 @@ document.addEventListener('keydown', e => {
 function syncBal(){ $('#navBal').textContent = fmt(S.coins); }
 
 const art = (hue, glyph, cls = '', label = '', img = '') =>
-  `<div class="art ${cls}" style="--h:${hue}" ${label?`role="img" aria-label="${label}"`:'aria-hidden="true"'}><div class="fig"></div><span class="glyph">${glyph}</span>${img && img.startsWith('<svg') ? `<div class="tkart">${img}</div>` : img?`<img class="cover" src="${img}" alt="" loading="lazy">`:''}</div>`;
+  `<div class="art ${cls}" style="--h:${hue}" ${label?`role="img" aria-label="${label}"`:'aria-hidden="true"'}><div class="fig"></div><span class="glyph" aria-hidden="true">${glyph}</span>${img && img.startsWith('<svg') ? `<div class="tkart">${img}</div>` : img?`<img class="cover" src="${img}" alt="" loading="lazy">`:''}</div>`;
 
 /* ---------- Pool card ---------- */
 function poolCard(p){

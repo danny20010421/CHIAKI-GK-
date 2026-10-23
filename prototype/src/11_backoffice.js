@@ -19,12 +19,12 @@ const LEGEND = `<div class="st-legend" aria-label="狀態顏色說明"><span><i 
 /* --- sample data: when each shipment was requested, what is inside --- */
 (() => {
   const ago = h => Date.now() - h * 36e5;
-  S.shipments.unshift({id:'SH-0013', user:'r***n', items:2, m:'home', st:'申請', carrier:'', no:'', t:ago(4), names:['CHIAKI GK 原創雕像 白模版','明信片（全 10 種）'], bulky:true},
-                      {id:'SH-0010', user:'w***l', items:1, m:'c711', st:'包裝', carrier:'', no:'', t:ago(60), names:['朽木白哉 胸像'], bulky:true});
-  const meta = {'SH-0012':[30,['壓克力立牌（全 6 種）','金屬徽章（全 5 種）','明信片（全 10 種）']], 'SH-0011':[50,['設定原畫 收藏卡組']], 'SH-0009':[96,['印花毛巾（全 5 種）','鏡面徽章（全 10 種）']]};
+  S.shipments.unshift({id:'SH-0013', user:'r***n', items:2, m:'home', st:'申請', carrier:'', no:'', t:ago(4), names:['凱茲（雙版本隨機）','頭像磁鐵（全 6 種隨機）'], bulky:true},
+                      {id:'SH-0010', user:'w***l', items:1, m:'c711', st:'包裝', carrier:'', no:'', t:ago(60), names:['雲頂終結谷 鳴人'], bulky:true});
+  const meta = {'SH-0012':[30,['壓克力立牌','壓克力吊飾','透明海報']], 'SH-0011':[50,['宮崎駿盲盒']], 'SH-0009':[96,['斬龍劍','緹花毛巾（全 8 種隨機）']]};
   S.shipments.forEach(s => { if (!s.t && meta[s.id]){ s.t = ago(meta[s.id][0]); s.names = meta[s.id][1]; } s.bulky = !!s.bulky; });
   S.poolDrafts = S.poolDrafts || [];
-  if (!S.poolDrafts.some(d => d.st === '待覆核')) S.poolDrafts.push({title:'CHIAKI GK 雕像一番賞 第一彈 第 3 套', ip:'CHIAKI ORIGINAL', src:'s', play:'std', price:300, sets:1, home:200, cvs:100, st:'待覆核', by:'營運 A'});
+  if (!S.poolDrafts.some(d => d.st === '待覆核')) S.poolDrafts.push({title:'一番賞 烙印勇士 ～宿命的雙極～ 第 4 套', ip:'烙印勇士', src:'s', play:'std', price:300, sets:1, home:200, cvs:100, st:'待覆核', by:'營運 A'});
   S.shipF = '全部'; S.shipSel = [];
 })();
 const ageH = s => s.t ? Math.floor((Date.now() - s.t) / 36e5) : 0;
