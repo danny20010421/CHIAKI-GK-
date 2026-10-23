@@ -1,6 +1,8 @@
 <script>
 "use strict";
 const GUAR_IMG = "__GUAR__";
+/* product photos (inlined at build time from media/*.b64) */
+const DEMO_IMG = k => ({beats:'__DEMO_beats__', bkart:'__DEMO_bkart__', bkbeast:'__DEMO_bkbeast__', bkboard:'__DEMO_bkboard__', bkcover:'__DEMO_bkcover__', bkguts:'__DEMO_bkguts__', bkmagnet:'__DEMO_bkmagnet__', bksword:'__DEMO_bksword__', bktowel:'__DEMO_bktowel__', bktowelL:'__DEMO_bktowelL__', bkzodd:'__DEMO_bkzodd__', bkzoddh:'__DEMO_bkzoddh__', cable:'__DEMO_cable__', case:'__DEMO_case__', cover:'__DEMO_cover__', duo:'__DEMO_duo__', gbbox:'__DEMO_gbbox__', gbcalc:'__DEMO_gbcalc__', gbcover:'__DEMO_gbcover__', gbrug:'__DEMO_gbrug__', gbsticker:'__DEMO_gbsticker__', kgbook:'__DEMO_kgbook__', kgcharm:'__DEMO_kgcharm__', kgchihiro:'__DEMO_kgchihiro__', kgcover:'__DEMO_kgcover__', kgfolder:'__DEMO_kgfolder__', kghakuri:'__DEMO_kghakuri__', kglast:'__DEMO_kglast__', kgposter:'__DEMO_kgposter__', kgpouch:'__DEMO_kgpouch__', kgstand:'__DEMO_kgstand__', kgtowel:'__DEMO_kgtowel__', nrbadge:'__DEMO_nrbadge__', nrcover:'__DEMO_nrcover__', nrmystery:'__DEMO_nrmystery__', nrnaruto:'__DEMO_nrnaruto__', nrsasuke:'__DEMO_nrsasuke__', nrsticker:'__DEMO_nrsticker__', pods:'__DEMO_pods__', pro:'__DEMO_pro__', strap:'__DEMO_strap__', watch:'__DEMO_watch__'}[k] || '').replace(/^__DEMO_.*__$/, '');
 const LINKS = {
   ig:'https://www.instagram.com/chiaki_gk.studies/',
   line:'https://line.me/ti/g2/onOPVpRAYARR2bqRz3DKN4IP-XTIayGKwt9QRw?utm_source=invitation&utm_medium=link_copy&utm_campaign=default',
@@ -86,7 +88,7 @@ const RK = {
   LAST:{cls:'rk-last',label:'最後賞',tier:4},
   A:{cls:'rk-a',label:'A賞',tier:3}, B:{cls:'rk-b',label:'B賞',tier:2}, C:{cls:'rk-c',label:'C賞',tier:1},
   D:{cls:'rk-d',label:'D賞',tier:0}, E:{cls:'rk-e',label:'E賞',tier:0}, F:{cls:'rk-e',label:'F賞',tier:0},
-  G:{cls:'rk-e',label:'G賞',tier:0}, H:{cls:'rk-e',label:'H賞',tier:0},
+  G:{cls:'rk-e',label:'G賞',tier:0}, H:{cls:'rk-e',label:'H賞',tier:0}, I:{cls:'rk-e',label:'I賞',tier:0},
   P:{cls:'rk-e',label:'參加獎',tier:0}
 };
 const rankTag = (rk, small) => `<span class="rank ${RK[rk].cls}"${small?' style="min-width:0;height:24px;font-size:11px;padding:0 6px"':''}>${RK[rk].label}</span>`;
@@ -107,60 +109,40 @@ const PLAY = {std:'標準賞', guar:'保底挑戰', solo:'單挑賞池', prob:'�
 
 /* ---------- Sample data (fictional IPs; replace with real catalog) ---------- */
 const NOW = Date.now();
-/* 每個賞池都分 1～8 個等級（1 最高）；每個等級可放 1 個或多個不同獎品。
+/* 每個賞池都分 1～9 個等級（1 最高）；每個等級可放 1 個或多個不同獎品。
    small = 是否屬「小獎」（計入運費 20 件規則、可按件退運費），未設定時 4 等以後為小獎。
    items: n 名稱、q 數量、rv 回收值、keep 示範用保留數、tag 標籤（未填自動判斷） */
 const POOLS = [
-  {id:'gk', title:'CHIAKI GK 雕像一番賞 第一彈', ip:'CHIAKI ORIGINAL', src:'s', play:'std', price:300, hue:192, seed:101, hot:true, isNew:true,
-   setCount:10, setDrawn:[100,64,0,0,0,0,0,0,0,0], ship:{home:200, cvs:100}, packs:[1,5,10],
+  {id:'bk', title:'一番賞 烙印勇士 ～宿命的雙極～', ip:'烙印勇士', src:'o', play:'std', price:420, hue:356, seed:211, setCount:3, setDrawn:[6,0,0], hot:true, isNew:true, img:DEMO_IMG('bkcover'),
+   desc:'凱茲與索特宿命對決，A 賞複製原畫、B 賞凱茲雙版本隨機、最後賞索特（人類姿態）。本套獎項皆不提供回收。',
+   ship:{home:0, cvs:0}, packs:[1,5,10],
    levels:[
-     {name:'大獎', items:[{n:'CHIAKI GK 原創雕像 全彩完成品', q:1, keep:1}]},
-     {name:'中獎', items:[{n:'CHIAKI GK 原創雕像 白模版', q:1, keep:1, rv:1500},{n:'原創角色 胸像', q:1, keep:1, rv:900}]},
-     {name:'收藏獎', small:true, items:[{n:'壓克力立牌（全 6 種）', q:6, rv:80},{n:'設定原畫 收藏卡組', q:6, rv:60}]},
-     {name:'小獎', items:[{n:'金屬徽章（全 5 種）', q:15, rv:40},{n:'燙金貼紙組', q:20, rv:20}]},
-     {name:'參加獎', items:[{n:'明信片（全 10 種）', q:50, rv:10}]}], last:null},
-  {id:'p1', title:'一番賞 航海王 ～新四皇～', ip:'航海王', src:'o', play:'std', price:350, hue:222, seed:11, drawn:38, hot:true,
-   ship:{home:250, cvs:120}, packs:[1,5,10],
+     {name:'A賞', items:[{n:'複製原畫', q:1, tag:'其他', ship:'home', img:DEMO_IMG('bkart')}]},
+     {name:'B賞', items:[{n:'凱茲（雙版本隨機）', q:2, tag:'PVC', ship:'home', img:DEMO_IMG('bkguts')}]},
+     {name:'C賞', items:[{n:'斬龍劍', q:1, tag:'PVC', ship:'home', img:DEMO_IMG('bksword')}]},
+     {name:'D賞', small:false, items:[{n:'夢之獸', q:1, tag:'PVC', ship:'home', img:DEMO_IMG('bkbeast')}]},
+     {name:'E賞', small:false, items:[{n:'索特', q:1, tag:'PVC', ship:'home', img:DEMO_IMG('bkzodd')}]},
+     {name:'F賞', items:[{n:'100cm 大型緹花毛巾', q:2, tag:'其他', ship:'c711', img:DEMO_IMG('bktowelL')}]},
+     {name:'G賞', items:[{n:'頭像磁鐵（全 6 種隨機）', q:20, tag:'其他', ship:'c711', img:DEMO_IMG('bkmagnet')}]},
+     {name:'H賞', items:[{n:'緹花毛巾（全 8 種隨機）', q:24, tag:'其他', ship:'c711', img:DEMO_IMG('bktowel')}]},
+     {name:'I賞', items:[{n:'畫布風格展示板（全 25 種隨機）', q:28, tag:'其他', ship:'c711', img:DEMO_IMG('bkboard')}]}],
+   last:'索特（人類姿態）', lastImg:DEMO_IMG('bkzoddh')},
+  {id:'kg', title:'一番賞 神樂鉢', ip:'神樂鉢', src:'o', play:'std', price:420, hue:220, seed:233, drawn:0, isNew:true, img:DEMO_IMG('kgcover'),
+   desc:'六平千鑛、漣伯理雙公仔登場，A 賞為連載三周年紀念書本造型展示板。本套獎項皆不提供回收。',
+   ship:{home:0, cvs:0}, packs:[1,5,10],
    levels:[
-     {name:'A賞', items:[{n:'蒙其·D·魯夫 五檔 公仔', q:1, keep:1}]},
-     {name:'B賞', items:[{n:'羅羅亞·索隆 公仔', q:1, keep:1},{n:'賓什莫克·香吉士 公仔', q:1, keep:1}]},
-     {name:'C賞', items:[{n:'角色壓克力立牌（全 3 種）', q:3, rv:150}]},
-     {name:'D賞', items:[{n:'喬巴 絨毛娃娃', q:10, rv:60}]},
-     {name:'E賞', items:[{n:'鏡面徽章（全 10 種）', q:20, rv:20}]},
-     {name:'F賞', items:[{n:'透明資料夾（全 6 種）', q:24, rv:10}]}],
-   last:'魯夫 五檔 特別配色 Ver.'},
-  {id:'p3', title:'死神 保底挑戰 ～千年血戰篇～', ip:'死神', src:'s', play:'guar', price:280, hue:42, seed:33, drawn:22, img:GUAR_IMG,
-   guar:{every:10, minTier:2, g:'M', lv:2, lvName:'中獎', reserve:3, name:'朽木白哉 胸像（保底專用庫存）', rv:800}, ship:{home:180, cvs:80}, packs:[1,5,10],
-   levels:[
-     {name:'大獎', items:[{n:'黑崎一護 卍解 1/6 雕像', q:1, keep:1}]},
-     {name:'中獎', items:[{n:'朽木白哉 胸像', q:2, keep:1, rv:800},{n:'日番谷冬獅郎 胸像', q:2, keep:1, rv:800}]},
-     {name:'小獎', small:true, items:[{n:'護廷十三隊 金箔色紙', q:10, rv:120}]},
-     {name:'小獎', items:[{n:'限定版畫（全 4 種）', q:25, rv:50}]},
-     {name:'小獎', items:[{n:'燙金貼紙組', q:40, rv:20}]}], last:'黑崎一護 全身雕像 金箔 Ver.'},
-  {id:'p4', title:'火影忍者 混合賞 ～曉之雲～', ip:'火影忍者', src:'m', play:'std', price:300, hue:12, seed:44, drawn:10, isNew:true,
-   ship:{home:220, cvs:100}, packs:[1,5,10],
-   levels:[
-     {name:'A賞', items:[{n:'宇智波鼬 1/8 比例模型（官方正版）', q:1, keep:1}]},
-     {name:'B賞', items:[{n:'曉 雲紋 LED 夜燈（CHIAKI 自製）', q:3, rv:300}]},
-     {name:'C賞', items:[{n:'木葉護額（合作工坊）', q:3, rv:120},{n:'寫輪眼 吊墜（合作工坊）', q:3, rv:120}]},
-     {name:'D賞', items:[{n:'曉組織 吊飾（全 5 種）', q:20, rv:40}]},
-     {name:'E賞', items:[{n:'明信片組', q:30, rv:15}]}], last:'宇智波鼬 月讀 Ver.'},
-  {id:'p5', title:'鬼滅之刃 單挑賞 ～無限城決戰～', ip:'鬼滅之刃', src:'s', play:'solo', price:150, hue:186, seed:55, drawn:30,
-   ship:{home:150, cvs:60}, packs:[1,5,10],
-   levels:[
-     {name:'大獎', items:[{n:'竈門炭治郎 1/6 雕像', q:1, keep:1}]},
-     {name:'小獎', small:true, items:[{n:'角色貼紙（全 5 種）', q:49, rv:10}]}], last:null},
-  {id:'p7', title:'一番賞 七龍珠 ～孫悟空修行篇～', ip:'七龍珠', src:'o', play:'std', price:380, hue:268, seed:77, soon:NOW+ 2*864e5 + 5*36e5,
-   ship:{home:250, cvs:120}, packs:[1,5,10],
-   levels:[
-     {name:'A賞', items:[{n:'孫悟空 公仔', q:1}]},
-     {name:'B賞', items:[{n:'龜仙人 公仔', q:1},{n:'克林 公仔', q:1}]},
-     {name:'C賞', items:[{n:'筋斗雲 擺飾', q:4}]},
-     {name:'D賞', items:[{n:'角色景品盲盒（全 6 款）', q:12}]},
-     {name:'E賞', items:[{n:'集換式卡牌包', q:20}]},
-     {name:'F賞', items:[{n:'金屬書籤', q:24}]}], last:'孫悟空 龜派氣功 Ver.'},
+     {name:'A賞', items:[{n:'連載三周年紀念 書本造型展示板', q:3, tag:'其他', ship:'home', img:DEMO_IMG('kgbook')}]},
+     {name:'B賞', items:[{n:'六平千鑛', q:1, tag:'PVC', ship:'home', img:DEMO_IMG('kgchihiro')}]},
+     {name:'C賞', items:[{n:'漣伯理', q:2, tag:'PVC', ship:'home', img:DEMO_IMG('kghakuri')}]},
+     {name:'D賞', items:[{n:'大毛巾（全兩款）', q:2, tag:'其他', ship:'c711', img:DEMO_IMG('kgtowel')}]},
+     {name:'E賞', items:[{n:'網布收納袋', q:4, tag:'其他', ship:'c711', img:DEMO_IMG('kgpouch')}]},
+     {name:'F賞', items:[{n:'透明海報', q:20, tag:'其他', ship:'c711', img:DEMO_IMG('kgposter')}]},
+     {name:'G賞', items:[{n:'壓克力立牌', q:16, tag:'其他', ship:'c711', img:DEMO_IMG('kgstand')}]},
+     {name:'H賞', items:[{n:'壓克力吊飾', q:14, tag:'其他', ship:'c711', img:DEMO_IMG('kgcharm')}]},
+     {name:'I賞', items:[{n:'透明資料夾＆貼紙組', q:18, tag:'其他', ship:'c711', img:DEMO_IMG('kgfolder')}]}],
+   last:'六平千鑛', lastImg:DEMO_IMG('kglast')},
 ];
-const LV_RK = 'ABCDEFGH';
+const LV_RK = 'ABCDEFGHI';
 /* levels → flat prize list (each prize knows its level) */
 function flattenLevels(p){
   p.prizes = [];
@@ -252,22 +234,22 @@ function focusKey(el){
 const S = {
   coins: 5320, verified: false, rulesOk: false,
   sel: [], holdUntil: 0, holdTimer: null,
-  guar: {p3: 7},
+  guar: {},
   cart: [],
-  follow: ['航海王','CHIAKI ORIGINAL'],
+  follow: ['烙印勇士','火影忍者'],
   wh: [
-    {id:'w2', pool:'p1', set:0, rk:'E', lv:5, lvName:'E賞', small:true, g:'S', rv:20, pname:'鏡面徽章（全 10 種）', name:'航海王 鏡面徽章（魯夫）', hue:222, at:'2026-09-29', st:'stored'},
-    {id:'w4', pool:'p3', set:0, custom:true, lv:2, lvName:'中獎', g:'M', rv:800, pname:'朽木白哉 胸像', name:'朽木白哉 胸像', hue:42, at:'2026-10-02', st:'ship', track:'7-ELEVEN 交貨便 ・ 已到店'},
-    {id:'w5', pool:'p4', set:0, rk:'E', lv:5, lvName:'E賞', small:true, g:'S', rv:15, pname:'明信片組', name:'火影忍者 明信片組', hue:12, at:'2026-09-20', st:'done'},
-    {id:'w6', pool:'p1', set:0, rk:'F', lv:6, lvName:'F賞', small:true, g:'S', rv:10, pname:'透明資料夾（全 6 種）', name:'透明資料夾（全員）', hue:222, at:'2026-09-14', st:'recycled'},
+    {id:'w2', pool:'bk', set:0, rk:'H', lv:8, lvName:'H賞', small:true, g:'S', rv:0, sm:'c711', pname:'緹花毛巾（全 8 種隨機）', name:'烙印勇士 緹花毛巾（狂戰士紋章）', hue:356, at:'2026-10-21', st:'stored'},
+    {id:'w4', pool:'gb', set:0, custom:true, lv:3, lvName:'3 獎', g:'M', rv:100, sm:'c711', pname:'宮崎駿盲盒', name:'宮崎駿・吉卜力 宮崎駿盲盒', hue:28, at:'2026-10-02', st:'ship', track:'7-ELEVEN 交貨便 F2610231188'},
+    {id:'w5', pool:'nr', set:0, custom:true, lv:5, lvName:'5 獎', small:true, g:'S', rv:10, sm:'c711', pname:'火影同人貼紙', name:'火影忍者 火影同人貼紙', hue:22, at:'2026-09-20', st:'done'},
+    {id:'w6', pool:'gb', set:0, custom:true, lv:4, lvName:'4 獎', small:true, g:'S', rv:10, sm:'c711', pname:'宮崎駿同人貼紙', name:'宮崎駿・吉卜力 宮崎駿同人貼紙', hue:28, at:'2026-09-14', st:'recycled'},
   ],
-  shipPaid: {'p1:0':{n:1, m:'home'}, 'p3:0':{n:1, m:'c711'}, 'p4:0':{n:1, m:'home'}},
+  shipPaid: {},
   shipPick: 'home',
   whSel: [], whTab:'stored',
   tx: [
     {t:'儲值 ・ 信用卡（綠界）', d:'2026-10-20 21:14', a:+3000, ic:'card'},
-    {t:'抽賞 ・ 一番賞 航海王 ×3', d:'2026-10-18 22:40', a:-1050, ic:'ticket'},
-    {t:'回收獎品 ・ 透明資料夾 → 不可退款 CC幣', d:'2026-09-14 13:02', a:+20, ic:'recycle', pt:true},
+    {t:'抽賞 ・ 一番賞 烙印勇士 ～宿命的雙極～ ×3', d:'2026-10-18 22:40', a:-1260, ic:'ticket'},
+    {t:'回收獎品 ・ 宮崎駿同人貼紙 → 不可退款 CC幣', d:'2026-09-14 13:02', a:+10, ic:'recycle', pt:true},
   ],
   pick: {pack:1000, pay:'card'},
   admin: 'dash',
@@ -279,9 +261,9 @@ const totalAll = p => p.sets.reduce((s, x) => s + (x.total || p.total), 0);
 /* sample items carry a fixed ticket number like real draws do */
 S.wh.forEach((w, i) => { if (!w.no){ const p = poolById(w.pool); w.no = p ? (i * 7 + 3) % p.total + 1 : i + 1; } });
 let drawLog = [
-  {u:'k***a', pool:'CHIAKI GK', txt:'原創角色 胸像'},{u:'r***n', pool:'航海王', txt:'A賞'},{u:'y***i', pool:'火影忍者', txt:'C賞'},
-  {u:'t***2', pool:'死神', txt:'朽木白哉 胸像'},{u:'s***o', pool:'鬼滅之刃', txt:'竈門炭治郎 1/6 雕像'}
-];
+  {u:'k***a', pool:'烙印勇士', txt:'B賞 凱茲'},{u:'r***n', pool:'火影忍者', txt:'4 獎 徽章'},{u:'y***i', pool:'宮崎駿・吉卜力', txt:'神隱卡西法'},
+  {u:'t***2', pool:'神樂鉢', txt:'C賞 漣伯理'},{u:'s***o', pool:'烙印勇士', txt:'最後賞 索特（人類姿態）'}
+]
 
 /* ---------- Generic UI helpers ---------- */
 function toast(msg){
@@ -401,7 +383,7 @@ routes.home = () => {
   const fresh = pick(live.filter(p => p.isNew).concat(live.filter(p => !p.isNew)));
   const soon = POOLS.filter(p => p.soon && !p.off);
   const slides = [
-    {p:'gk', k:'CHIAKI GK', t:'CHIAKI GK<br>雕像一番賞 第一彈', d:'每套 100 抽・共十套・A～H 賞，籤紙與實體店同款設計。'}
+    {p:'bk', k:'官方一番賞', t:'烙印勇士<br>宿命的雙極', d:'A～I 賞＋最後賞，每抽 420 CC幣。'}
   ];
   const tick = drawLog.map(x => `<span>${x.u} 在 <b>${x.pool}</b> 抽中 <em>${x.txt}</em></span>`).join('');
   return `
@@ -414,7 +396,7 @@ routes.home = () => {
       <div class="kicker" aria-hidden="true"><i></i>ONLINE ICHIBAN KUJI<i></i></div>
       <h1 id="heroLogo" class="brand hero-brand">CHIAKI</h1>
       <div class="tagline" aria-label="為大家的青春與夢想而存在">${[...'為大家的青春與夢想而存在'].map((c,i)=>`<span style="animation-delay:${1+i*.06}s">${c}</span>`).join('')}</div>
-      <div class="sub"><span>官方・自製・混合套組</span>　<span>機率即時公開｜結果事前鎖定</span></div>
+      <div class="sub"><span>官方・自製一番賞</span>　<span>機率即時公開｜結果事前鎖定</span></div>
       <div class="cta"><a class="btn gold" href="#/lobby">${ic('ticket')}進入抽賞大廳</a><a class="btn ghost" href="#/support">抽賞規則說明</a></div>
     </div>
     <div class="scroll" aria-hidden="true">SCROLL<i></i></div>
@@ -439,9 +421,9 @@ routes.home = () => {
       <div class="cats">
         <a class="cat" href="#/lobby?src=o"><span class="ic">${ic('shield')}</span><b>官方一番賞</b><span>正版來源憑證</span></a>
         <a class="cat" href="#/lobby?src=s"><span class="ic">${ic('star')}</span><b>自製一番賞</b><span>CHIAKI 企劃</span></a>
-        <a class="cat" href="#/lobby?src=m"><span class="ic">${ic('grid')}</span><b>混合套組</b><span>來源逐項揭露</span></a>
-        <a class="cat" href="#/lobby?play=guar"><span class="ic">${ic('lock')}</span><b>保底挑戰</b><span>保底條件公開</span></a>
-        <a class="cat" href="#/lobby?play=solo"><span class="ic">${ic('fire')}</span><b>熱門單挑</b><span>單一大賞</span></a>
+        <a class="cat" href="#/lobby?play=prob"><span class="ic">${ic('fire')}</span><b>機率賞</b><span>機率事先公開</span></a>
+        <a class="cat" href="#/forum"><span class="ic">${ic('users')}</span><b>討論區</b><span>開箱與情報</span></a>
+        <a class="cat" href="#/warehouse"><span class="ic">${ic('grid')}</span><b>中獎倉庫</b><span>合併出貨</span></a>
         <a class="cat" href="#/shop"><span class="ic">${ic('bag')}</span><b>直購商城</b><span>無機率・定價</span></a>
       </div>
     </section>

@@ -146,7 +146,7 @@ routes.pool = (r) => {
             <td class="r">${live && left ? probPct(p, i) : '—'}</td>
             <td class="r hide-s">${pr.rv ? fmt(pr.rv)  + ' CC幣' : '<span class="dim">不可回收</span>'}</td>
           </tr>`; }).join(''); }).join('')}
-          ${p.last ? `<tr><td class="lv-cell">${rankTag('LAST')}</td><td><div class="row" style="gap:12px">${art(p.hue,'L','pthumb')}<div class="pname">${p.last}<small>抽出本賞池最後一籤者獲得</small></div></div></td><td class="r"><b>${left?1:0}</b> / 1</td><td class="r dim">最後一籤</td><td class="r hide-s dim">不可回收</td></tr>` : ''}
+          ${p.last ? `<tr><td class="lv-cell">${rankTag('LAST')}</td><td><div class="row" style="gap:12px">${art(p.hue,'L','pthumb','',p.lastImg)}<div class="pname">${p.last}<small>抽出本賞池最後一籤者獲得</small><small class="shipm">${ic('truck','width:14px;height:14px')}宅配到府<span class="hide-s">・運費到付</span></small></div></div></td><td class="r"><b>${left?1:0}</b> / 1</td><td class="r dim">最後一籤</td><td class="r hide-s dim">不可回收</td></tr>` : ''}
         </tbody>
       </table>
     </section>
@@ -232,7 +232,7 @@ function settle(p, nos){
       }
     }
   });
-  if (p.last && remaining(p) === 0 && results.length) results.push({no:results[results.length-1].no, rk:'LAST', g:'G', custom:p.src==='s', tier:4, rv:0, name:p.last, pname:p.last, hue:p.hue, bonus:'最後一籤'});
+  if (p.last && remaining(p) === 0 && results.length) results.push({no:results[results.length-1].no, rk:'LAST', g:'G', custom:p.src==='s', tier:4, rv:0, name:p.last, pname:p.last, img:p.lastImg || null, ship:'home', hue:p.hue, bonus:'最後一籤'});
   return results;
 }
 function confirmBuy(){

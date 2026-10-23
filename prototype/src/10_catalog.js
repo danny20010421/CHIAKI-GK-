@@ -5,7 +5,6 @@
    標籤 ＝ 這是什麼東西（GK、PVC、一番賞、景品盲盒、卡牌、娃娃、其他）
    ========================================================= */
 /* ---------- 免費體驗測試池：100% 中獎，只在免費體驗區出現 ---------- */
-const DEMO_IMG = k => ({gbcover:'__DEMO_gbcover__', gbcalc:'__DEMO_gbcalc__', gbbox:'__DEMO_gbbox__', gbrug:'__DEMO_gbrug__', gbsticker:'__DEMO_gbsticker__', duo:'__DEMO_duo__', pro:'__DEMO_pro__', pods:'__DEMO_pods__', watch:'__DEMO_watch__', case:'__DEMO_case__', strap:'__DEMO_strap__', beats:'__DEMO_beats__', cable:'__DEMO_cable__', cover:'__DEMO_cover__', nrcover:'__DEMO_nrcover__', nrnaruto:'__DEMO_nrnaruto__', nrsasuke:'__DEMO_nrsasuke__', nrbadge:'__DEMO_nrbadge__', nrsticker:'__DEMO_nrsticker__', nrmystery:'__DEMO_nrmystery__'}[k] || '').replace(/^__DEMO_.*__$/, '');
 (() => { const P = {id:'demo', title:'100% 中獎 免費體驗測試池', ip:'CHIAKI ORIGINAL', src:'s', play:'std', price:0, hue:300, seed:909, demoOnly:true, img:DEMO_IMG('cover'),
     ship:{home:0, cvs:0}, packs:[1,5,10],
     levels:[
@@ -59,7 +58,7 @@ function probPct(p, i){
 const IP_SEED = [
   ['航海王','海賊王 ONE PIECE 魯夫'],['七龍珠','DRAGON BALL 悟空'],['火影忍者','NARUTO 鳴人 疾風傳'],['死神','BLEACH 一護 千年血戰'],
   ['獵人','HUNTER×HUNTER 全職獵人'],['銀魂','GINTAMA'],['灌籃高手','SLAM DUNK'],['幽遊白書','YU YU HAKUSHO'],['名偵探柯南','CONAN 柯南'],
-  ['遊戲王','YU-GI-OH'],['聖鬥士星矢','SAINT SEIYA'],['JOJO的奇妙冒險','JOJO JoJo 承太郎'],
+  ['遊戲王','YU-GI-OH'],['聖鬥士星矢','SAINT SEIYA'],['JOJO的奇妙冒險','JOJO JoJo 承太郎'],['烙印勇士','BERSERK 劍風傳奇 凱茲'],['神樂鉢','KAGURABACHI カグラバチ 六平千鑛'],
   ['鬼滅之刃','KIMETSU 炭治郎 無限城'],['咒術迴戰','JUJUTSU KAISEN 五條悟'],['鏈鋸人','CHAINSAW MAN 電次'],['膽大黨','DANDADAN'],
   ['怪獸8號','KAIJU NO.8'],['藍色監獄','BLUE LOCK'],['排球少年!!','HAIKYU 排球'],['我的英雄學院','MY HERO ACADEMIA 我英'],
   ['進擊的巨人','ATTACK ON TITAN'],['間諜家家酒','SPY×FAMILY 安妮亞'],['東京復仇者','TOKYO REVENGERS 東卍'],['葬送的芙莉蓮','FRIEREN 芙莉蓮'],
@@ -106,9 +105,9 @@ const ipHits = kwl => kwl ? S.ips.filter(i => i.vis && (i.n + ' ' + (i.al || '')
 
 /* ---------- LOBBY：只有「標籤」與「IP」，可展開／收合 ---------- */
 routes.lobby = (r) => {
-  const q = r.q, ip = q.get('ip') || '', tg = q.get('tag') || '', sort = q.get('sort') || 'hot', kw = (q.get('q') || '').trim(), kwl = kw.toLowerCase();
+  const q = r.q, ip = q.get('ip') || '', tg = q.get('tag') || '', sort = q.get('sort') || 'hot', sf = q.get('src') || '', pf = q.get('play') || '', kw = (q.get('q') || '').trim(), kwl = kw.toLowerCase();
   const base = POOLS.filter(p => !p.off && !p.demoOnly && ipShownN(p.ip) && poolMatches(p, kwl));
-  let list = base.filter(p => (!ip || p.ip === ip) && (!tg || poolTags(p).includes(tg)));
+  let list = base.filter(p => (!ip || p.ip === ip) && (!tg || poolTags(p).includes(tg)) && (!sf || p.src === sf) && (!pf || p.play === pf));
   const key = p => p.soon ? 9 : 0;
   if (sort === 'left') list.sort((a,b) => key(a)-key(b) || remaining(a)/a.total - remaining(b)/b.total);
   else if (sort === 'new') list.sort((a,b) => key(a)-key(b) || (b.isNew?1:0)-(a.isNew?1:0));
@@ -133,7 +132,7 @@ routes.lobby = (r) => {
         <form class="lsearch" data-act="search" role="search"><label class="sr" for="lq">搜尋賞池</label>${ic('search','width:18px;height:18px')}<input class="input" id="lq" name="q" type="search" value="${kw.replace(/"/g,'&quot;')}" placeholder="作品、角色、英文名或標籤，例如：海賊王、GK" autocomplete="off"><button class="btn s gold" type="submit">搜尋</button></form>
         ${hits.length ? `<div class="iphits"><span class="dim">相關作品</span>${hits.map(x => `<a class="chip" href="#/lobby?ip=${encodeURIComponent(x.n)}">${x.n}<span class="cn">${poolsOfIp(x.n).length}</span></a>`).join('')}</div>` : ''}
         <div class="toolbar">
-          <span class="count">共 <b class="num">${list.length}</b> 個賞池${kw?`・「${kw}」`:''}${tg?`・${tg}`:''}${ip?`・${ip}`:''}</span>
+          <span class="count">共 <b class="num">${list.length}</b> 個賞池${kw?`・「${kw}」`:''}${tg?`・${tg}`:''}${ip?`・${ip}`:''}${sf?`・${SRC[sf].t} <a href="${link('src','')}">清除</a>`:''}${pf?`・${PLAY[pf]} <a href="${link('play','')}">清除</a>`:''}</span>
           <button class="btn s ffilter-btn" data-act="toggle-filter" aria-controls="filters" aria-expanded="${!!S.filterOpen}">${ic('filter','width:16px;height:16px')}篩選${tg || ip ? `<span class="cn">${[tg, ip].filter(Boolean).length}</span>` : ''}</button>
           <label class="sr" for="sortSel">排序</label>
           <select class="input" id="sortSel" data-act="sort">
@@ -235,7 +234,7 @@ ADM_VIEWS.ip = () => {
     <p class="dim" style="font-size:12px;margin-top:12px">IP 就是「來自哪部作品」（動漫、遊戲、角色、原創）。預設依名稱字數排列；別名只用於搜尋，例如「海賊王、ONE PIECE」都會找到「航海王」。</p>`;
 };
 
-/* ---------- ADMIN：獎品管理（1～8 等級，每級可放多個獎品） ---------- */
+/* ---------- ADMIN：獎品管理（1～9 等級，每級可放多個獎品） ---------- */
 ADM_VIEWS.prize = () => {
   const p = poolById(S.admPool) || POOLS[0], edit = soldAll(p) === 0, out = i => p.sets.reduce((s, x) => s + x.tickets.filter(t => t.taken && t.pi === i).length, 0);
   let pi = 0;
@@ -258,8 +257,8 @@ ADM_VIEWS.prize = () => {
           ${edit ? `<td>${L.items.length > 1 ? `<button class="btn s ghost" data-act="x-itdel" data-l="${li}" data-i="${ii}">移除</button>` : ''}</td>` : ''}</tr>`).join('')}
         </tbody></table></div>
         ${edit ? `<button class="btn s" style="margin-top:12px" data-act="x-itadd" data-l="${li}">${ic('plus','width:16px;height:16px')}在第 ${li + 1} 等新增獎品</button>` : ''}</section>`; }).join('')}</div>
-    ${edit ? `<button class="btn gold" style="margin-top:24px" data-act="x-lvadd" ${p.levels.length >= 8 ? 'disabled' : ''}>${ic('plus','width:16px;height:16px')}新增等級（${p.levels.length} / 8）</button>` : ''}
-    <p class="dim" style="font-size:12px;margin-top:12px">每個賞池分 1～8 個等級（1 最高），同一等級可以放 1 個或多個不同獎品，機率依各獎品剩餘數量計算。1 等與 GK 預設為大件（限宅配）。</p>`;
+    ${edit ? `<button class="btn gold" style="margin-top:24px" data-act="x-lvadd" ${p.levels.length >= 9 ? 'disabled' : ''}>${ic('plus','width:16px;height:16px')}新增等級（${p.levels.length} / 8）</button>` : ''}
+    <p class="dim" style="font-size:12px;margin-top:12px">每個賞池分 1～9 個等級（1 最高），同一等級可以放 1 個或多個不同獎品，機率依各獎品剩餘數量計算。1 等與 GK 預設為大件（限宅配）。</p>`;
 };
 function lvChanged(p, structural){
   if (structural) buildPool(p); else { const sets = p.sets; flattenLevels(p); p.prizes.forEach(pr => { pr.custom = p.src === 's'; tagOfItem(pr); }); p.sets = sets; }
@@ -279,7 +278,7 @@ document.addEventListener('change', e => { const el = e.target, a = el.dataset.a
 });
 document.addEventListener('click', e => { const el = e.target.closest('[data-act="x-lvadd"],[data-act="x-lvdel"],[data-act="x-itadd"],[data-act="x-itdel"]'); if (!el) return;
   const p = poolById(S.admPool) || POOLS[0], l = +el.dataset.l, a = el.dataset.act;
-  if (a === 'x-lvadd' && p.levels.length < 8) p.levels.push({name:`${p.src === 'o' ? LV_RK[p.levels.length] + '賞' : (p.levels.length + 1) + ' 等'}`, items:[{n:'新獎品', q:1}]});
+  if (a === 'x-lvadd' && p.levels.length < 9) p.levels.push({name:`${p.src === 'o' ? LV_RK[p.levels.length] + '賞' : (p.levels.length + 1) + ' 等'}`, items:[{n:'新獎品', q:1}]});
   if (a === 'x-lvdel') p.levels.splice(l, 1);
   if (a === 'x-itadd') p.levels[l].items.push({n:'新獎品', q:1});
   if (a === 'x-itdel') p.levels[l].items.splice(+el.dataset.i, 1);

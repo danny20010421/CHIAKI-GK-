@@ -73,7 +73,7 @@ Object.assign(S, {
   cfg: {storeDays:30, warnDays:7, homeMin:150, homeMax:300, cvsMin:60, cvsMax:150, refundDiv:20, inviteGoal:20, inviteReward:1000, ageMin:18, holdSec:180, notice:'CHIAKI GK 雕像一番賞 第一彈 熱賣中！'},
   apiKeys: [{k:'ck_live_••••3f9a', n:'官網 LINE Bot', at:'2026-10-01', on:true}],
   merchants: [{n:'範例工作室', at:'2026-10-18', st:'待審核（第四階段開放）'}],
-  admPool: 'gk', drawQ: ''
+  admPool: 'bk', drawQ: ''
 });
 const drawRows = () => { const rows = []; const names = ['Chiaki 玩家','k***a','r***n','y***i','t***2','s***o'];
   POOLS.filter(p => !p.soon).forEach((p,pi) => p.tickets.filter(t => t.taken).slice(0, 4).forEach((t,k) => { const pr = p.prizes[t.pi];

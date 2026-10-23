@@ -233,7 +233,7 @@ ADM_VIEWS.pooledit = () => {
   const sec = (id, t, body) => `<section class="pe-sec" id="pe-${id}"><h2>${t}</h2>${body}</section>`;
   return `<div class="pe-top"><button class="btn s ghost" data-act="adm" data-k="pool">${ic('right','width:16px;height:16px;transform:rotate(180deg)')}返回賞池管理</button>
       <b>${hx(p.title)}</b>${stTagT(p.off ? '已下架' : sold ? '上架中' : '未開抽')}<span class="dim" style="font-size:12px">已售 ${sold} 抽</span><span style="flex:1"></span><a class="btn s" href="#/pool/${p.id}" target="_blank" rel="noopener">前台預覽</a></div>
-    <nav class="pe-nav" aria-label="編輯區段">${[['base','基本資訊'],['rule','規則與玩法'],['prize','獎項（1～8 等）'],['info','說明與揭露'],['ship','寄送方式'],['img','圖片']].map(([k,t]) => `<button class="chip" data-act="scroll" data-to="pe-${k}">${t}</button>`).join('')}</nav>
+    <nav class="pe-nav" aria-label="編輯區段">${[['base','基本資訊'],['rule','規則與玩法'],['prize','獎項（1～9 等）'],['info','說明與揭露'],['ship','寄送方式'],['img','圖片']].map(([k,t]) => `<button class="chip" data-act="scroll" data-to="pe-${k}">${t}</button>`).join('')}</nav>
     <div id="peForm" class="cfg">
     ${sec('base', '基本資訊', `<div class="cfg-g">
       <div class="field"><label for="pe2t">賞池名稱</label><input class="input" id="pe2t" value="${hx(p.title)}"></div>
@@ -247,7 +247,7 @@ ADM_VIEWS.pooledit = () => {
         <div class="field"><label for="pe2gr">保底專用庫存</label><input class="input num" type="number" min="0" id="pe2gr" value="${p.guar.reserve}"></div>` : ''}</div>
       ${p.play === 'prob' ? '<p class="dim" style="font-size:12px;margin:0">機率賞：在下方各等級設定「固定機率 %」，留空的等級依剩餘數量隨機。</p>' : ''}
       <fieldset class="field"><legend style="font-size:13px;color:var(--tx-2);padding:0;margin-bottom:8px">可選抽數</legend><div class="row" style="gap:8px;flex-wrap:wrap">${[1,3,5,10,20,'all'].map(n => `<label class="chk-chip"><input type="checkbox" name="pe2pk" value="${n}" ${(p.packs || [1,5,10]).includes(n) ? 'checked' : ''}><span>${n === 'all' ? '全包' : n + ' 抽'}</span></label>`).join('')}</div></fieldset>`)}
-    ${sec('prize', '獎項（1～8 等）', `<p class="dim" style="font-size:12px;margin:0 0 12px">獎項的修改會即時套用（已開賣時結構與數量鎖定）。</p>${prize}`)}
+    ${sec('prize', '獎項（1～9 等）', `<p class="dim" style="font-size:12px;margin:0 0 12px">獎項的修改會即時套用（已開賣時結構與數量鎖定）。</p>${prize}`)}
     ${sec('info', '說明與揭露（顯示在前台賞池頁）', `<div class="field"><label for="pe2desc">賞池介紹</label><textarea class="input" id="pe2desc" rows="3" maxlength="400" placeholder="例如：系列特色、限量說明">${hx(p.desc || '')}</textarea></div>
       <div class="cfg-g"><div class="field"><label for="pe2sn">商品來源說明</label><input class="input" id="pe2sn" value="${hx(p.srcNote || '')}" placeholder="留空使用預設文字"></div>
       <div class="field"><label for="pe2cond">商品狀況</label><input class="input" id="pe2cond" value="${hx(p.cond || '')}" placeholder="全新未拆，外盒可能有運輸輕微壓痕"></div>
