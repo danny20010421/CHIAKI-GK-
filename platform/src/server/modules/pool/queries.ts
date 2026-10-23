@@ -3,6 +3,7 @@ import type { Db } from '../../db';
 import { COMMIT_SCHEME, canonicalLayout, verifyCommitment, type LayoutEntry } from './commitment';
 import type { PoolRules } from './rules';
 import { displayName, type Grade } from './grades';
+import { distinctCategories, type ProductCategory } from '../catalog/categories';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -30,13 +31,19 @@ export interface PoolSummary {
   hasLastPrize: boolean;
   /** 出貨時程說明（無固定 SLA） */
   shippingNote: string;
+  /** 獎項的商品分類集合（GK、PVC…，依固定順序） */
+  categories: ProductCategory[];
+  /** 是否含大件・限宅配獎項 */
+  hasBulky: boolean;
   currentSet: { setNo: number; remaining: number; total: number } | null;
 }
 
-export async function listPools(db: Db, filter: { source?: string; playType?: string; ipId?: string; ipCategoryId?: string } = {}): Promise<PoolSummary[]> {
-  const rows = await db<(Omit<PoolSummary, 'currentSet' | 'hasLastPrize'> & { lastPrizeName: string | null; curSetNo: number | null; curRemaining: number | null; curTotal: number | null })[]>`
+export async function listPools(db: Db, filter: { source?: string; playType?: string; ipId?: string; ipCategory?: string } = {}): Promise<PoolSummary[]> {
+  const rows = await db<(Omit<PoolSummary, 'currentSet' | 'hasLastPrize' | 'categories'> & { categories: string[]; lastPrizeName: string | null; curSetNo: number | null; curRemaining: number | null; curTotal: number | null })[]>`
     SELECT p.id, p.slug, p.title, p.ip, p.ip_id, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.last_prize_name, p.shipping_note,
-           cs.set_no AS cur_set_no, cs.remaining AS cur_remaining, cs.total_tickets AS cur_total
+           cs.set_no AS cur_set_no, cs.remaining AS cur_remaining, cs.total_tickets AS cur_total,
+           (SELECT COALESCE(array_agg(DISTINCT pp.category) FILTER (WHERE pp.category IS NOT NULL), '{}') FROM pool_prizes pp WHERE pp.pool_id = p.id) AS categories,
+           (SELECT COALESCE(bool_or(pp.bulky), false) FROM pool_prizes pp WHERE pp.pool_id = p.id) AS has_bulky
     FROM pools p
     LEFT JOIN LATERAL (
       SELECT s.set_no, s.total_tickets,
@@ -47,7 +54,7 @@ export async function listPools(db: Db, filter: { source?: string; playType?: st
       ${filter.source ? db`AND p.source = ${filter.source}` : db``}
       ${filter.playType ? db`AND p.play_type = ${filter.playType}` : db``}
       ${filter.ipId ? db`AND p.ip_id = ${filter.ipId}` : db``}
-      ${filter.ipCategoryId ? db`AND p.ip_id IN (SELECT id FROM ips WHERE category_id = ${filter.ipCategoryId})` : db``}
+      ${filter.ipCategory ? db`AND p.ip_id IN (SELECT id FROM ips WHERE category = ${filter.ipCategory})` : db``}
     ORDER BY p.published_at DESC NULLS LAST`;
   return rows.map((r) => ({
     id: r.id,
@@ -62,6 +69,8 @@ export async function listPools(db: Db, filter: { source?: string; playType?: st
     setCount: r.setCount,
     hasLastPrize: r.lastPrizeName !== null,
     shippingNote: r.shippingNote,
+    categories: distinctCategories(r.categories),
+    hasBulky: r.hasBulky,
     currentSet: r.curSetNo ? { setNo: r.curSetNo, remaining: r.curRemaining ?? 0, total: r.curTotal ?? 0 } : null,
   }));
 }
@@ -73,6 +82,8 @@ interface PrizeRow {
   grade: Grade;
   name: string;
   qtyPerSet: number;
+  category: ProductCategory | null;
+  bulky: boolean;
 }
 
 export async function getPoolDetail(db: Db, idOrSlug: string) {
@@ -87,8 +98,8 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
     FROM pools p JOIN pool_rule_versions rv ON rv.id = p.current_rule_version_id WHERE p.id = ${id}`;
   if (!p) throw new AppError('NOT_FOUND', 'pool not found');
   const all = await db<PrizeRow[]>`
-    SELECT id, kind, rank, grade, name, qty_per_set FROM pool_prizes WHERE pool_id = ${id} ORDER BY sort_order, name`;
-  const show = (r: PrizeRow) => ({ prizeId: r.id, rank: r.rank, grade: r.grade, name: r.name, displayName: displayName(p.source, r.rank, r.name) });
+    SELECT id, kind, rank, grade, name, qty_per_set, category, bulky FROM pool_prizes WHERE pool_id = ${id} ORDER BY sort_order, name`;
+  const show = (r: PrizeRow) => ({ prizeId: r.id, rank: r.rank, grade: r.grade, name: r.name, displayName: displayName(p.source, r.rank, r.name), category: r.category, bulky: r.bulky });
   const last = all.find((r) => r.kind === 'LAST');
   const [g] = await db<{ everyN: number; minGrade: Grade; reservePrizeId: string; reserveTotal: number; reserveUsed: number }[]>`
     SELECT every_n, min_grade, reserve_prize_id, reserve_total, reserve_used FROM pool_guarantees WHERE pool_id = ${id}`;
@@ -111,6 +122,8 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
     status: p.status,
     setCount: p.setCount,
     shippingNote: p.shippingNote,
+    categories: distinctCategories(all.map((r) => r.category)),
+    hasBulky: all.some((r) => r.bulky),
     prizes: all.filter((r) => r.kind === 'TICKET').map((r) => ({ ...show(r), qtyPerSet: r.qtyPerSet })),
     lastPrize: last ? { ...show(last), rule: '每套抽出最後一籤者獲得' } : null,
     guarantee:
@@ -125,7 +138,7 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
             reserveRemaining: g.reserveTotal - g.reserveUsed,
           }
         : null,
-    shippingPolicy: { mode: 'PREPAID_PER_SET', note: '運費於本套首次付費抽賞時預收；需要份數 = floor((本套持有小獎 + 本次籤數) / 20) + 1（滿 20 件即再收一份；大獎/中獎不計入）', rules: (JSON.parse(p.rulesJson) as PoolRules).shippingPolicy ?? null },
+    shippingPolicy: { mode: 'PREPAID_PER_SET', note: '運費於本套首次付費抽賞時預收；需要份數 = floor((本套抽到過的全部小獎 + 本次籤數) / 20) + 1（滿 20 件即再收一份；大獎/中獎不計入，已回收的小獎仍計入）；回收小獎每件退還 運費 ÷ N 代幣（不可退款）', rules: (JSON.parse(p.rulesJson) as PoolRules).shippingPolicy ?? null },
     rules: { ruleVersionId: p.ruleVersionId, version: p.ruleVersion, rulesHash: p.rulesHash, content: JSON.parse(p.rulesJson) as PoolRules },
     sets: sets.map(({ shipFeeHome, shipFeeCvs, ...s }) => ({ ...s, shippingFees: { HOME_DELIVERY: shipFeeHome, CVS_711_C2C: shipFeeCvs, CVS_FAMI_C2C: shipFeeCvs } })),
   };

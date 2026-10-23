@@ -15,16 +15,16 @@ const PRISMA_TO_PG: Record<string, string[]> = {
 };
 
 function parsePrisma(src: string) {
-  const tables = new Map<string, Map<string, { type: string; nullable: boolean }>>();
+  const tables = new Map<string, Map<string, { type: string; nullable: boolean; list: boolean }>>();
   for (const m of src.matchAll(/model\s+(\w+)\s*\{([\s\S]*?)\n\}/g)) {
     const body = m[2]!;
     const table = /@@map\("([^"]+)"\)/.exec(body)?.[1] ?? m[1]!;
-    const cols = new Map<string, { type: string; nullable: boolean }>();
+    const cols = new Map<string, { type: string; nullable: boolean; list: boolean }>();
     for (const line of body.split('\n')) {
       const f = /^\s+(\w+)\s+(\w+)(\?)?(.*)$/.exec(line);
       if (!f || line.trim().startsWith('@@')) continue;
       const col = /@map\("([^"]+)"\)/.exec(f[4]!)?.[1] ?? f[1]!;
-      cols.set(col, { type: f[2]!, nullable: f[3] === '?' });
+      cols.set(col, { type: f[2]!, nullable: f[3] === '?', list: f[4]!.startsWith('[]') });
     }
     tables.set(table, cols);
   }
@@ -57,7 +57,8 @@ describe('schema drift', () => {
       assert.deepEqual([...pc.keys()].sort(), [...cols.keys()].sort(), `columns differ in ${t}`);
       for (const [c, d] of cols) {
         const p = pc.get(c)!;
-        assert.ok(PRISMA_TO_PG[p.type]?.includes(d.dataType), `${t}.${c}: prisma ${p.type} vs pg ${d.dataType}`);
+        if (p.list) assert.equal(d.dataType, 'ARRAY', `${t}.${c}: prisma ${p.type}[] vs pg ${d.dataType}`);
+        else assert.ok(PRISMA_TO_PG[p.type]?.includes(d.dataType), `${t}.${c}: prisma ${p.type} vs pg ${d.dataType}`);
         assert.equal(p.nullable, d.nullable, `${t}.${c}: nullability`);
       }
     }

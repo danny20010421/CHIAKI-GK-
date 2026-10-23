@@ -48,6 +48,19 @@ export async function requestShipment(userId: string, input: z.input<typeof Ship
     if (!m) throw new AppError('VALIDATION', 'shipping method unavailable');
     if (v.itemIds.length > m.maxItems) throw new AppError('VALIDATION', `max ${m.maxItems} items per shipment`);
     const items = await lockStoredItems(tx, userId, v.itemIds);
+    // 大件・限宅配（GK 等）：含大件時不可用超商取貨
+    if (methodCategory(v.method) !== 'HOME') {
+      const bulky = await tx<{ id: string; prizeName: string; category: string | null }[]>`
+        SELECT wi.id, wi.prize_name, COALESCE(pp.category, pr.category) AS category FROM warehouse_items wi
+        LEFT JOIN pool_prizes pp ON pp.id = wi.prize_id LEFT JOIN products pr ON pr.id = wi.product_id
+        WHERE wi.id = ANY(${v.itemIds}::uuid[]) AND COALESCE(pp.bulky, pr.bulky, false)
+        ORDER BY wi.prize_name, wi.id`;
+      if (bulky.length) {
+        throw new AppError('BULKY_HOME_DELIVERY_ONLY', `「${bulky.map((b) => b.prizeName).join('、')}」為大件商品（限宅配），無法使用超商取貨，請改選宅配到府或將大件商品分開出貨`, {
+          items: bulky.map((b) => ({ id: b.id, prizeName: b.prizeName, category: b.category })),
+        });
+      }
+    }
     const setIds = [...new Set(items.flatMap((i) => (i.setId ? [i.setId] : [])))];
     const prepaid = setIds.length
       ? await tx<{ setId: string; hasHome: boolean; shipFeeHome: number; shipFeeCvs: number }[]>`

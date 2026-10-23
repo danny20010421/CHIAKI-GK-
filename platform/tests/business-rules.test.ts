@@ -132,7 +132,7 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
 
     // 掃描是全域的（本檔其他測試的會員也會被處理），因此以下以「本會員」的資料驗證
     const DAY = 86_400_000;
-    const ZERO = { autoConverted: 0, coinsCredited: 0, expiredHeld: 0, warnedToday: 0, warned7d: 0, notifications: 0, shippingFeesRefunded: 0 };
+    const ZERO = { autoConverted: 0, coinsCredited: 0, expiredHeld: 0, warnedToday: 0, warned7d: 0, notifications: 0, shippingRefundCoins: 0 };
     const notesOf = async (type: string) =>
       ((await db()`SELECT count(*)::int AS n FROM notifications WHERE user_id = ${u.id} AND type = ${type}`) as unknown as [{ n: number }])[0].n;
     const marks = async (col: 'storage_warned_7d_at' | 'storage_warned_day_at') =>
@@ -168,7 +168,9 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     assert.equal(conv.length, 1, 'one credit for the batch');
     assert.equal(conv[0]!.amount, 550);
     assert.equal(conv[0]!.refundable, false, 'auto-converted coins are non-refundable by default');
-    assert.equal((await walletOf(u.id)).coins, coins0 + 550, 'credited as COINS (代幣), not points');
+    // 到期轉換的 3 件小獎另逐件退還運費 floor(70 × 3 / 20) = 10（不可退款）
+    assert.equal((await walletOf(u.id)).coins, coins0 + 550 + 10, 'credited as COINS (代幣), not points');
+    assert.deepEqual((await ledgerTypes(u.id, 'SHIPPING_REFUND_COINS')).map((l) => [l.amount, l.refundable]), [[10, false]]);
     const after2 = await listWarehouse(db(), u.id);
     assert.equal(after2.filter((i) => i.recycleReason === 'STORAGE_EXPIRY' && i.status === 'RECYCLED').length, 4);
     assert.ok(after2.filter((i) => i.recycleReason === 'STORAGE_EXPIRY').every((i) => i.recycledCoins !== null && i.recycledPoints === null));
@@ -178,20 +180,20 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     assert.equal(audit!.n, 1);
 
     const notes = (await (await notificationsRoute(apiRequest('GET', '/api/me/notifications', { token: u.token }), none)).json()) as { notifications: { id: string; type: string; readAt: string | null }[] };
-    assert.deepEqual(notes.notifications.map((n) => n.type).sort(), ['STORAGE_AUTO_CONVERTED', 'STORAGE_EXPIRED_HOLD', 'STORAGE_EXPIRY_7D', 'STORAGE_EXPIRY_TODAY']);
+    assert.deepEqual(notes.notifications.map((n) => n.type).sort(), ['SHIPPING_FEE_REFUND', 'STORAGE_AUTO_CONVERTED', 'STORAGE_EXPIRED_HOLD', 'STORAGE_EXPIRY_7D', 'STORAGE_EXPIRY_TODAY']);
     const mr = (await (await markReadRoute(apiRequest('POST', '/api/me/notifications', { token: u.token, body: { ids: notes.notifications.map((n) => n.id) } }), none)).json()) as { updated: number };
-    assert.equal(mr.updated, 4);
+    assert.equal(mr.updated, 5);
 
     // 可退款餘額不含自動轉換代幣
     const w = await getWallet(db(), u.id);
-    assert.equal(w.nonRefundableCoins, 550);
-    assert.equal(w.refundableCoins, w.coins - 550);
+    assert.equal(w.nonRefundableCoins, 560);
+    assert.equal(w.refundableCoins, w.coins - 560);
     await expectAppError(createRefundRequest(u.id, w.refundableCoins + 1, 'x'), 'INSUFFICIENT_FUNDS');
     await expectAppError(transaction((tx) => postLedger(tx, { userId: u.id, currency: 'COINS', amount: -(w.refundableCoins + 1), entryType: 'REFUND_DEBIT', refType: 't', refId: 't' })), 'INSUFFICIENT_FUNDS');
     await createRefundRequest(u.id, w.refundableCoins, 'all refundable coins');
     // 一般消費優先使用不可退款代幣
     await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.SMALL[10]!] });
-    assert.equal((await getWallet(db(), u.id)).nonRefundableCoins, 550 - 10);
+    assert.equal((await getWallet(db(), u.id)).nonRefundableCoins, 560 - 10);
     assert.ok((await reconcileWallets(db(), u.id))[0]!.ok, 'reconciliation covers non-refundable balance chain');
     assert.equal((await verifyAuditChain(db())).ok, true);
     // 會員自己回收已到期轉換的物品 → 已非 STORED
@@ -210,8 +212,9 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
       const conv = await ledgerTypes(u.id, 'EXPIRY_AUTO_CONVERT');
       assert.equal(conv[0]!.refundable, false);
       const w = await getWallet(db(), u.id);
-      assert.equal(w.nonRefundableCoins, 100);
-      assert.equal(w.refundableCoins, w.coins - 100);
+      // 2 件小獎 × 回收值 50 ＋ 逐件運費退還 floor(70 × 2 / 20) = 7，全部不可退款
+      assert.equal(w.nonRefundableCoins, 100 + 7);
+      assert.equal(w.refundableCoins, w.coins - 107);
       await assert.rejects(transaction((tx) => postLedger(tx, { userId: u.id, currency: 'COINS', amount: 1, entryType: 'EXPIRY_AUTO_CONVERT', refType: 't', refId: 't', refundable: true })), /always non-refundable/);
       await assert.rejects(db()`INSERT INTO wallet_ledger (user_id, currency, amount, balance_after, entry_type, ref_type, ref_id, refundable, nonrefundable_after)
                                 VALUES (${u.id}, 'COINS', 1, 1, 'REFERRAL_REWARD', 't', 't', true, 0)`, /ledger_nonrefundable_sources/);
@@ -249,10 +252,10 @@ describe('rule 4 — shipping prepaid per set (按套收取)', () => {
     assert.equal(r.shipping.feesToCharge, 0);
     // 大獎、中獎不計入：15 小獎 + 大獎 + 2 中獎 + 5 小獎 → 最壞 15 + 8 = 23 > 20 → 再收一份（沿用上次方式）
     r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.GRAND[0]!, ...t.MID, ...t.SMALL.slice(15, 20)] })).response;
-    assert.deepEqual([r.shipping.smallItemsHeld, r.shipping.worstCaseSmallItems, r.shipping.feesToCharge, r.shipping.method], [15, 23, 1, 'CVS_FAMI_C2C']);
-    // 實際只持有 20 小獎（大獎/中獎不算）→ 下一抽 20 + 1 = 21 → floor(21/20)+1 = 2 = 已付 → 不收
+    assert.deepEqual([r.shipping.smallItemsDrawn, r.shipping.worstCaseSmallItems, r.shipping.feesToCharge, r.shipping.method], [15, 23, 1, 'CVS_FAMI_C2C']);
+    // 實際抽到 20 小獎（大獎/中獎不算）→ 下一抽 20 + 1 = 21 → floor(21/20)+1 = 2 = 已付 → 不收
     r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.SMALL[20]!] })).response;
-    assert.deepEqual([r.shipping.smallItemsHeld, r.shipping.feesToCharge], [20, 0]);
+    assert.deepEqual([r.shipping.smallItemsDrawn, r.shipping.feesToCharge], [20, 0]);
     assert.equal(await prepaidCount(u.id), 2);
     const fees = await ledgerTypes(u.id, 'SHIPPING_PREPAID');
     assert.deepEqual(fees.map((f) => f.amount), [-FEE_CVS, -FEE_CVS]);
@@ -268,16 +271,17 @@ describe('rule 4 — shipping prepaid per set (按套收取)', () => {
     assert.deepEqual((await db()`SELECT seq FROM shipping_prepayments WHERE user_id = ${u.id} ORDER BY seq`).map((x) => x.seq), [1, 2, 3]);
   });
 
-  it('recycled SMALL items free coverage → no second fee; shipped items still count (no free re-shipping)', async () => {
+  it('recycled SMALL items still count toward the threshold (refunded per item instead); shipped items still count', async () => {
     const poolId = await publishPool(customPool());
     const t = await ticketsByGrade(poolId);
     const a = await makeUser({ coins: 5000 });
     await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(0, 18), shippingMethod: 'CVS_711_C2C' });
     const smalls = (await listWarehouse(db(), a.id, 'STORED')).filter((i) => i.grade === 'SMALL');
-    await recycleItems(a.id, smalls.slice(0, 5).map((i) => i.id)); // 持有 13
-    const r = (await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(18, 24) })).response; // 13 + 6 = 19 → floor(19/20)+1 = 1
-    assert.deepEqual([r.shipping.smallItemsHeld, r.shipping.feesToCharge], [13, 0], 'user who recycled small prizes is not charged again');
-    assert.equal(await prepaidCount(a.id), 1);
+    const rec = await recycleItems(a.id, smalls.slice(0, 5).map((i) => i.id));
+    assert.equal(rec.shippingRefundCoins, Math.floor((FEE_CVS * 5) / 20), 'recycling refunds fee ÷ 20 per item');
+    const r = (await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(18, 24) })).response; // 抽到過 18 + 6 = 24 → floor(24/20)+1 = 2
+    assert.deepEqual([r.shipping.smallItemsDrawn, r.shipping.feesToCharge], [18, 1], 'recycled small prizes do not free coverage (no double benefit)');
+    assert.equal(await prepaidCount(a.id), 2);
 
     const b = await makeUser({ coins: 5000 });
     await executeDraw(b.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(25, 35), shippingMethod: 'CVS_711_C2C' });
@@ -285,7 +289,7 @@ describe('rule 4 — shipping prepaid per set (按套收取)', () => {
     const s = await requestShipment(b.id, { itemIds: bItems, method: 'CVS_711_C2C', recipientName: 'B', recipientPhone: '0912345678', cvsStoreId: '1234' });
     assert.equal(s.feeCoins, 0, 'shipment of prepaid items is free');
     const rb = (await executeDraw(b.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(35, 37).concat(t.MID) })).response;
-    assert.equal(rb.shipping.smallItemsHeld, 10, 'shipped small items still consume the prepaid coverage');
+    assert.equal(rb.shipping.smallItemsDrawn, 10, 'shipped small items still consume the prepaid coverage');
     assert.equal(rb.shipping.feesToCharge, 0);
   });
 

@@ -5,10 +5,31 @@ import { transaction, type Db } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
 import { config } from '../../config';
+import { requirePermission, type Principal } from '../auth/rbac';
+import { ProductCategorySchema, resolveBulky, type ProductCategory } from './categories';
 
 /** 直購商城：固定價格、無隨機性。購得商品進入中獎倉庫（source = PURCHASE）沿用出貨流程。 */
 export async function listProducts(d: Db) {
-  return d`SELECT id, sku, name, ip, source, price_coins, stock, merchant_id FROM products WHERE status = 'ACTIVE' ORDER BY created_at DESC`;
+  return d`SELECT id, sku, name, ip, source, price_coins, stock, merchant_id, category, bulky FROM products WHERE status = 'ACTIVE' ORDER BY created_at DESC`;
+}
+
+export const ProductAttributesSchema = z
+  .object({ category: ProductCategorySchema.nullable().optional(), bulky: z.boolean().optional() })
+  .refine((v) => v.category !== undefined || v.bulky !== undefined, 'nothing to update');
+
+/** 商城商品屬性：商品分類、大件・限宅配（只改分類時大件依分類預設：GK → 是） */
+export async function updateProductAttributes(actor: Principal, productId: string, input: z.input<typeof ProductAttributesSchema>) {
+  requirePermission(actor, 'catalog.product.manage');
+  const v = ProductAttributesSchema.parse(input);
+  return transaction(async (tx) => {
+    const [cur] = await tx<{ category: ProductCategory | null; bulky: boolean }[]>`SELECT category, bulky FROM products WHERE id = ${productId} FOR UPDATE`;
+    if (!cur) throw new AppError('NOT_FOUND', 'product not found');
+    const category = v.category === undefined ? cur.category : v.category;
+    const bulky = v.bulky ?? (v.category !== undefined ? resolveBulky(category, undefined) : cur.bulky);
+    await tx`UPDATE products SET category = ${category}, bulky = ${bulky} WHERE id = ${productId}`;
+    await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'PRODUCT_ATTRIBUTES_UPDATED', entityType: 'product', entityId: productId, payload: { before: cur, after: { category, bulky } } });
+    return { productId, category, bulky };
+  });
 }
 
 export const PurchaseSchema = z.object({ productId: z.string().uuid(), qty: z.number().int().min(1).max(20) });

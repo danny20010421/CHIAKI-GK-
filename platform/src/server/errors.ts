@@ -32,7 +32,8 @@ export type ErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'MFA_REQUIRED'
   | 'REAUTH_REQUIRED'
-  | 'ASSET_REJECTED';
+  | 'ASSET_REJECTED'
+  | 'BULKY_HOME_DELIVERY_ONLY';
 
 const STATUS: Record<ErrorCode, number> = {
   VALIDATION: 400,
@@ -69,6 +70,7 @@ const STATUS: Record<ErrorCode, number> = {
   MFA_REQUIRED: 401,
   REAUTH_REQUIRED: 401,
   ASSET_REJECTED: 422,
+  BULKY_HOME_DELIVERY_ONLY: 422,
 };
 
 /** 可預期的業務錯誤：會轉成乾淨的 JSON 錯誤回應，且交易一律 rollback。 */

@@ -21,8 +21,6 @@ export const PERMISSIONS = [
   'member.read',
   'pool.config.manage', // 發布後營運設定：每套運費、每套獎項回收值、出貨時程說明
   'jobs.run', // 手動觸發排程工作（寄存到期掃描、抽賞紀錄封存、通知派送）
-  'shipping_refund.decide', // 運費新台幣退款：核准/駁回
-  'shipping_refund.payout', // 運費新台幣退款：撥款（須與核准者不同人）
   'cs.ticket.manage', // 客服工單：檢視、回覆、指派、狀態
   'cs.compensation.grant', // 客服補償點數（超過門檻需第二人核准）
   'cs.compensation.approve',
@@ -31,6 +29,7 @@ export const PERMISSIONS = [
   'security.manage', // 封鎖清單（IP/裝置）
   'catalog.ip.manage', // IP（作品）與分類管理
   'asset.manage', // 圖片素材上傳與連結
+  'catalog.product.manage', // 商城商品屬性（分類、大件）
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -53,6 +52,7 @@ const MATRIX: Record<Role, readonly Permission[]> = {
     'security.manage',
     'catalog.ip.manage',
     'asset.manage',
+    'catalog.product.manage',
   ],
   FINANCE: [
     'refund.decide',
@@ -64,8 +64,6 @@ const MATRIX: Record<Role, readonly Permission[]> = {
     'approval.list',
     'audit.read',
     'wallet.reconcile',
-    'shipping_refund.decide',
-    'shipping_refund.payout',
     'cs.compensation.approve',
   ],
   CS: ['member.read', 'refund.decide', 'risk.read', 'cs.ticket.manage', 'cs.compensation.grant', 'storage.extend', 'shipment.resend', 'approval.list'],

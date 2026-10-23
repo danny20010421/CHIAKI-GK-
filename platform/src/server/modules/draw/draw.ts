@@ -406,7 +406,7 @@ export async function quoteDraw(userId: string, body: unknown) {
     shipping: {
       ...ship,
       setFees: { HOME_DELIVERY: set.shipFeeHome, CVS_711_C2C: set.shipFeeCvs, CVS_FAMI_C2C: set.shipFeeCvs },
-      rule: `運費按套預收：本套首次付費抽賞時收取一份；需要份數 = floor((本套持有小獎 + 本次籤數) / ${ship.smallItemsPerFee}) + 1（滿 ${ship.smallItemsPerFee} 件即再收一份；大獎/中獎不計）；回收的小獎不計入，多收的運費會依比例退還為不可退款代幣。`,
+      rule: `運費按套預收：本套首次付費抽賞時收取一份；需要份數 = floor((本套抽到過的全部小獎 + 本次籤數) / ${ship.smallItemsPerFee}) + 1（滿 ${ship.smallItemsPerFee} 件即再收一份；大獎/中獎不計；已回收、已出貨的小獎仍計入）。回收小獎時每件退還 運費 ÷ N 代幣（不可退款）。`,
     },
     totalCoins,
     coinsBalance: wallet.coins,

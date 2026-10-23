@@ -38,7 +38,9 @@ describe('recycle → platform points', () => {
     assert.equal((await listWarehouse(db(), u.id, 'STORED')).length, 6, 'nothing recycled on failure');
     const r = await recycleItems(u.id, [...of('C'), of('D')[0]!]);
     assert.equal(r.points, 300 * 2 + 150);
-    assert.deepEqual(await walletOf(u.id), { coins: before.coins, points: before.points + 750 });
+    // D 賞為小獎：另逐件退還運費 floor(70 × 1 / 20) = 3 代幣（不可退款）
+    assert.deepEqual(await walletOf(u.id), { coins: before.coins + 3, points: before.points + 750 });
+    assert.equal(r.shippingRefundCoins, 3);
     await expectAppError(recycleItems(u.id, [of('C')[0]!]), 'INVALID_STATE');
     await assert.rejects(db()`UPDATE warehouse_items SET status = 'STORED' WHERE id = ${of('C')[0]!}`, /invalid warehouse transition/);
     const other = await makeUser();

@@ -5,7 +5,8 @@ import { transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
 import { displayName, type Grade } from '../pool/grades';
-import { lockUserSetShipping, refundSurplusShippingFees, type SurplusRefund } from '../shipping/prepaid';
+import { lockUserSetShipping, refundRecycledSmallItems, type ItemRefund } from '../shipping/prepaid';
+import { canonicalJson, sha256Hex } from '../../lib/canonical';
 import { notifyEvent } from '../notifications/outbox';
 import { requirePermission, type Principal } from '../auth/rbac';
 
@@ -77,22 +78,36 @@ export interface RecycleResult {
   points: number;
   pointsAfter: number;
   items: { id: string; prizeName: string; grade: Grade | null; points: number }[];
-  /** 因持有小獎減少而自動部分退還的運費（不可退款代幣） */
-  shippingFeeRefunds: SurplusRefund[];
-  /** 會員選擇新台幣退款時：可申請退款的多收運費（prepaymentId） */
-  shippingFeesRefundableInCash: { setId: string; prepaymentIds: string[] }[];
+  /** 逐件運費退還（每件小獎退 運費 ÷ N；不可退款代幣），依套 */
+  shippingRefunds: ItemRefund[];
+  shippingRefundCoins: number;
 }
+
+const RECYCLE_SCOPE = 'recycle';
 
 /**
  * 會員主動回收 → 平台點數（不可逆）。回收值依「該套 × 該獎項」的後台設定（set_prizes），
  * recyclable=false 或無設定（例如直購商品）者不可回收。點數性質與折算標準待法遵確認。
  *
- * 回收小獎後若預收運費多收：預設（shippingRefund='COINS'）自動以 SHIPPING_REFUND_RATIO 退還為不可退款代幣；
- * 'CASH' 表示會員要改申請新台幣退款 → 不自動退代幣，回傳可申請的運費份數（POST /api/me/shipping-refunds）。
+ * 回收的每一件小獎另退還 運費 ÷ N 代幣（不可退款；見 shipping/prepaid.ts refundRecycledSmallItems）。
+ * 冪等：可帶 Idempotency-Key（同鍵同內容重送 → 回傳同一結果、不重複入帳）；未帶鍵時，物品狀態機也保證同一件只能回收一次。
  */
-export async function recycleItems(userId: string, itemIds: string[], opts: { shippingRefund?: 'COINS' | 'CASH' } = {}): Promise<RecycleResult> {
+export async function recycleItems(userId: string, itemIds: string[], opts: { idempotencyKey?: string | null } = {}): Promise<RecycleResult & { replayed: boolean }> {
   const ids = ItemIdsSchema.parse(itemIds);
+  const key = opts.idempotencyKey ?? null;
+  const requestHash = sha256Hex(canonicalJson([...ids].sort()));
   return transaction(async (tx) => {
+    if (key) {
+      const ins = await tx`INSERT INTO idempotency_keys (user_id, scope, key, request_hash) VALUES (${userId}, ${RECYCLE_SCOPE}, ${key}, ${requestHash})
+                           ON CONFLICT DO NOTHING RETURNING key`;
+      if (!ins.length) {
+        const [row] = await tx<{ requestHash: string; responseJson: string | null }[]>`
+          SELECT request_hash, response_json FROM idempotency_keys WHERE user_id = ${userId} AND scope = ${RECYCLE_SCOPE} AND key = ${key}`;
+        if (!row || row.requestHash !== requestHash) throw new AppError('IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key was used with a different request');
+        if (!row.responseJson) throw new AppError('IDEMPOTENCY_IN_PROGRESS', 'request with this key is still in progress');
+        return { ...(JSON.parse(row.responseJson) as RecycleResult), replayed: true };
+      }
+    }
     const items = await lockStoredItems(tx, userId, ids);
     // 鎖順序：物品 → 運費 advisory lock → 錢包 → 稽核
     const smallSets = [...new Set(items.filter((i) => i.grade === 'SMALL' && i.setId).map((i) => i.setId!))].sort();
@@ -105,7 +120,7 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { sh
     const priced = items.map((i) => {
       const c = cfgOf.get(i.id);
       if (!c || !c.recyclable) throw new AppError('NOT_RECYCLABLE', `「${i.prizeName}」不可回收`, { itemId: i.id, prizeName: i.prizeName, grade: i.grade });
-      return { id: i.id, prizeName: i.prizeName, grade: i.grade, points: c.recycleValue };
+      return { id: i.id, prizeName: i.prizeName, grade: i.grade, points: c.recycleValue, setId: i.setId };
     });
     const total = priced.reduce((s, p) => s + p.points, 0);
     const batchId = randomUUID();
@@ -118,18 +133,27 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { sh
     } else {
       pointsAfter = (await tx<{ points: number }[]>`SELECT points FROM wallets WHERE user_id = ${userId}`)[0]!.points;
     }
-    const fr = smallSets.length
-      ? await refundSurplusShippingFees(tx, userId, smallSets, { mode: opts.shippingRefund === 'CASH' ? 'KEEP' : 'COINS', reason: 'USER_RECYCLE' })
-      : { refunds: [], keptSurplus: [], coinsAfter: null };
-    if (fr.refunds.length) {
+    const unitsBySet = new Map<string, number>();
+    for (const p of priced) if (p.grade === 'SMALL' && p.setId) unitsBySet.set(p.setId, (unitsBySet.get(p.setId) ?? 0) + 1);
+    const fr = await refundRecycledSmallItems(tx, userId, unitsBySet, { type: 'USER_RECYCLE', id: batchId });
+    const refundCoins = fr.refunds.reduce((a, r) => a + r.amount, 0);
+    if (refundCoins > 0) {
       await notifyEvent(tx, {
         userId,
         event: 'SHIPPING_FEE_REFUND',
-        data: { count: fr.refunds.length, coins: fr.refunds.reduce((a, r) => a + r.refundCoins, 0) },
+        data: { count: fr.refunds.reduce((a, r) => a + r.units, 0), coins: refundCoins },
         payload: { refunds: fr.refunds },
-        dedupeOn: { refunds: fr.refunds.map((r) => r.refundId).sort() },
+        dedupeOn: { recycleBatch: batchId },
       });
     }
+    const result: RecycleResult = {
+      batchId,
+      points: total,
+      pointsAfter,
+      items: priced.map(({ setId: _s, ...p }) => p),
+      shippingRefunds: fr.refunds,
+      shippingRefundCoins: refundCoins,
+    };
     await appendAudit(tx, {
       actorType: 'USER',
       actorId: userId,
@@ -139,10 +163,11 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { sh
       payload: {
         items: priced.map((p) => ({ id: p.id, grade: p.grade, points: p.points })),
         totalPoints: total,
-        shippingFeeRefunds: fr.refunds.map((r) => ({ refundId: r.refundId, prepaymentId: r.prepaymentId, coins: r.refundCoins })),
+        shippingRefunds: fr.refunds.map((r) => ({ eventId: r.eventId, setId: r.setId, units: r.units, coins: r.amount })),
       },
     });
-    return { batchId, points: total, pointsAfter, items: priced, shippingFeeRefunds: fr.refunds, shippingFeesRefundableInCash: fr.keptSurplus };
+    if (key) await tx`UPDATE idempotency_keys SET response_json = ${JSON.stringify(result)} WHERE user_id = ${userId} AND scope = ${RECYCLE_SCOPE} AND key = ${key}`;
+    return { ...result, replayed: false };
   });
 }
 

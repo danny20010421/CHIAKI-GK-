@@ -61,7 +61,7 @@ const T: Record<NotificationType, (d: Data) => Rendered> = {
   }),
   SHIPPING_FEE_REFUND: (d) => ({
     title: '運費部分退還',
-    body: `因回收小獎，已退還 ${n(d.count)} 份多收的運費，共 ${n(d.coins)} 代幣（不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
+    body: `回收 ${n(d.count)} 件小獎，已退還運費 ${n(d.coins)} 代幣（不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
     sms: `【CHIAKI】已退還運費 ${n(d.coins)} 代幣（不可退款）。`,
     url: '/me/wallet',
   }),

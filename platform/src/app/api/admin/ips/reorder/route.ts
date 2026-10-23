@@ -1,12 +1,12 @@
 import { body, json, requirePrincipal, route } from '@/server/http';
-import { IpReorderSchema, reorderIps } from '@/server/modules/catalog/ips';
+import { ReorderSchema, reorderIps } from '@/server/modules/catalog/ips';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** POST /api/admin/ips/reorder — 原子重排某分類下全部 IP { categoryId | null, ids } */
+/** POST /api/admin/ips/reorder — 手動排序：一次送出全部 IP 的順序 { ids }（原子更新；MANUAL 模式時生效） */
 export const POST = route(async (req: Request) => {
   const p = await requirePrincipal(req);
-  const b = await body(req, IpReorderSchema);
+  const b = await body(req, ReorderSchema);
   return json(await reorderIps(p, b));
 });

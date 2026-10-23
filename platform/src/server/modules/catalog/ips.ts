@@ -5,29 +5,34 @@ import { appendAudit } from '../audit/audit';
 import { requirePermission, type Principal } from '../auth/rbac';
 
 /**
- * IP（動畫/遊戲/漫畫/原創作品）管理：分類（可排序、可隱藏）、IP（名稱、分類、排序、顯示、封面）、賞池連結 IP。
- * 排序以 sort_order 表示；reorder 端點一次送出完整順序，於單一交易內原子更新（全有或全無）。
- * 前台大廳篩選：GET /api/ips 依分類分組、依排序輸出（只含顯示中的分類與 IP，附上架中賞池數）。
+ * IP（作品）目錄（業主規則，2026-10 第三批）：
+ *  - 固定分類：少年漫畫、動畫・輕小說、遊戲、特攝・機甲、經典・兒童、角色・療癒、歐美、原創（取代先前可編輯的分類表）。
+ *  - 別名 aliases（例：「原神」的 Genshin、げんしん）供搜尋；GET /api/ips?category=&q= 以名稱或別名、不分大小寫的「包含」比對。
+ *  - 排序模式（app_settings ip.sort_mode）：
+ *      AUTO（預設）＝依名稱字數（以 Array.from 計算字元數，中英文與 emoji 皆算 1）由少到多，再依繁體中文排序（Intl.Collator zh-TW）；
+ *      MANUAL＝後台手動排序（POST /api/admin/ips/reorder 一次送出全部 IP 的順序，單一交易原子更新）。
  */
+export const IP_CATEGORIES = ['少年漫畫', '動畫・輕小說', '遊戲', '特攝・機甲', '經典・兒童', '角色・療癒', '歐美', '原創'] as const;
+export type IpCategory = (typeof IP_CATEGORIES)[number];
+export const IpCategorySchema = z.enum(IP_CATEGORIES);
+export const SORT_MODES = ['AUTO', 'MANUAL'] as const;
+export type SortMode = (typeof SORT_MODES)[number];
+
 const SlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/, 'slug: 小寫英數與 -');
 const CoverSchema = z
   .string()
   .max(500)
   .refine((s) => s.startsWith('https://') || s.startsWith('/'), '封面需為 https:// 或站內路徑');
-
-export const CategoryCreateSchema = z.object({
-  code: z.string().regex(/^[A-Z0-9_]{2,30}$/),
-  name: z.string().trim().min(1).max(50),
-  visible: z.boolean().default(true),
-});
-export const CategoryUpdateSchema = z
-  .object({ name: z.string().trim().min(1).max(50).optional(), visible: z.boolean().optional() })
-  .refine((v) => Object.keys(v).length > 0, 'nothing to update');
+const AliasesSchema = z
+  .array(z.string().trim().min(1).max(50))
+  .max(30)
+  .refine((a) => new Set(a.map((x) => x.toLowerCase())).size === a.length, '別名不可重複');
 
 export const IpCreateSchema = z.object({
   slug: SlugSchema,
   name: z.string().trim().min(1).max(100),
-  categoryId: z.string().uuid().nullable().default(null),
+  category: IpCategorySchema.nullable().default(null),
+  aliases: AliasesSchema.default([]),
   visible: z.boolean().default(true),
   coverUrl: CoverSchema.nullable().default(null),
 });
@@ -35,114 +40,111 @@ export const IpUpdateSchema = z
   .object({
     slug: SlugSchema.optional(),
     name: z.string().trim().min(1).max(100).optional(),
-    categoryId: z.string().uuid().nullable().optional(),
+    category: IpCategorySchema.nullable().optional(),
+    aliases: AliasesSchema.optional(),
     visible: z.boolean().optional(),
     coverUrl: CoverSchema.nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, 'nothing to update');
 
 export const ReorderSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(1000).refine((a) => new Set(a).size === a.length, 'ids must be unique'),
+  ids: z.array(z.string().uuid()).min(1).max(5000).refine((a) => new Set(a).size === a.length, 'ids must be unique'),
+});
+export const SortModeSchema = z.object({ sortMode: z.enum(SORT_MODES) });
+
+export interface IpRow {
+  id: string;
+  slug: string;
+  name: string;
+  category: IpCategory | null;
+  aliases: string[];
+  sortOrder: number;
+  visible: boolean;
+  coverUrl: string | null;
+  poolCount: number;
+}
+
+const collator = new Intl.Collator('zh-TW');
+
+/** AUTO：名稱字數（Array.from）少→多，再依 zh-TW 排序；MANUAL：手動順序，再依 zh-TW 排序 */
+export function sortIps<T extends { name: string; sortOrder: number }>(rows: T[], mode: SortMode): T[] {
+  return [...rows].sort((a, b) =>
+    mode === 'AUTO'
+      ? Array.from(a.name).length - Array.from(b.name).length || collator.compare(a.name, b.name)
+      : a.sortOrder - b.sortOrder || collator.compare(a.name, b.name),
+  );
+}
+
+export async function getSortMode(d: Db): Promise<SortMode> {
+  const [r] = await d<{ value: string }[]>`SELECT value FROM app_settings WHERE key = 'ip.sort_mode'`;
+  return r?.value === 'MANUAL' ? 'MANUAL' : 'AUTO';
+}
+
+export async function setSortMode(actor: Principal, input: z.input<typeof SortModeSchema>) {
+  requirePermission(actor, 'catalog.ip.manage');
+  const v = SortModeSchema.parse(input);
+  return transaction(async (tx) => {
+    await tx`INSERT INTO app_settings (key, value, updated_by) VALUES ('ip.sort_mode', ${v.sortMode}, ${actor.userId})
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`;
+    await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'IP_SORT_MODE_SET', entityType: 'app_setting', entityId: 'ip.sort_mode', payload: v });
+    return v;
+  });
+}
+
+async function audit(tx: Tx, actor: Principal, action: string, entityId: string, payload: Record<string, unknown>) {
+  await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action, entityType: 'ip', entityId, payload });
+}
+
+const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+async function queryIps(d: Db, f: { category?: IpCategory; q?: string; visibleOnly: boolean }): Promise<IpRow[]> {
+  const pattern = f.q ? `%${escapeLike(f.q)}%` : null;
+  return d<IpRow[]>`
+    SELECT i.id, i.slug, i.name, i.category, i.aliases, i.sort_order, i.visible, i.cover_url,
+           (SELECT count(*)::int FROM pools p WHERE p.ip_id = i.id ${f.visibleOnly ? d`AND p.status = 'PUBLISHED'` : d``}) AS pool_count
+    FROM ips i
+    WHERE true
+      ${f.visibleOnly ? d`AND i.visible` : d``}
+      ${f.category ? d`AND i.category = ${f.category}` : d``}
+      ${pattern ? d`AND (i.name ILIKE ${pattern} OR EXISTS (SELECT 1 FROM unnest(i.aliases) a WHERE a ILIKE ${pattern}))` : d``}`;
+}
+
+export const PublicIpQuerySchema = z.object({
+  category: IpCategorySchema.optional(),
+  q: z.string().trim().max(50).optional().transform((s) => (s ? s : undefined)),
 });
 
-async function audit(tx: Tx, actor: Principal, action: string, entityType: string, entityId: string, payload: Record<string, unknown>) {
-  await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action, entityType, entityId, payload });
+/** 公開：大廳篩選與搜尋（只含顯示中的 IP；附上架中賞池數與各分類數量） */
+export async function publicIps(d: Db, input: z.input<typeof PublicIpQuerySchema> = {}) {
+  const f = PublicIpQuerySchema.parse(input);
+  const mode = await getSortMode(d);
+  const rows = sortIps(await queryIps(d, { ...f, visibleOnly: true }), mode);
+  const counts = await d<{ category: string; n: number }[]>`SELECT category, count(*)::int AS n FROM ips WHERE visible AND category IS NOT NULL GROUP BY category`;
+  return {
+    sortMode: mode,
+    categories: IP_CATEGORIES.map((c) => ({ category: c, count: counts.find((x) => x.category === c)?.n ?? 0 })),
+    ips: rows.map(({ sortOrder: _s, visible: _v, ...r }) => r),
+  };
 }
 
-// ───────────── 分類 ─────────────
-
-export async function listCategories(actor: Principal) {
+export async function listIpsAdmin(actor: Principal, f: z.input<typeof PublicIpQuerySchema> = {}) {
   requirePermission(actor, 'catalog.ip.manage');
-  return db()`SELECT id, code, name, sort_order, visible FROM ip_categories ORDER BY sort_order, name`;
-}
-
-export async function createCategory(actor: Principal, input: z.input<typeof CategoryCreateSchema>) {
-  requirePermission(actor, 'catalog.ip.manage');
-  const v = CategoryCreateSchema.parse(input);
-  return transaction(async (tx) => {
-    const [r] = await tx<{ id: string }[]>`
-      INSERT INTO ip_categories (code, name, visible, sort_order)
-      VALUES (${v.code}, ${v.name}, ${v.visible}, (SELECT COALESCE(max(sort_order), 0) + 1 FROM ip_categories))
-      RETURNING id`;
-    await audit(tx, actor, 'IP_CATEGORY_CREATED', 'ip_category', r!.id, v);
-    return { id: r!.id };
-  });
-}
-
-export async function updateCategory(actor: Principal, id: string, input: z.input<typeof CategoryUpdateSchema>) {
-  requirePermission(actor, 'catalog.ip.manage');
-  const v = CategoryUpdateSchema.parse(input);
-  return transaction(async (tx) => {
-    const rows = await tx`
-      UPDATE ip_categories SET name = COALESCE(${v.name ?? null}, name), visible = COALESCE(${v.visible ?? null}, visible)
-      WHERE id = ${id} RETURNING id`;
-    if (!rows.length) throw new AppError('NOT_FOUND', 'category not found');
-    await audit(tx, actor, 'IP_CATEGORY_UPDATED', 'ip_category', id, v);
-    return { id };
-  });
-}
-
-export async function deleteCategory(actor: Principal, id: string) {
-  requirePermission(actor, 'catalog.ip.manage');
-  return transaction(async (tx) => {
-    const [used] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM ips WHERE category_id = ${id}`;
-    if (used!.n > 0) throw new AppError('CONFLICT', '分類下仍有 IP，請先移動或刪除', { ips: used!.n });
-    const rows = await tx`DELETE FROM ip_categories WHERE id = ${id} RETURNING id`;
-    if (!rows.length) throw new AppError('NOT_FOUND', 'category not found');
-    await audit(tx, actor, 'IP_CATEGORY_DELETED', 'ip_category', id, {});
-    return { deleted: true };
-  });
-}
-
-/** 原子重排：ids 必須恰為全部分類 */
-export async function reorderCategories(actor: Principal, input: z.input<typeof ReorderSchema>) {
-  requirePermission(actor, 'catalog.ip.manage');
-  const v = ReorderSchema.parse(input);
-  return transaction(async (tx) => {
-    const all = await tx<{ id: string }[]>`SELECT id FROM ip_categories ORDER BY id FOR UPDATE`;
-    assertSameSet(all.map((r) => r.id), v.ids);
-    await tx`UPDATE ip_categories c SET sort_order = u.ord FROM unnest(${v.ids}::uuid[]) WITH ORDINALITY AS u(id, ord) WHERE c.id = u.id`;
-    await audit(tx, actor, 'IP_CATEGORIES_REORDERED', 'ip_category', 'all', { ids: v.ids });
-    return { order: v.ids };
-  });
-}
-
-function assertSameSet(current: string[], given: string[]) {
-  const a = new Set(current);
-  if (a.size !== given.length || !given.every((x) => a.has(x))) {
-    throw new AppError('VALIDATION', '排序清單必須恰好包含所有項目（各一次）', { expected: current.length, got: given.length });
-  }
-}
-
-// ───────────── IP ─────────────
-
-export async function listIpsAdmin(actor: Principal) {
-  requirePermission(actor, 'catalog.ip.manage');
-  return db()`
-    SELECT i.id, i.slug, i.name, i.category_id, c.name AS category_name, i.sort_order, i.visible, i.cover_url,
-           (SELECT count(*)::int FROM pools p WHERE p.ip_id = i.id) AS pool_count
-    FROM ips i LEFT JOIN ip_categories c ON c.id = i.category_id
-    ORDER BY c.sort_order NULLS LAST, i.sort_order, i.name`;
+  const v = PublicIpQuerySchema.parse(f);
+  const mode = await getSortMode(db());
+  return { sortMode: mode, ips: sortIps(await queryIps(db(), { ...v, visibleOnly: false }), mode) };
 }
 
 export async function createIp(actor: Principal, input: z.input<typeof IpCreateSchema>) {
   requirePermission(actor, 'catalog.ip.manage');
   const v = IpCreateSchema.parse(input);
   return transaction(async (tx) => {
-    if (v.categoryId) await requireCategory(tx, v.categoryId);
     const [r] = await tx<{ id: string }[]>`
-      INSERT INTO ips (slug, name, category_id, visible, cover_url, sort_order)
-      VALUES (${v.slug}, ${v.name}, ${v.categoryId}, ${v.visible}, ${v.coverUrl},
-              (SELECT COALESCE(max(sort_order), 0) + 1 FROM ips WHERE category_id IS NOT DISTINCT FROM ${v.categoryId}::uuid))
+      INSERT INTO ips (slug, name, category, aliases, visible, cover_url, sort_order)
+      VALUES (${v.slug}, ${v.name}, ${v.category}, ${v.aliases}, ${v.visible}, ${v.coverUrl}, (SELECT COALESCE(max(sort_order), 0) + 1 FROM ips))
       RETURNING id`;
-    await audit(tx, actor, 'IP_CREATED', 'ip', r!.id, v);
+    await audit(tx, actor, 'IP_CREATED', r!.id, v);
     return { id: r!.id };
   });
-}
-
-async function requireCategory(tx: Tx, id: string) {
-  const [c] = await tx`SELECT 1 FROM ip_categories WHERE id = ${id}`;
-  if (!c) throw new AppError('VALIDATION', 'category not found');
 }
 
 export async function updateIp(actor: Principal, id: string, input: z.input<typeof IpUpdateSchema>) {
@@ -151,19 +153,19 @@ export async function updateIp(actor: Principal, id: string, input: z.input<type
   return transaction(async (tx) => {
     const [cur] = await tx<{ id: string }[]>`SELECT id FROM ips WHERE id = ${id} FOR UPDATE`;
     if (!cur) throw new AppError('NOT_FOUND', 'ip not found');
-    if (v.categoryId) await requireCategory(tx, v.categoryId);
     await tx`
       UPDATE ips SET
         slug = COALESCE(${v.slug ?? null}, slug),
         name = COALESCE(${v.name ?? null}, name),
-        category_id = ${v.categoryId === undefined ? tx`category_id` : v.categoryId},
+        category = ${v.category === undefined ? tx`category` : v.category},
+        aliases = ${v.aliases === undefined ? tx`aliases` : tx`${v.aliases}::text[]`},
         visible = COALESCE(${v.visible ?? null}, visible),
         cover_url = ${v.coverUrl === undefined ? tx`cover_url` : v.coverUrl},
         updated_at = now()
       WHERE id = ${id}`;
     // 舊欄位 pools.ip（文字）同步為 IP 名稱，維持相容
     if (v.name) await tx`UPDATE pools SET ip = ${v.name} WHERE ip_id = ${id}`;
-    await audit(tx, actor, 'IP_UPDATED', 'ip', id, v);
+    await audit(tx, actor, 'IP_UPDATED', id, v);
     return { id };
   });
 }
@@ -175,23 +177,24 @@ export async function deleteIp(actor: Principal, id: string) {
     if (used!.n > 0) throw new AppError('CONFLICT', '仍有賞池連結此 IP，請改為隱藏或先移除連結', { pools: used!.n });
     const rows = await tx`DELETE FROM ips WHERE id = ${id} RETURNING id`;
     if (!rows.length) throw new AppError('NOT_FOUND', 'ip not found');
-    await audit(tx, actor, 'IP_DELETED', 'ip', id, {});
+    await audit(tx, actor, 'IP_DELETED', id, {});
     return { deleted: true };
   });
 }
 
-/** 原子重排：ids 必須恰為某分類（categoryId；null = 未分類）下的全部 IP */
-export const IpReorderSchema = ReorderSchema.extend({ categoryId: z.string().uuid().nullable() });
-
-export async function reorderIps(actor: Principal, input: z.input<typeof IpReorderSchema>) {
+/** 手動排序：ids 必須恰為全部 IP（各一次），單一交易原子更新；只在 MANUAL 模式下影響列表順序 */
+export async function reorderIps(actor: Principal, input: z.input<typeof ReorderSchema>) {
   requirePermission(actor, 'catalog.ip.manage');
-  const v = IpReorderSchema.parse(input);
+  const v = ReorderSchema.parse(input);
   return transaction(async (tx) => {
-    const all = await tx<{ id: string }[]>`SELECT id FROM ips WHERE category_id IS NOT DISTINCT FROM ${v.categoryId}::uuid ORDER BY id FOR UPDATE`;
-    assertSameSet(all.map((r) => r.id), v.ids);
+    const all = await tx<{ id: string }[]>`SELECT id FROM ips ORDER BY id FOR UPDATE`;
+    const cur = new Set(all.map((r) => r.id));
+    if (cur.size !== v.ids.length || !v.ids.every((x) => cur.has(x))) {
+      throw new AppError('VALIDATION', '排序清單必須恰好包含所有 IP（各一次）', { expected: cur.size, got: v.ids.length });
+    }
     await tx`UPDATE ips i SET sort_order = u.ord, updated_at = now() FROM unnest(${v.ids}::uuid[]) WITH ORDINALITY AS u(id, ord) WHERE i.id = u.id`;
-    await audit(tx, actor, 'IPS_REORDERED', 'ip_category', v.categoryId ?? 'uncategorized', { ids: v.ids });
-    return { categoryId: v.categoryId, order: v.ids };
+    await audit(tx, actor, 'IPS_REORDERED', 'all', { ids: v.ids });
+    return { order: v.ids, sortMode: await getSortMode(tx) };
   });
 }
 
@@ -204,24 +207,4 @@ export async function linkPoolIp(tx: Tx, poolId: string, ipId: string | null): P
   } else {
     await tx`UPDATE pools SET ip_id = NULL WHERE id = ${poolId}`;
   }
-}
-
-/** 公開：大廳篩選用的 IP 清單（顯示中、依分類分組、依排序；附上架中賞池數） */
-export async function publicIpDirectory(d: Db) {
-  const rows = await d<{ categoryId: string | null; categoryCode: string | null; categoryName: string | null; id: string; slug: string; name: string; coverUrl: string | null; poolCount: number }[]>`
-    SELECT c.id AS category_id, c.code AS category_code, c.name AS category_name, i.id, i.slug, i.name, i.cover_url,
-           (SELECT count(*)::int FROM pools p WHERE p.ip_id = i.id AND p.status = 'PUBLISHED') AS pool_count
-    FROM ips i LEFT JOIN ip_categories c ON c.id = i.category_id
-    WHERE i.visible AND (c.id IS NULL OR c.visible)
-    ORDER BY c.sort_order NULLS LAST, i.sort_order, i.name`;
-  const groups: { categoryId: string | null; code: string | null; name: string; ips: { id: string; slug: string; name: string; coverUrl: string | null; poolCount: number }[] }[] = [];
-  for (const r of rows) {
-    let g = groups.find((x) => x.categoryId === r.categoryId);
-    if (!g) {
-      g = { categoryId: r.categoryId, code: r.categoryCode, name: r.categoryName ?? '未分類', ips: [] };
-      groups.push(g);
-    }
-    g.ips.push({ id: r.id, slug: r.slug, name: r.name, coverUrl: r.coverUrl, poolCount: r.poolCount });
-  }
-  return { categories: groups };
 }

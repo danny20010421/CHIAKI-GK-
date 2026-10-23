@@ -30,10 +30,8 @@ const EnvSchema = z.object({
   // 舊的 EXPIRY_COINS_REFUNDABLE 開關已移除（設定了也不會生效）。
   // 運費按套預收：一份運費涵蓋同一會員在同一套的「小獎」件數上限（發布時寫入規則快照）
   SHIPPING_SMALL_ITEMS_PER_FEE: z.coerce.number().int().positive().default(20),
-  // 回收小獎後多收的運費：自動以「不可退款代幣」部分退還的比例（0–1）；新台幣退款申請同一比例
-  SHIPPING_REFUND_RATIO: z.coerce.number().min(0).max(1).default(0.5),
-  // 綠界信用卡刷退 API 替身（開發用；正式環境必須關閉）
-  ECPAY_REFUND_STUB: bool,
+  // 逐件運費退還：每回收一件小獎退 運費 ÷ N 代幣（N 為發布時寫入每套的預設值，後台可逐套調整）
+  SHIPPING_REFUND_DIV: z.coerce.number().int().positive().default(20),
   // 綠界 ReturnURL 防護：來源 IP 允許清單（逗號分隔，可用 CIDR；空＝不限制）、通知時間新鮮度（小時，0＝不檢查）
   ECPAY_NOTIFY_IP_ALLOWLIST: z.string().default(''),
   ECPAY_NOTIFY_MAX_AGE_HOURS: z.coerce.number().int().min(0).default(0),
@@ -131,7 +129,7 @@ let cached: AppConfig | null = null;
 export function config(): AppConfig {
   if (!cached) {
     const env = EnvSchema.parse(process.env);
-    if (env.NODE_ENV === 'production' && (env.AUTH_DEV_STUB || env.REWARD_VERIFY_STUB || env.ECPAY_ACCEPT_SIMULATED || env.ECPAY_REFUND_STUB || env.NOTIFY_STUB_SEND)) {
+    if (env.NODE_ENV === 'production' && (env.AUTH_DEV_STUB || env.REWARD_VERIFY_STUB || env.ECPAY_ACCEPT_SIMULATED || env.NOTIFY_STUB_SEND)) {
       throw new Error('Dev stubs / simulated payments must be disabled in production');
     }
     if (env.NODE_ENV === 'production' && !env.MFA_ENCRYPTION_KEY) {

@@ -64,7 +64,7 @@
 
 ## 3. 上線檢查清單
 
-- [ ] `NODE_ENV=production`；`AUTH_DEV_STUB`、`REWARD_VERIFY_STUB`、`ECPAY_ACCEPT_SIMULATED`、`ECPAY_REFUND_STUB`、`NOTIFY_STUB_SEND` 皆為 0（否則程式拒絕啟動）。
+- [ ] `NODE_ENV=production`；`AUTH_DEV_STUB`、`REWARD_VERIFY_STUB`、`ECPAY_ACCEPT_SIMULATED`、`NOTIFY_STUB_SEND` 皆為 0（否則程式拒絕啟動）。
 - [ ] `MFA_ENCRYPTION_KEY` 已設定（32 bytes）；`ADMIN_MFA_REQUIRED=true`；所有後台帳號已綁定 TOTP。
 - [ ] 後台密碼提示（`ADMIN_PASSWORD_HINT`）—— 提示會降低安全性，建議正式環境清空。
 - [ ] `ADMIN_IP_ALLOWLIST` 與邊緣 WAF 後台規則一致。

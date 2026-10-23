@@ -9,7 +9,8 @@
 //   `npx prisma migrate resolve --applied 20261023000000_init` 與
 //   `npx prisma migrate resolve --applied 20261024000000_grades_storage_prepaid_shipping` 與
 //   `npx prisma migrate resolve --applied 20261025000000_owner_rules_ops_security` 與
-//   `npx prisma migrate resolve --applied 20261026000000_image_assets` 標記既有 migration。
+//   `npx prisma migrate resolve --applied 20261026000000_image_assets` 與
+//   `npx prisma migrate resolve --applied 20261027000000_item_refunds_categories_ip_catalog` 標記既有 migration。
 // 檢視 member_draw_history（會員可見的近 90 天抽賞紀錄）未列於此（Prisma 視圖需 previewFeatures = ["views"]）。
 // 關聯欄位（relation fields）刻意省略：外鍵已在 SQL migration 中定義。
 
@@ -46,6 +47,14 @@ model AdminCredential {
   passwordChangedAt   DateTime  @default(now()) @map("password_changed_at") @db.Timestamptz(6)
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   @@map("admin_credentials")
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedBy String?  @map("updated_by") @db.Uuid
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("app_settings")
 }
 
 model ApprovalRequest {
@@ -277,24 +286,15 @@ model Ip {
   merchantId String   @default("chiaki") @map("merchant_id")
   slug       String   @unique
   name       String
-  categoryId String?  @map("category_id") @db.Uuid
   sortOrder  Int      @default(0) @map("sort_order")
   visible    Boolean  @default(true)
   coverUrl   String?  @map("cover_url")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  category String?
+  aliases String[] @default([])
   @@unique([merchantId, name])
   @@map("ips")
-}
-
-model IpCategory {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code      String   @unique
-  name      String
-  sortOrder Int      @default(0) @map("sort_order")
-  visible   Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  @@map("ip_categories")
 }
 
 model Merchant {
@@ -431,6 +431,8 @@ model PoolPrize {
   grade        String
   recycleValue BigInt  @default(0) @map("recycle_value")
   recyclable   Boolean @default(false)
+  category String?
+  bulky Boolean @default(false)
   @@map("pool_prizes")
 }
 
@@ -465,6 +467,7 @@ model PoolSet {
   soldOutAt       DateTime? @map("sold_out_at") @db.Timestamptz(6)
   shipFeeHome     BigInt    @default(150) @map("ship_fee_home")
   shipFeeCvs      BigInt    @default(70) @map("ship_fee_cvs")
+  shipRefundDiv Int @default(20) @map("ship_refund_div")
   @@unique([poolId, setNo])
   @@map("pool_sets")
 }
@@ -480,6 +483,8 @@ model Product {
   stock      Int
   status     String   @default("ACTIVE")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  category String?
+  bulky Boolean @default(false)
   @@map("products")
 }
 
@@ -662,6 +667,36 @@ model ShippingFeeRefund {
   providerRef    String?   @map("provider_ref")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   @@map("shipping_fee_refunds")
+}
+
+model ShippingItemRefund {
+  userId         String   @map("user_id") @db.Uuid
+  setId          String   @map("set_id") @db.Uuid
+  poolId         String   @map("pool_id") @db.Uuid
+  feeCoins       BigInt   @map("fee_coins")
+  divisor        Int
+  refundedUnits  Int      @default(0) @map("refunded_units")
+  refundedAmount BigInt   @default(0) @map("refunded_amount")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@id([userId, setId])
+  @@map("shipping_item_refunds")
+}
+
+model ShippingItemRefundEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  setId       String   @map("set_id") @db.Uuid
+  sourceType  String   @map("source_type")
+  sourceId    String   @map("source_id") @db.Uuid
+  units       Int
+  amount      BigInt
+  unitsAfter  Int      @map("units_after")
+  amountAfter BigInt   @map("amount_after")
+  ledgerId    BigInt?  @map("ledger_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@unique([sourceId, setId])
+  @@map("shipping_item_refund_events")
 }
 
 model ShippingMethod {

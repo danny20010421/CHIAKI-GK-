@@ -8,7 +8,6 @@ import { appendAudit } from '../audit/audit';
 import { requirePermission, type Principal } from '../auth/rbac';
 import { notifyEvent } from '../notifications/outbox';
 import { CompensationSchema, createApproval, decideRefundRequest, postCompensation } from '../admin/approvals';
-import { decideCashRefund } from '../shipping/shipping-refunds';
 import { resendShipment } from '../shipping/fulfilment';
 import { extendStorage } from '../warehouse/warehouse';
 
@@ -20,7 +19,7 @@ import { extendStorage } from '../warehouse/warehouse';
  *     - 內部備註（internal）會員看不到、不改狀態
  *   建單時自動連結會員最近 30 天的抽賞 / 儲值訂單 / 出貨單（可由會員指定）。
  *   一鍵動作（皆呼叫既有 domain 函式，各自寫稽核；另記錄 cs_actions＋稽核）：
- *     重新出貨、延長寄存 N 天、核准退款申請（代幣退款 → 進雙人覆核；運費現金退款 → 核准待撥款）、
+ *     重新出貨、延長寄存 N 天、核准退款申請（未使用儲值代幣的退款 → 進雙人覆核）、
  *     補償點數（超過 CS_COMPENSATION_APPROVAL_THRESHOLD 需第二人核准）。
  */
 export const CATEGORIES = ['DRAW_DISPUTE', 'TOPUP_PAYMENT', 'SHIPPING', 'ACCOUNT', 'REFUND', 'OTHER'] as const;
@@ -246,7 +245,7 @@ export async function listCannedReplies(actor: Principal, category?: string) {
 export const ActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('RESEND_SHIPMENT'), shipmentId: z.string().uuid().optional(), note: z.string().max(500).optional() }),
   z.object({ action: z.literal('EXTEND_STORAGE'), days: z.number().int().min(1).max(90), itemIds: z.array(z.string().uuid()).min(1).max(100).optional() }),
-  z.object({ action: z.literal('APPROVE_REFUND'), kind: z.enum(['COIN_REFUND', 'SHIPPING_CASH_REFUND']), refundId: z.string().uuid(), note: z.string().max(500).optional() }),
+  z.object({ action: z.literal('APPROVE_REFUND'), kind: z.literal('COIN_REFUND').default('COIN_REFUND'), refundId: z.string().uuid(), note: z.string().max(500).optional() }),
   z.object({ action: z.literal('GRANT_COMPENSATION'), points: z.number().int().positive().max(1_000_000), memo: z.string().min(2).max(500) }),
 ]);
 
@@ -274,12 +273,12 @@ export async function runTicketAction(actor: Principal, ticketId: string, input:
       note = `已延長寄存 ${v.days} 天（${(result.items as unknown[]).length} 件）`;
       break;
     case 'APPROVE_REFUND': {
-      const table = v.kind === 'COIN_REFUND' ? 'refund_requests' : 'shipping_fee_refunds';
-      const [own] = await db()`SELECT 1 FROM ${db()(table)} WHERE id = ${v.refundId} AND user_id = ${t.userId}`;
+      // 新台幣退款只限未使用的儲值代幣（運費退還一律為不可退款代幣，無須核准）
+      const [own] = await db()`SELECT 1 FROM refund_requests WHERE id = ${v.refundId} AND user_id = ${t.userId}`;
       if (!own) throw new AppError('NOT_FOUND', 'refund request not found for this member');
-      result = { ...(v.kind === 'COIN_REFUND' ? await decideRefundRequest(actor, v.refundId, 'APPROVE', v.note) : await decideCashRefund(actor, v.refundId, 'APPROVE', v.note)) };
+      result = { ...(await decideRefundRequest(actor, v.refundId, 'APPROVE', v.note)) };
       approvalId = (result.approvalId as string | undefined) ?? null;
-      note = v.kind === 'COIN_REFUND' ? '已提出代幣退款核准（待第二人覆核）' : '運費現金退款已核准（待財務撥款）';
+      note = '已提出代幣退款核准（待第二人覆核）';
       break;
     }
     case 'GRANT_COMPENSATION': {

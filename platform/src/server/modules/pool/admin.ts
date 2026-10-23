@@ -9,6 +9,7 @@ import { COMMIT_SCHEME, computeCommitment, generateLayout, generateSalt } from '
 import { defaultGradeForRank, GradeSchema, type Grade } from './grades';
 import { rulesHash, type PoolRules } from './rules';
 import { linkPoolIp } from '../catalog/ips';
+import { ProductCategorySchema, resolveBulky } from '../catalog/categories';
 import { CVS_FEE_RANGE, CvsFeeSchema, DEFAULT_SHIPPING_NOTE, HOME_FEE_RANGE, HomeFeeSchema } from '../shipping/fees';
 
 const MAX_TICKETS_PER_SET = 10_000;
@@ -39,6 +40,8 @@ export const PoolDraftSchema = z
     lastPrizeGrade: GradeSchema.default('GRAND'),
     lastPrizeRecycleValue: RecycleValueSchema.default(0),
     lastPrizeRecyclable: z.boolean().optional(),
+    lastPrizeCategory: ProductCategorySchema.nullable().default(null),
+    lastPrizeBulky: z.boolean().optional(),
     prizes: z
       .array(
         z.object({
@@ -48,6 +51,8 @@ export const PoolDraftSchema = z
           qtyPerSet: z.number().int().positive().max(MAX_TICKETS_PER_SET),
           recycleValue: RecycleValueSchema.default(0),
           recyclable: z.boolean().optional(), // 未填：回收值 > 0 即可回收
+          category: ProductCategorySchema.nullable().default(null), // 商品分類（GK、PVC…）
+          bulky: z.boolean().optional(), // 大件・限宅配（未填：GK 為是）
         }),
       )
       .min(1)
@@ -62,6 +67,8 @@ export const PoolDraftSchema = z
         reserveTotal: z.number().int().min(0).max(100_000),
         reserveRecycleValue: RecycleValueSchema.default(0),
         reserveRecyclable: z.boolean().optional(),
+        reserveCategory: ProductCategorySchema.nullable().default(null),
+        reserveBulky: z.boolean().optional(),
       })
       .nullable()
       .default(null),
@@ -117,21 +124,22 @@ export async function createPoolDraft(actor: Principal, input: PoolDraftInput): 
     const custom = v.source === 'CUSTOM';
     let i = 0;
     for (const p of v.prizes) {
-      await tx`INSERT INTO pool_prizes (pool_id, kind, rank, grade, name, qty_per_set, sort_order, recycle_value, recyclable)
+      await tx`INSERT INTO pool_prizes (pool_id, kind, rank, grade, name, qty_per_set, sort_order, recycle_value, recyclable, category, bulky)
                VALUES (${pool!.id}, 'TICKET', ${custom ? null : p.rank!}, ${resolvedGrade(p)}, ${p.name}, ${p.qtyPerSet}, ${i++},
-                       ${p.recycleValue}, ${p.recyclable ?? p.recycleValue > 0})`;
+                       ${p.recycleValue}, ${p.recyclable ?? p.recycleValue > 0}, ${p.category}, ${resolveBulky(p.category, p.bulky)})`;
     }
     if (v.lastPrizeName) {
-      await tx`INSERT INTO pool_prizes (pool_id, kind, rank, grade, name, qty_per_set, sort_order, recycle_value, recyclable)
+      await tx`INSERT INTO pool_prizes (pool_id, kind, rank, grade, name, qty_per_set, sort_order, recycle_value, recyclable, category, bulky)
                VALUES (${pool!.id}, 'LAST', ${custom ? null : 'LAST'}, ${v.lastPrizeGrade}, ${v.lastPrizeName}, 0, 1000,
-                       ${v.lastPrizeRecycleValue}, ${v.lastPrizeRecyclable ?? v.lastPrizeRecycleValue > 0})`;
+                       ${v.lastPrizeRecycleValue}, ${v.lastPrizeRecyclable ?? v.lastPrizeRecycleValue > 0}, ${v.lastPrizeCategory}, ${resolveBulky(v.lastPrizeCategory, v.lastPrizeBulky)})`;
     }
     if (v.guarantee) {
       const g = v.guarantee;
       const [rp] = await tx<{ id: string }[]>`
-        INSERT INTO pool_prizes (pool_id, kind, rank, grade, name, qty_per_set, sort_order, recycle_value, recyclable)
+        INSERT INTO pool_prizes (pool_id, kind, rank, grade, name, qty_per_set, sort_order, recycle_value, recyclable, category, bulky)
         VALUES (${pool!.id}, 'GUARANTEE', ${custom ? null : (g.reserveRank ?? null)}, ${resolvedGrade({ rank: g.reserveRank, grade: g.reserveGrade })},
-                ${g.reservePrizeName}, 0, 1001, ${g.reserveRecycleValue}, ${g.reserveRecyclable ?? g.reserveRecycleValue > 0})
+                ${g.reservePrizeName}, 0, 1001, ${g.reserveRecycleValue}, ${g.reserveRecyclable ?? g.reserveRecycleValue > 0},
+                ${g.reserveCategory}, ${resolveBulky(g.reserveCategory, g.reserveBulky)})
         RETURNING id`;
       await tx`INSERT INTO pool_guarantees (pool_id, every_n, min_grade, reserve_rank, reserve_prize_name, reserve_total, reserve_prize_id)
                VALUES (${pool!.id}, ${g.everyN}, ${g.minGrade}, ${custom ? null : (g.reserveRank ?? null)}, ${g.reservePrizeName}, ${g.reserveTotal}, ${rp!.id})`;
@@ -236,9 +244,10 @@ export async function publishPool(tx: Tx, poolId: string, approverId: string): P
     const commitment = computeCommitment({ poolId, setNo, rulesHash: hash, layout }, salt);
     const [set] = await tx<{ id: string }[]>`
       INSERT INTO pool_sets (merchant_id, pool_id, set_no, rule_version_id, status, total_tickets, commit_scheme, commitment, commit_salt, on_sale_at,
-                             ship_fee_home, ship_fee_cvs)
+                             ship_fee_home, ship_fee_cvs, ship_refund_div)
       VALUES (${pool.merchantId}, ${poolId}, ${setNo}, ${rv!.id}, ${setNo === 1 ? 'ON_SALE' : 'QUEUED'}, ${layout.length},
-              ${COMMIT_SCHEME}, ${commitment}, ${salt}, ${setNo === 1 ? new Date() : null}, ${pool.shipFeeHome}, ${pool.shipFeeCvs})
+              ${COMMIT_SCHEME}, ${commitment}, ${salt}, ${setNo === 1 ? new Date() : null}, ${pool.shipFeeHome}, ${pool.shipFeeCvs},
+              ${config().SHIPPING_REFUND_DIV})
       RETURNING id`;
     await tx`
       INSERT INTO tickets (set_id, ticket_no, prize_id)
@@ -295,12 +304,14 @@ export const SetConfigSchema = z
   .object({
     shippingFeeHome: HomeFeeSchema.optional(),
     shippingFeeCvs: CvsFeeSchema.optional(),
+    /** 逐件運費退還除數 N（每回收一件小獎退 運費 ÷ N）；已開始退還的會員沿用當時鎖定的 N */
+    shipRefundDiv: z.number().int().min(1).max(1000).optional(),
     prizes: z
       .array(z.object({ prizeId: z.string().uuid(), recycleValue: RecycleValueSchema.optional(), recyclable: z.boolean().optional() }))
       .max(60)
       .optional(),
   })
-  .refine((v) => v.shippingFeeHome !== undefined || v.shippingFeeCvs !== undefined || (v.prizes?.length ?? 0) > 0, 'nothing to update');
+  .refine((v) => v.shippingFeeHome !== undefined || v.shippingFeeCvs !== undefined || v.shipRefundDiv !== undefined || (v.prizes?.length ?? 0) > 0, 'nothing to update');
 
 /**
  * 逐套設定：運費（宅配 150–300、超商 C2C 60–150）與每個獎項的回收值/可否回收。
@@ -312,13 +323,14 @@ export async function updateSetConfig(actor: Principal, idOrSlug: string, setNo:
   return transaction(async (tx) => {
     const p = await lockPublishedPool(tx, idOrSlug);
     if (p.status !== 'PUBLISHED' && p.status !== 'ENDED') throw new AppError('INVALID_STATE', 'pool is not published');
-    const [s] = await tx<{ id: string; shipFeeHome: number; shipFeeCvs: number }[]>`
-      SELECT id, ship_fee_home, ship_fee_cvs FROM pool_sets WHERE pool_id = ${p.id} AND set_no = ${setNo} FOR UPDATE`;
+    const [s] = await tx<{ id: string; shipFeeHome: number; shipFeeCvs: number; shipRefundDiv: number }[]>`
+      SELECT id, ship_fee_home, ship_fee_cvs, ship_refund_div FROM pool_sets WHERE pool_id = ${p.id} AND set_no = ${setNo} FOR UPDATE`;
     if (!s) throw new AppError('NOT_FOUND', 'set not found');
     const home = v.shippingFeeHome ?? s.shipFeeHome;
     const cvs = v.shippingFeeCvs ?? s.shipFeeCvs;
-    if (home !== s.shipFeeHome || cvs !== s.shipFeeCvs) {
-      await tx`UPDATE pool_sets SET ship_fee_home = ${home}, ship_fee_cvs = ${cvs} WHERE id = ${s.id}`;
+    const div = v.shipRefundDiv ?? s.shipRefundDiv;
+    if (home !== s.shipFeeHome || cvs !== s.shipFeeCvs || div !== s.shipRefundDiv) {
+      await tx`UPDATE pool_sets SET ship_fee_home = ${home}, ship_fee_cvs = ${cvs}, ship_refund_div = ${div} WHERE id = ${s.id}`;
     }
     const changed: { prizeId: string; before: { recycleValue: number; recyclable: boolean }; after: { recycleValue: number; recyclable: boolean } }[] = [];
     for (const pr of v.prizes ?? []) {
@@ -336,9 +348,9 @@ export async function updateSetConfig(actor: Principal, idOrSlug: string, setNo:
       action: 'SET_CONFIG_UPDATED',
       entityType: 'pool_set',
       entityId: s.id,
-      payload: { poolId: p.id, setNo, shippingFees: { before: { home: s.shipFeeHome, cvs: s.shipFeeCvs }, after: { home, cvs } }, prizes: changed },
+      payload: { poolId: p.id, setNo, shippingFees: { before: { home: s.shipFeeHome, cvs: s.shipFeeCvs }, after: { home, cvs } }, shipRefundDiv: { before: s.shipRefundDiv, after: div }, prizes: changed },
     });
-    return { poolId: p.id, setNo, shippingFees: { home, cvs }, prizes: changed.map((c) => ({ prizeId: c.prizeId, ...c.after })) };
+    return { poolId: p.id, setNo, shippingFees: { home, cvs }, shipRefundDiv: div, prizes: changed.map((c) => ({ prizeId: c.prizeId, ...c.after })) };
   });
 }
 
@@ -394,4 +406,26 @@ export async function publishRuleVersion(tx: Tx, ruleVersionId: string, approver
     payload: { poolId: rv.poolId, version: rv.version, rulesHash: rv.rulesHash },
   });
   return { ruleVersionId: rv.id, poolId: rv.poolId, version: rv.version };
+}
+
+export const PrizeAttributesSchema = z
+  .object({ category: ProductCategorySchema.nullable().optional(), bulky: z.boolean().optional() })
+  .refine((v) => v.category !== undefined || v.bulky !== undefined, 'nothing to update');
+
+/**
+ * 獎項屬性（商品分類、大件・限宅配）：不影響籤表承諾與機率，發布後仍可修改（留稽核）。
+ * 只改分類未指定 bulky 時，大件旗標依新分類的預設值（GK → 是）。
+ */
+export async function updatePrizeAttributes(actor: Principal, prizeId: string, input: z.input<typeof PrizeAttributesSchema>) {
+  requirePermission(actor, 'pool.config.manage');
+  const v = PrizeAttributesSchema.parse(input);
+  return transaction(async (tx) => {
+    const [cur] = await tx<{ category: string | null; bulky: boolean; poolId: string }[]>`SELECT category, bulky, pool_id FROM pool_prizes WHERE id = ${prizeId} FOR UPDATE`;
+    if (!cur) throw new AppError('NOT_FOUND', 'prize not found');
+    const category = v.category === undefined ? (cur.category as z.infer<typeof ProductCategorySchema> | null) : v.category;
+    const bulky = v.bulky ?? (v.category !== undefined ? resolveBulky(category, undefined) : cur.bulky);
+    await tx`UPDATE pool_prizes SET category = ${category}, bulky = ${bulky} WHERE id = ${prizeId}`;
+    await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'PRIZE_ATTRIBUTES_UPDATED', entityType: 'pool_prize', entityId: prizeId, payload: { poolId: cur.poolId, before: { category: cur.category, bulky: cur.bulky }, after: { category, bulky } } });
+    return { prizeId, category, bulky };
+  });
 }

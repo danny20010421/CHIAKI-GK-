@@ -128,7 +128,7 @@ describe('CS tickets', () => {
     const ap = await j<{ approvalId: string; result: { status: string } }>(await act({ action: 'APPROVE_REFUND', kind: 'COIN_REFUND', refundId: rr.id }));
     assert.deepEqual([ap.status, ap.body.result.status], [201, 'PENDING_APPROVAL']);
     assert.ok(ap.body.approvalId);
-    assert.equal((await act({ action: 'APPROVE_REFUND', kind: 'SHIPPING_CASH_REFUND', refundId: rr.id })).status, 404, 'not a shipping refund of this member');
+    assert.equal((await act({ action: 'APPROVE_REFUND', kind: 'SHIPPING_CASH_REFUND', refundId: rr.id })).status, 400, 'shipping fees are refunded as coins only; no NT$ shipping refunds');
 
     // 補償點數：門檻內直接入帳；超過門檻 → 第二人核准
     const p0 = (await walletOf(u.id)).points;

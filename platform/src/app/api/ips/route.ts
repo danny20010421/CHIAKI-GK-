@@ -1,9 +1,16 @@
 import { db } from '@/server/db';
-import { json, route } from '@/server/http';
-import { publicIpDirectory } from '@/server/modules/catalog/ips';
+import { json, query, route } from '@/server/http';
+import { publicIps } from '@/server/modules/catalog/ips';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** GET /api/ips — 大廳篩選：依分類分組、依排序的 IP 清單（只含顯示中者，附上架中賞池數） */
-export const GET = route(async () => json(await publicIpDirectory(db())));
+/**
+ * GET /api/ips?category=&q= — IP 目錄（大廳篩選與搜尋）。
+ * category：少年漫畫 / 動畫・輕小說 / 遊戲 / 特攝・機甲 / 經典・兒童 / 角色・療癒 / 歐美 / 原創；
+ * q：名稱或別名（不分大小寫、部分比對）。排序：預設依名稱字數再依中文排序，後台可改為手動順序。
+ */
+export const GET = route(async (req: Request) => {
+  const q = query(req);
+  return json(await publicIps(db(), { category: (q.get('category') ?? undefined) as never, q: q.get('q') ?? undefined }));
+});
