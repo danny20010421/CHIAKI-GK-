@@ -185,6 +185,7 @@ function poolEditor(id){
         <div class="field"><label for="pe_cvs">超商交貨便運費（${c.cvsMin}–${c.cvsMax}）</label><input class="input num" type="number" id="pe_cvs" min="${c.cvsMin}" max="${c.cvsMax}" value="${p.ship.cvs}" required></div></div>
       <div class="field"><span style="font-size:13px;color:var(--tx-2)">封面圖片（${IMG_SPEC.cover.w}×${IMG_SPEC.cover.h}，1:1，≤${IMG_SPEC.cover.kb}KB）</span>${uploader('cover','pe_cover')}</div>
       <div class="field"><span style="font-size:13px;color:var(--tx-2)">籤紙設計（封面、內卡各一張，${IMG_SPEC.ticket.w}×${IMG_SPEC.ticket.h}）</span>${uploader('ticket','pe_tk')}</div>
+      <fieldset class="field packs-f"><legend style="font-size:13px;color:var(--tx-2);padding:0;margin-bottom:8px">快速抽可選抽數（前台「快速抽」顯示的按鈕）</legend><div class="row" style="gap:8px;flex-wrap:wrap">${[1,3,5,10,20,'all'].map(n => `<label class="chk-chip"><input type="checkbox" name="pe_pk" value="${n}" ${(p.packs || [1,5,10]).includes(n) ? 'checked' : ''}><span>${n === 'all' ? '全包' : n + ' 抽'}</span></label>`).join('')}</div></fieldset>
       <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn gold" type="submit">${id ? '儲存變更' : '建立草稿'}</button><button class="btn" type="button" data-act="x-poolsubmit" data-k="${id || ''}">送審</button></div>
       <p class="dim" style="font-size:12px;margin:0">已發布之規則與籤表不可修改，修改將產生新版本並公告；送審後需第二位管理員覆核才會上架。</p>
     </form>`, {wide:true});
@@ -194,6 +195,8 @@ function poolEditor(id){
 function poolSave(id, st){
   const c = S.cfg, v = x => $('#pe_' + x).value.trim(), n = x => Number(v(x));
   const f = {title:v('t'), ip:v('ip'), src:v('src'), play:v('play'), price:n('price'), sets:n('sets'), home:n('home'), cvs:n('cvs')};
+  f.packs = [...document.querySelectorAll('input[name="pe_pk"]:checked')].map(x => x.value === 'all' ? 'all' : +x.value);
+  if (!f.packs.length){ toast('快速抽至少要提供一種抽數'); return false; }
   const bad = (msg, el) => { toast(msg); $('#pe_' + el).focus(); return false; };
   if (f.title.length < 2) return bad('請填寫賞池名稱（至少 2 字）', 't');
   if (!Number.isInteger(f.price) || f.price < 1) return bad('單抽價格需為正整數', 'price');
@@ -206,8 +209,8 @@ function poolSave(id, st){
     const sold = soldAll(live) > 0, changed = live.price !== f.price;
     if (sold && changed && st === '草稿') return bad('已開抽的賞池不可直接改價；請改為「送審」建立新版本，覆核後套用於下一套', 'price');
     if (st === '待覆核'){ S.poolDrafts.unshift({...f, st, of:live.id}); S.audit.unshift({t:'剛剛', who:'輝', a:`送審：${f.title}（新版本）`}); closeModal(); render(true); toast('已送審新版本，待第二位管理員覆核'); return true; }
-    Object.assign(live, {title:f.title, ip:f.ip, play:f.play}); live.ship = {home:f.home, cvs:f.cvs};
-    S.audit.unshift({t:'剛剛', who:'輝', a:`更新賞池資訊：${f.title}`}); closeModal(); render(true); toast('已儲存（名稱、IP、運費等非規則欄位）'); return true;
+    Object.assign(live, {title:f.title, ip:f.ip, play:f.play, packs:f.packs}); live.ship = {home:f.home, cvs:f.cvs};
+    S.audit.unshift({t:'剛剛', who:'輝', a:`更新賞池資訊：${f.title}`}); closeModal(); render(true); toast('已儲存（名稱、IP、運費、快速抽選項等非規則欄位）'); return true;
   }
   const di = String(id || '').startsWith('draft:') ? +id.slice(6) : -1;
   if (di >= 0) S.poolDrafts[di] = {...S.poolDrafts[di], ...f, st}; else S.poolDrafts.unshift({...f, st});

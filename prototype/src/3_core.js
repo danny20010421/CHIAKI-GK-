@@ -93,44 +93,81 @@ const rankTag = (rk, small) => `<span class="rank ${RK[rk].cls}"${small?' style=
 const GRADE = {G:{label:'大獎',cls:'rk-a',tier:3}, M:{label:'中獎',cls:'rk-b',tier:2}, S:{label:'小獎',cls:'rk-e',tier:0}};
 const gradeFromRk = rk => (rk === 'LAST' || rk === 'A') ? 'G' : (rk === 'B' || rk === 'C') ? 'M' : 'S';
 /* item = a prize instance (pool prize, draw result or warehouse item) */
-const tagOf = (x, small) => x.rk === 'LAST' ? rankTag('LAST', small) : x.custom
-  ? `<span class="rank ${GRADE[x.g].cls}"${small?' style="min-width:0;height:24px;font-size:11px;padding:0 6px"':''}>${GRADE[x.g].label}</span>` : rankTag(x.rk, small);
-const labelOf = x => x.rk === 'LAST' ? '最後賞' : x.custom ? x.name : RK[x.rk].label;
+const lvCls = x => x.lv ? (x.lv === 1 ? 'rk-a' : x.lv === 2 ? 'rk-b' : x.lv === 3 && !x.small ? 'rk-c' : 'rk-e') : x.custom ? GRADE[x.g].cls : RK[x.rk].cls;
+const lvLabel = x => x.lvName || (x.custom ? GRADE[x.g].label : RK[x.rk].label);
+const tagOf = (x, small) => x.rk === 'LAST' ? rankTag('LAST', small)
+  : `<span class="rank ${lvCls(x)}"${small?' style="min-width:0;height:24px;font-size:11px;padding:0 6px"':''}>${lvLabel(x)}</span>`;
+const labelOf = x => x.rk === 'LAST' ? '最後賞' : x.custom ? x.name : lvLabel(x);
 const glyphOf = x => x.rk === 'LAST' ? 'L' : x.custom ? ({G:'★',M:'◆',S:'・'}[x.g]) : (x.rk === 'P' ? 'P' : x.rk);
 const SHIP_M = {home:'宅配到府', c711:'7-11 交貨便', fami:'全家店到店'};
 const STORE_DAYS_DEFAULT = 30;
 const storeDays = () => (S.cfg && S.cfg.storeDays) || STORE_DAYS_DEFAULT;
 const SRC = {o:{t:'官方套組',c:'src-o'}, s:{t:'自製套組',c:'src-s'}, m:{t:'混合套組',c:'src-m'}};
-const PLAY = {std:'標準選籤', guar:'保底挑戰', solo:'單挑賞池'};
+const PLAY = {std:'標準賞', guar:'保底挑戰', solo:'單挑賞池', prob:'機率賞'};
 
 /* ---------- Sample data (fictional IPs; replace with real catalog) ---------- */
 const NOW = Date.now();
+/* 每個賞池都分 1～8 個等級（1 最高）；每個等級可放 1 個或多個不同獎品。
+   small = 是否屬「小獎」（計入運費 20 件規則、可按件退運費），未設定時 4 等以後為小獎。
+   items: n 名稱、q 數量、rv 回收值、keep 示範用保留數、tag 標籤（未填自動判斷） */
 const POOLS = [
   {id:'gk', title:'CHIAKI GK 雕像一番賞 第一彈', ip:'CHIAKI ORIGINAL', src:'s', play:'std', price:300, hue:192, seed:101, hot:true, isNew:true,
-   setCount:10, setDrawn:[100,64,0,0,0,0,0,0,0,0], ship:{home:200, cvs:100},
-   prizes:[{name:'CHIAKI GK 原創雕像 全彩完成品',g:'G',qty:1,keep:1,rv:0},{name:'CHIAKI GK 原創雕像 白模版',g:'M',qty:1,keep:1,rv:1500},{name:'原創角色 胸像',g:'M',qty:1,keep:1,rv:900},
-           {name:'壓克力立牌（全 6 種）',g:'S',qty:6,rv:80},{name:'設定原畫 收藏卡組',g:'S',qty:6,rv:60},{name:'金屬徽章（全 5 種）',g:'S',qty:15,rv:40},
-           {name:'燙金貼紙組',g:'S',qty:20,rv:20},{name:'明信片（全 10 種）',g:'S',qty:50,rv:10}], last:null},
+   setCount:10, setDrawn:[100,64,0,0,0,0,0,0,0,0], ship:{home:200, cvs:100}, packs:[1,5,10],
+   levels:[
+     {name:'大獎', items:[{n:'CHIAKI GK 原創雕像 全彩完成品', q:1, keep:1}]},
+     {name:'中獎', items:[{n:'CHIAKI GK 原創雕像 白模版', q:1, keep:1, rv:1500},{n:'原創角色 胸像', q:1, keep:1, rv:900}]},
+     {name:'收藏獎', small:true, items:[{n:'壓克力立牌（全 6 種）', q:6, rv:80},{n:'設定原畫 收藏卡組', q:6, rv:60}]},
+     {name:'小獎', items:[{n:'金屬徽章（全 5 種）', q:15, rv:40},{n:'燙金貼紙組', q:20, rv:20}]},
+     {name:'參加獎', items:[{n:'明信片（全 10 種）', q:50, rv:10}]}], last:null},
   {id:'p1', title:'一番賞 航海王 ～新四皇～', ip:'航海王', src:'o', play:'std', price:350, hue:222, seed:11, drawn:38, hot:true,
-   ship:{home:250, cvs:120},
-   prizes:[{rk:'A',name:'蒙其·D·魯夫 五檔 公仔',qty:1,keep:1,rv:0},{rk:'B',name:'羅羅亞·索隆 公仔',qty:2,keep:1,rv:0},{rk:'C',name:'角色壓克力立牌（全 3 種）',qty:3,rv:150},
-           {rk:'D',name:'印花毛巾（全 5 種）',qty:10,rv:60},{rk:'E',name:'鏡面徽章（全 10 種）',qty:20,rv:20},{rk:'F',name:'透明資料夾（全 6 種）',qty:24,rv:10}],
+   ship:{home:250, cvs:120}, packs:[1,5,10],
+   levels:[
+     {name:'A賞', items:[{n:'蒙其·D·魯夫 五檔 公仔', q:1, keep:1}]},
+     {name:'B賞', items:[{n:'羅羅亞·索隆 公仔', q:1, keep:1},{n:'賓什莫克·香吉士 公仔', q:1, keep:1}]},
+     {name:'C賞', items:[{n:'角色壓克力立牌（全 3 種）', q:3, rv:150}]},
+     {name:'D賞', items:[{n:'喬巴 絨毛娃娃', q:10, rv:60}]},
+     {name:'E賞', items:[{n:'鏡面徽章（全 10 種）', q:20, rv:20}]},
+     {name:'F賞', items:[{n:'透明資料夾（全 6 種）', q:24, rv:10}]}],
    last:'魯夫 五檔 特別配色 Ver.'},
   {id:'p3', title:'死神 保底挑戰 ～千年血戰篇～', ip:'死神', src:'s', play:'guar', price:280, hue:42, seed:33, drawn:22, img:GUAR_IMG,
-   guar:{every:10, minTier:2, g:'M', reserve:3, name:'朽木白哉 胸像（保底專用庫存）', rv:800}, ship:{home:180, cvs:80},
-   prizes:[{name:'黑崎一護 卍解 1/6 雕像',g:'G',qty:1,keep:1,rv:0},{name:'朽木白哉 胸像',g:'M',qty:4,keep:2,rv:800},{name:'護廷十三隊 金箔色紙',g:'S',qty:10,rv:120},
-           {name:'限定版畫（全 4 種）',g:'S',qty:25,rv:50},{name:'燙金貼紙組',g:'S',qty:40,rv:20}], last:'黑崎一護 全身雕像 金箔 Ver.'},
+   guar:{every:10, minTier:2, g:'M', lv:2, lvName:'中獎', reserve:3, name:'朽木白哉 胸像（保底專用庫存）', rv:800}, ship:{home:180, cvs:80}, packs:[1,5,10],
+   levels:[
+     {name:'大獎', items:[{n:'黑崎一護 卍解 1/6 雕像', q:1, keep:1}]},
+     {name:'中獎', items:[{n:'朽木白哉 胸像', q:2, keep:1, rv:800},{n:'日番谷冬獅郎 胸像', q:2, keep:1, rv:800}]},
+     {name:'小獎', small:true, items:[{n:'護廷十三隊 金箔色紙', q:10, rv:120}]},
+     {name:'小獎', items:[{n:'限定版畫（全 4 種）', q:25, rv:50}]},
+     {name:'小獎', items:[{n:'燙金貼紙組', q:40, rv:20}]}], last:'黑崎一護 全身雕像 金箔 Ver.'},
   {id:'p4', title:'火影忍者 混合賞 ～曉之雲～', ip:'火影忍者', src:'m', play:'std', price:300, hue:12, seed:44, drawn:10, isNew:true,
-   ship:{home:220, cvs:100},
-   prizes:[{rk:'A',name:'宇智波鼬 1/8 比例模型（官方正版）',qty:1,keep:1,rv:0},{rk:'B',name:'曉 雲紋 LED 夜燈（CHIAKI 自製）',qty:3,rv:300},{rk:'C',name:'木葉護額（合作工坊）',qty:6,rv:120},
-           {rk:'D',name:'曉組織 吊飾（全 5 種）',qty:20,rv:40},{rk:'E',name:'明信片組',qty:30,rv:15}], last:'宇智波鼬 月讀 Ver.'},
+   ship:{home:220, cvs:100}, packs:[1,5,10],
+   levels:[
+     {name:'A賞', items:[{n:'宇智波鼬 1/8 比例模型（官方正版）', q:1, keep:1}]},
+     {name:'B賞', items:[{n:'曉 雲紋 LED 夜燈（CHIAKI 自製）', q:3, rv:300}]},
+     {name:'C賞', items:[{n:'木葉護額（合作工坊）', q:3, rv:120},{n:'寫輪眼 吊墜（合作工坊）', q:3, rv:120}]},
+     {name:'D賞', items:[{n:'曉組織 吊飾（全 5 種）', q:20, rv:40}]},
+     {name:'E賞', items:[{n:'明信片組', q:30, rv:15}]}], last:'宇智波鼬 月讀 Ver.'},
   {id:'p5', title:'鬼滅之刃 單挑賞 ～無限城決戰～', ip:'鬼滅之刃', src:'s', play:'solo', price:150, hue:186, seed:55, drawn:30,
-   ship:{home:150, cvs:60},
-   prizes:[{name:'竈門炭治郎 1/6 雕像',g:'G',qty:1,keep:1,rv:0},{name:'角色貼紙（全 5 種）',g:'S',qty:49,rv:10}], last:null},
+   ship:{home:150, cvs:60}, packs:[1,5,10],
+   levels:[
+     {name:'大獎', items:[{n:'竈門炭治郎 1/6 雕像', q:1, keep:1}]},
+     {name:'小獎', small:true, items:[{n:'角色貼紙（全 5 種）', q:49, rv:10}]}], last:null},
   {id:'p7', title:'一番賞 七龍珠 ～孫悟空修行篇～', ip:'七龍珠', src:'o', play:'std', price:380, hue:268, seed:77, soon:NOW+ 2*864e5 + 5*36e5,
-   ship:{home:250, cvs:120},
-   prizes:[{rk:'A',name:'孫悟空 公仔',qty:1},{rk:'B',name:'筋斗雲 擺飾',qty:2},{rk:'C',name:'金屬書籤',qty:6},{rk:'D',name:'掛軸',qty:15},{rk:'E',name:'徽章',qty:36}], last:'孫悟空 龜派氣功 Ver.'},
+   ship:{home:250, cvs:120}, packs:[1,5,10],
+   levels:[
+     {name:'A賞', items:[{n:'孫悟空 公仔', q:1}]},
+     {name:'B賞', items:[{n:'龜仙人 公仔', q:1},{n:'克林 公仔', q:1}]},
+     {name:'C賞', items:[{n:'筋斗雲 擺飾', q:4}]},
+     {name:'D賞', items:[{n:'角色景品盲盒（全 6 款）', q:12}]},
+     {name:'E賞', items:[{n:'集換式卡牌包', q:20}]},
+     {name:'F賞', items:[{n:'金屬書籤', q:24}]}], last:'孫悟空 龜派氣功 Ver.'},
 ];
+const LV_RK = 'ABCDEFGH';
+/* levels → flat prize list (each prize knows its level) */
+function flattenLevels(p){
+  p.prizes = [];
+  p.levels.forEach((L, i) => { const lv = i + 1, small = L.small != null ? !!L.small : lv >= 4;
+    L.items.forEach(it => p.prizes.push({name:it.n, qty:it.q, keep:it.keep || 0, rv:it.rv || 0, tag:it.tag || null, img:it.img || null,
+      lv, lvName:L.name || `${lv} 等`, small, rk:LV_RK[i], g: small ? 'S' : lv === 1 ? 'G' : 'M', tier: small ? 0 : lv === 1 ? 3 : lv === 2 ? 2 : 1})); });
+}
 const PRODUCTS = [
   {id:'s2', name:'CHIAKI 黑金 收藏展示盒', ip:'CHIAKI ORIGINAL', price:1280, hue:42, stock:12},
 ];
@@ -159,7 +196,8 @@ function buildSet(p, seed, drawn){
   return {tickets, total:list.length};
 }
 function buildPool(p){
-  p.prizes.forEach(pr => { pr.custom = p.src === 's'; pr.g = pr.g || gradeFromRk(pr.rk); pr.tier = pr.custom ? GRADE[pr.g].tier : RK[pr.rk].tier; pr.rv = pr.rv || 0; });
+  if (p.levels) flattenLevels(p);
+  p.prizes.forEach(pr => { pr.custom = p.src === 's'; pr.g = pr.g || gradeFromRk(pr.rk); if (pr.tier == null) pr.tier = pr.custom ? GRADE[pr.g].tier : RK[pr.rk].tier; pr.rv = pr.rv || 0; });
   const n = p.setCount || 1;
   p.sets = Array.from({length:n}, (_, s) => buildSet(p, p.seed + s*7919, p.setDrawn ? p.setDrawn[s] : (p.drawn || 0)));
   p.setIdx = Math.max(0, p.sets.findIndex(s => s.tickets.some(t => !t.taken)));
@@ -170,7 +208,7 @@ POOLS.forEach(buildPool);
 const poolById = id => POOLS.find(p => p.id === id);
 const remaining = p => p.tickets.filter(t => !t.taken).length;
 const remainOf = (p, i) => p.tickets.filter(t => !t.taken && t.pi === i).length;
-const topLeft = p => p.prizes.map((pr,i)=>({pr,i})).filter(x => x.pr.tier >= 2).map(x => ({rk:x.pr.rk, g:x.pr.g, custom:x.pr.custom, n:remainOf(p,x.i), q:x.pr.qty}));
+const topLeft = p => p.prizes.map((pr,i)=>({pr,i})).filter(x => x.pr.tier >= 2).map(x => ({rk:x.pr.rk, g:x.pr.g, lv:x.pr.lv, lvName:x.pr.lvName, custom:x.pr.custom, n:remainOf(p,x.i), q:x.pr.qty}));
 /* shipping is pre-collected per set; one fee covers 20 small prizes (recycled ones don't count) */
 const prizeOfItem = w => { const p = poolById(w.pool); return p ? p.prizes.find(x => x.name === w.pname) : null; };
 function shipQuote(p, n, pick){
@@ -218,10 +256,10 @@ const S = {
   cart: [],
   follow: ['航海王','CHIAKI ORIGINAL'],
   wh: [
-    {id:'w2', pool:'p1', set:0, rk:'E', g:'S', rv:20, pname:'鏡面徽章（全 10 種）', name:'航海王 鏡面徽章（魯夫）', hue:222, at:'2026-09-29', st:'stored'},
-    {id:'w4', pool:'p3', set:0, custom:true, g:'M', rv:800, pname:'朽木白哉 胸像', name:'朽木白哉 胸像', hue:42, at:'2026-10-02', st:'ship', track:'7-ELEVEN 交貨便 ・ 已到店'},
-    {id:'w5', pool:'p4', set:0, rk:'E', g:'S', rv:15, pname:'明信片組', name:'火影忍者 明信片組', hue:12, at:'2026-09-20', st:'done'},
-    {id:'w6', pool:'p1', set:0, rk:'F', g:'S', rv:10, pname:'透明資料夾（全 6 種）', name:'透明資料夾（全員）', hue:222, at:'2026-09-14', st:'recycled'},
+    {id:'w2', pool:'p1', set:0, rk:'E', lv:5, lvName:'E賞', small:true, g:'S', rv:20, pname:'鏡面徽章（全 10 種）', name:'航海王 鏡面徽章（魯夫）', hue:222, at:'2026-09-29', st:'stored'},
+    {id:'w4', pool:'p3', set:0, custom:true, lv:2, lvName:'中獎', g:'M', rv:800, pname:'朽木白哉 胸像', name:'朽木白哉 胸像', hue:42, at:'2026-10-02', st:'ship', track:'7-ELEVEN 交貨便 ・ 已到店'},
+    {id:'w5', pool:'p4', set:0, rk:'E', lv:5, lvName:'E賞', small:true, g:'S', rv:15, pname:'明信片組', name:'火影忍者 明信片組', hue:12, at:'2026-09-20', st:'done'},
+    {id:'w6', pool:'p1', set:0, rk:'F', lv:6, lvName:'F賞', small:true, g:'S', rv:10, pname:'透明資料夾（全 6 種）', name:'透明資料夾（全員）', hue:222, at:'2026-09-14', st:'recycled'},
   ],
   shipPaid: {'p1:0':{n:1, m:'home'}, 'p3:0':{n:1, m:'c711'}, 'p4:0':{n:1, m:'home'}},
   shipPick: 'home',
@@ -296,7 +334,7 @@ function poolCard(p){
         <div class="cd" data-cd="${p.soon}"></div></div></a>`;
   }
   const left = remaining(p), pct = left / p.total * 100, low = pct <= 20;
-  const tops = p.src === 's' ? (() => { const t = topLeft(p).reduce((s,x)=>s+x.n,0); return t ? `${t} 件` : ''; })() : topLeft(p).filter(x => x.n > 0).map(x => RK[x.rk].label.replace('賞','')).join('・');
+  const tops = p.src === 's' ? (() => { const t = topLeft(p).reduce((s,x)=>s+x.n,0); return t ? `${t} 件` : ''; })() : topLeft(p).filter(x => x.n > 0).map(x => (x.lvName || RK[x.rk].label).replace(/賞$/,'')).join('・');
   return `<a class="pc reveal" href="#/pool/${p.id}">
     <div class="badges"><span class="tag ${SRC[p.src].c}">${SRC[p.src].t}</span>${p.play!=='std'?`<span class="tag play" style="background:rgba(0,0,0,.5)">${PLAY[p.play]}</span>`:''}</div>
     ${low ? '<span class="status tag hot">即將完售</span>' : p.isNew ? '<span class="status tag ok">NEW</span>' : p.hot ? '<span class="status tag hot">熱門</span>' : ''}
@@ -355,13 +393,13 @@ setInterval(() => {
    HOME
    ========================================================= */
 routes.home = () => {
-  const live = POOLS.filter(p => !p.soon);
+  const live = POOLS.filter(p => !p.soon && !p.off && !p.demoOnly);
   const used = new Set();
   const pick = arr => { const p = arr.find(x => !used.has(x.id)) || arr[0]; used.add(p.id); return p; };
   const hot = pick([...live].sort((a,b) => (b.hot?1:0)-(a.hot?1:0)));
   const ending = pick([...live].sort((a,b) => remaining(a)/a.total - remaining(b)/b.total));
   const fresh = pick(live.filter(p => p.isNew).concat(live.filter(p => !p.isNew)));
-  const soon = POOLS.filter(p => p.soon);
+  const soon = POOLS.filter(p => p.soon && !p.off);
   const slides = [
     {p:'gk', k:'CHIAKI GK', t:'CHIAKI GK<br>雕像一番賞 第一彈', d:'每套 100 抽・共十套・A～H 賞，籤紙與實體店同款設計。'}
   ];

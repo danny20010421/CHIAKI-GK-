@@ -15,7 +15,7 @@ routes.warehouse = () => {
     ${list.length ? `<div class="wlist">${list.map(w => `
       <label class="witem ${S.whSel.includes(w.id)?'sel':''}">
         ${S.whTab==='stored' ? `<input type="checkbox" data-act="whsel" data-id="${w.id}" ${S.whSel.includes(w.id)?'checked':''} aria-label="選取 ${w.name}">` : ''}
-        ${art(w.hue, glyphOf(w))}
+        ${art(w.hue, glyphOf(w), '', '', w.img)}
         <div class="i"><b>${w.name}</b><span>${w.st==='stored' ? (() => { const x = daysLeft(w.at); return `保管至 ${x.end} ・ 回收值 ${w.rv ? fmt(w.rv)+' 點' : '不可回收'}`; })() : w.at + ' 入庫' + (w.track ? ' ・ ' + w.track : '')}</span>${w.st==='ship' && w.ship ? trackHTML(w.ship) : ''}
           <div class="row" style="gap:8px">${tagOf(w)}${w.st==='stored' ? (() => { const x = daysLeft(w.at); return x.d <= 0 ? '<span class="tag bad">今日到期</span>' : x.d <= 7 ? `<span class="tag warn">${x.d} 天後到期</span>` : ''; })() : w.st==='ship'?(w.ship && ['已出貨','已送達'].includes(w.ship.st) ? '<span class="tag info">運送中</span>' : '<span class="tag warn">揀貨中</span>'):w.st==='done'?'<span class="tag ok">已簽收</span>':w.st==='recycled'?'<span class="tag">已轉點數</span>':''}</div></div>
       </label>`).join('')}</div>` : `<div class="empty">${S.whTab==='stored'?'倉庫目前是空的，去抽一抽吧！<br><br><a class="btn gold" href="#/lobby">前往抽賞大廳</a>':'沒有紀錄'}</div>`}
@@ -297,7 +297,7 @@ routes.admin = () => {
   const cur = ADM.find(a => a[1] === S.admin) || ADM[0];
   let grp = '';
   const side = ADM.map(a => { const g = a[0] !== grp ? `<div class="grp">${a[0]}</div>` : ''; grp = a[0];
-    return g + `<button data-act="adm" data-k="${a[1]}" aria-current="${S.admin===a[1]}">${ic(a[3],'width:18px;height:18px')}${a[2]}${a[1]==='risk'?(S.blocked.length?`<span class="bd">${S.blocked.length}</span>`:''):a[1]==='ship'?`<span class="bd" style="background:var(--warn)">${S.shipments.filter(x=>!['已出貨','已送達'].includes(x.st)).length}</span>`:a[1]==='cs'?`<span class="bd">${S.tickets.filter(t=>t.st==='待處理').length}</span>`:a[1]==='refund'?`<span class="bd" style="background:var(--warn)">${S.refunds.filter(f=>f.st==='待審核').length}</span>`:''}</button>`; }).join('');
+    return g + `<button data-act="adm" data-k="${a[1]}" aria-current="${S.admin===a[1]}">${ic(a[3],'width:18px;height:18px')}${a[2]}${a[1]==='risk'?(S.blocked.length?`<span class="bd">${S.blocked.length}</span>`:''):a[1]==='ship'?`<span class="bd" style="background:var(--warn)">${S.shipments.filter(x=>!['已出貨','已送達'].includes(x.st)).length}</span>`:a[1]==='cs'?`<span class="bd">${S.tickets.filter(t=>t.st==='待處理').length}</span>`:a[1]==='refund'?(S.refunds.some(f=>f.st==='待審核')?`<span class="bd" style="background:var(--warn)">${S.refunds.filter(f=>f.st==='待審核').length}</span>`:''):a[1]==='pool'?((S.poolDrafts||[]).some(d=>d.st==='待覆核')?`<span class="bd" style="background:var(--warn)">${S.poolDrafts.filter(d=>d.st==='待覆核').length}</span>`:''):''}</button>`; }).join('');
   const live = POOLS.filter(p => !p.soon);
   const poolTable = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>賞池</th><th>來源／玩法</th><th class="r">單價</th><th class="r">已抽 / 總數</th><th class="r">實際收益</th><th>狀態</th><th></th></tr></thead><tbody>
     ${POOLS.map(p => { const d = soldAll(p); return `<tr><td>${p.title.split(' ～')[0]}</td><td><span class="tag ${SRC[p.src].c}">${SRC[p.src].t.slice(0,2)}</span> <span class="dim" style="font-size:12px">${PLAY[p.play]}</span></td>
@@ -463,9 +463,9 @@ document.addEventListener('click', e => {
     'follow': () => { const ip = el.dataset.ip; const i = S.follow.indexOf(ip); if (i >= 0) S.follow.splice(i,1); else S.follow.push(ip); toast(i >= 0 ? `已取消追蹤 ${ip}` : `已追蹤 ${ip}，上新將通知你`); render(true); },
     'notify': () => toast('已設定開賣提醒'),
     'toggle-filter': () => { const f = $('#filters'); S.filterOpen = f.classList.toggle('open'); el.setAttribute('aria-expanded', S.filterOpen); },
-    'open-search': () => { openModal(`<h3 id="mdlT">搜尋</h3><form data-act="search" class="invite" role="search"><label class="sr" for="mq">關鍵字</label><input class="input" id="mq" name="q" type="search" placeholder="賞池、IP、獎品名稱" autocomplete="off"><button class="btn gold" type="submit">搜尋</button></form>
-        <div class="ipf" style="margin-top:16px">${[...new Set(POOLS.map(p=>p.ip))].map(x=>`<a class="chip" href="#/lobby?ip=${encodeURIComponent(x)}">${x}</a>`).join('')}</div>`); setTimeout(() => { const m = $('#mq'); m && m.focus(); }, 60); },
-    'set': () => { const p = curPool(); if (!p) return; clearHold(); p.setIdx = +el.dataset.k; render(true); },
+    'open-search': () => { openModal(`<h3 id="mdlT">搜尋</h3><form data-act="search" class="invite" role="search"><label class="sr" for="mq">關鍵字</label><input class="input" id="mq" name="q" type="search" placeholder="作品、角色、英文名或標籤" autocomplete="off"><button class="btn gold" type="submit">搜尋</button></form>
+        <p class="dim" style="font-size:12px;margin:16px 0 8px">標籤</p><div class="ipf">${TAGS.map(c=>`<a class="chip" href="#/lobby?tag=${encodeURIComponent(c.k)}">${c.k}</a>`).join('')}</div><p class="dim" style="font-size:12px;margin:16px 0 8px">熱門 IP</p><div class="ipf">${[...new Set(POOLS.map(p=>p.ip))].map(x=>`<a class="chip" href="#/lobby?ip=${encodeURIComponent(x)}">${x}</a>`).join('')}</div>`); setTimeout(() => { const m = $('#mq'); m && m.focus(); }, 60); },
+    'set': () => { const p = curPool(); if (!p || (p.sets[+el.dataset.k] || {}).off) return; clearHold(); p.setIdx = +el.dataset.k; render(true); },
     'bind-line': () => { S.binds.group = 'done'; S.points += 50; closeModal(); toast('歡迎加入 LINE 社群，已獲得 50 點'); if (parseHash().name === 'me') render(true); },
     'bind-sms': () => { const v = ($('#bPhone')||{}).value || ''; if (!/^0?9\d{8}$/.test(v.replace(/[-\s]/g,''))){ toast('請輸入正確的手機號碼'); $('#bPhone').focus(); return; } closeModal(); toast('訂閱成功，開賞消息將以簡訊通知'); },
     'bind-task': () => { const k = el.dataset.k, t = BIND_TASKS.find(x => x.k === k); if (!t) return;
@@ -482,7 +482,7 @@ document.addEventListener('click', e => {
       if (!rcv){ toast('請填寫收件人姓名'); $('#rcv').focus(); return; }
       if (!/^09\d{8}$/.test(ph)){ toast('請輸入正確的收件人手機'); $('#rcvP').focus(); return; }
       if (ad.length < (m === 'home' ? 6 : 2)){ toast(m === 'home' ? '請填寫完整收件地址' : '請填寫取貨門市'); $('#addr').focus(); return; }
-      const n = S.whSel.length, sh = {id:'SH-' + String(13 + S.shipments.length).padStart(4,'0'), user:'Chiaki 玩家', items:n, m, st:'申請', carrier:'', no:'', to:ad, at:twNow()};
+      const its = S.wh.filter(w => S.whSel.includes(w.id)), n = its.length, sh = {id:'SH-' + String(14 + S.shipments.length).padStart(4,'0'), user:'Chiaki 玩家', items:n, m, st:'申請', carrier:'', no:'', to:ad, at:twNow(), t:Date.now(), names:its.map(w => w.pname || w.name), bulky:typeof isBulky === 'function' && its.some(isBulky)};
       S.shipments.unshift(sh);
       S.wh.forEach(w => { if (S.whSel.includes(w.id)){ w.st = 'ship'; w.track = sh.id; w.ship = sh; } });
       S.whSel = []; closeModal(); render(true); toast(`已申請出貨 ${n} 件，出貨單 ${sh.id}`); },

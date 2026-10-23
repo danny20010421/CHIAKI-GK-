@@ -212,7 +212,7 @@ document.addEventListener('click', e => {
     'x-notest': () => toast(`已送出測試：${k}`),
     'x-ipmv': () => { const i = +k, j = i + +el.dataset.d; [S.ips[i], S.ips[j]] = [S.ips[j], S.ips[i]]; render(true); },
     'x-ipvis': () => { S.ips[+k].vis = !S.ips[+k].vis; render(true); },
-    'x-ipadd': () => { const n = 'NEW IP ' + (S.ips.length + 1); S.ips.push({n, cat:'動畫', vis:false}); toast('已新增，請設定名稱與分類'); render(true); },
+    'x-ipadd': () => { const n = 'NEW IP ' + (S.ips.length + 1); S.ips.push({n, al:'', vis:false}); S.ipQ = ''; render(true); const f = $('#ipn' + (S.ips.length - 1)); if (f){ f.focus(); f.select(); } toast('已新增（預設隱藏），請輸入名稱與分類'); },
     'x-unblock': () => { S.blocked.splice(+k, 1); toast('已解除封鎖'); render(true); },
     'x-invite': () => copyText(location.origin + location.pathname + '#/?ref=' + S.invite.code, '邀請連結已複製'),
     'x-ntwd': () => { const v = +el.dataset.v; S.refunds.unshift({id:'RF-00' + (S.refunds.length + 4), user:'Chiaki 玩家', kind:'twd', via:el.dataset.via, amt:v, st:'待審核', note:'會員申請台幣退款'}); closeModal(); toast('已送出台幣退款申請，審核後通知您'); }

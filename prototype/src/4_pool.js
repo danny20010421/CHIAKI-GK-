@@ -70,7 +70,7 @@ routes.pool = (r) => {
     <div class="pd">
       <div>
         <div style="position:relative">${art(p.hue, p.play==='guar'?'保':'A', 'main', p.title + ' 主視覺', p.img)}${p.imgNote?`<span class="tag warn" style="position:absolute;left:16px;top:16px;z-index:3">${p.imgNote}</span>`:''}</div>
-        <div class="thumbs">${p.prizes.slice(0,5).map(pr => art(p.hue, glyphOf(pr))).join('')}</div>
+        <div class="thumbs">${p.prizes.slice(0,5).map(pr => art(p.hue, glyphOf(pr), '', '', pr.img)).join('')}</div>
       </div>
       <div>
         <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -78,7 +78,7 @@ routes.pool = (r) => {
           ${live ? (left ? '<span class="tag ok">進行中</span>' : '<span class="tag">已完售</span>') : '<span class="tag info">即將登場</span>'}
         </div>
         <h1>${p.title}</h1>
-        ${p.sets.length > 1 ? `<div class="sets" role="group" aria-label="選擇套數">${p.sets.map((s,k) => { const l = s.tickets.filter(t=>!t.taken).length; return `<button class="setb ${l?'':'out'}" data-act="set" data-k="${k}" aria-pressed="${p.setIdx===k}"><b>第 ${k+1} 套</b><span>${l ? (l===s.total?'未開抽':'剩 '+l) : '已完售'}</span></button>`; }).join('')}</div>
+        ${p.sets.length > 1 ? `<div class="sets" role="group" aria-label="選擇套數">${p.sets.map((s,k) => { const l = s.tickets.filter(t=>!t.taken).length; return s.off ? `<button class="setb out" disabled><b>${s.name || `第 ${k+1} 套`}</b><span>已下架</span></button>` : `<button class="setb ${l?'':'out'}" data-act="set" data-k="${k}" aria-pressed="${p.setIdx===k}"><b>${s.name || `第 ${k+1} 套`}</b><span>${l ? (l===s.total?'未開抽':'剩 '+l) : '已完售'}</span></button>`; }).join('')}</div>
           <p class="dim" style="font-size:12px;margin:8px 0 16px">共 ${p.sets.length} 套，每套 ${p.total} 抽獨立計算；各套籤表與承諾雜湊分別公開。</p>` : ''}
         <div class="row" style="gap:8px;align-items:baseline">
           <span class="coin" style="width:28px;height:28px;font-size:14px;align-self:center">C</span>
@@ -87,7 +87,7 @@ routes.pool = (r) => {
         ${live ? `
         <div class="stats" style="margin-top:24px">
           <div class="stat"><span>剩餘抽數</span><b class="num">${left}<small>/ ${p.total}</small></b></div>
-          <div class="stat gold"><span>${p.src==='s'?'大獎・中獎剩餘':'大賞剩餘'}</span><b>${p.src==='s' ? `${tops.reduce((s,t)=>s+t.n,0)}<small>件</small>` : tops.map(t => `${RK[t.rk].label.replace('賞','')}<small>${t.n}</small>`).join(' ')}</b></div>
+          <div class="stat gold"><span>${p.src==='s'?'大獎・中獎剩餘':'大賞剩餘'}</span><b>${p.src==='s' ? `${tops.reduce((s,t)=>s+t.n,0)}<small>件</small>` : tops.map(t => `${(t.lvName || RK[t.rk].label).replace(/賞$/,'')}<small>${t.n}</small>`).join(' ')}</b></div>
           <div class="stat"><span>最後賞</span><b style="font-size:16px">${p.last ? (left ? '未出' : '已出') : '無'}</b></div>
         </div>
         <div class="meter ${pct<=20?'low':''}" style="margin-top:16px" role="img" aria-label="剩餘 ${Math.round(pct)}%"><i style="width:${pct}%"></i></div>
@@ -97,7 +97,7 @@ routes.pool = (r) => {
             <p class="muted" style="margin:0;font-size:12px">累計 ${g.every} 抽未獲得中獎以上獎品，第 ${g.every} 抽額外獲得「${g.name}」。保底專用庫存剩餘 <b class="num">${reserveLeft}</b> 件，用罄即停止保底並公告。</p>
           </div>` : ''}
         <div class="row" style="margin-top:24px;flex-wrap:wrap">
-          ${left ? `<button class="btn gold" data-act="scroll" data-to="board" style="flex:1;min-width:160px">${ic('ticket')}選籤抽賞</button>` : `<button class="btn" disabled style="flex:1;min-width:160px">${p.sets.length > 1 && p.sets.some(s => s.tickets.some(t => !t.taken)) ? '本套已完售，請選擇其他套' : '本賞池已完售'}</button>`}
+          ${left ? `<button class="btn gold" data-act="scroll" data-to="packs" style="flex:1;min-width:160px">${ic('ticket')}立即抽賞</button>` : `<button class="btn" disabled style="flex:1;min-width:160px">${p.sets.length > 1 && p.sets.some(s => s.tickets.some(t => !t.taken)) ? '本套已完售，請選擇其他套' : '本賞池已完售'}</button>`}
           <button class="btn" data-act="follow" data-ip="${p.ip}" aria-pressed="${S.follow.includes(p.ip)}">${ic('heart','width:18px;height:18px')}${S.follow.includes(p.ip)?'已追蹤':'追蹤 IP'}</button>
         </div>` : `
         <div class="panel" style="margin-top:24px"><div class="row between"><span class="muted">開賣倒數</span><div class="cd" data-cd="${p.soon}"></div></div>
@@ -114,7 +114,7 @@ routes.pool = (r) => {
         <details class="disclose">
           <summary><span class="row">${ic('lock','width:18px;height:18px;color:var(--gold-2)')}公平性與規則版本</span>${ic('down','width:16px;height:16px')}</summary>
           <div class="in"><dl>
-            <dt>抽取方式</dt><dd>固定獎品清單、無放回抽取；${p.last?'最後一籤額外獲得最後賞；':''}結果由伺服器原子確定</dd>
+            <dt>抽取方式</dt><dd>${p.play === 'prob' ? `機率賞：每抽獨立依公布機率決定等級（${p.levels.map((L,i) => L.odds ? `${L.name} ${(L.odds*100).toFixed(2)}%` : '').filter(Boolean).join('、')}），其餘依剩餘數量隨機；某等級抽完後，其機率併入其餘獎項。獎品數量有限、抽完即止；` : '固定獎品清單、無放回抽取；'}${p.last?'最後一籤額外獲得最後賞；':''}結果由伺服器原子確定</dd>
             <dt>規則版本</dt><dd>v1.0.3 ・ 2026-10-20 發布（發布後不可修改，異動須另開新版本並公告）</dd>
             <dt>事前承諾</dt><dd><span class="hash" id="hash">計算中…</span></dd>
             <dt>驗證方式</dt><dd>完售後公開完整籤表與 salt，任何人可重新計算 SHA-256 比對</dd>
@@ -135,29 +135,23 @@ routes.pool = (r) => {
     <section class="prizes" aria-labelledby="h-pz">
       <div class="sec-h"><h2 id="h-pz"><small>PRIZE LIST</small>獎項與即時機率</h2><span class="dim" style="font-size:12px">機率 = 該賞剩餘數 ÷ 總剩餘數，每抽即時更新</span></div>
       <table class="ptable">
-        <thead><tr><th>${p.src==='s'?'等級':'賞級'}</th><th>獎品</th><th class="r">剩餘 / 總數</th><th class="r">目前機率</th><th class="r hide-s">回收值</th></tr></thead>
+        <thead><tr><th>等級</th><th>獎品</th><th class="r">剩餘 / 總數</th><th class="r">目前機率</th><th class="r hide-s">回收值</th></tr></thead>
         <tbody>
-          ${p.prizes.map((pr,i) => { const n = remainOf(p,i); return `
-          <tr class="${n?'':'soldout'}">
-            <td>${tagOf(pr)}</td>
-            <td><div class="row" style="gap:12px">${art(p.hue, glyphOf(pr), 'pthumb')}<div class="pname">${pr.name}<small>${p.src==='m'?(pr.name.includes('官方')?'來源：官方正版':pr.name.includes('自製')?'來源：CHIAKI 自製':'來源：合作工坊'):(p.src==='o'?'全新未拆封・正版公仔':'CHIAKI 原創設計')}</small></div></div></td>
+          ${[...new Set(p.prizes.map(x => x.lv))].map(lv => { const its = p.prizes.map((pr,i) => ({pr,i})).filter(x => x.pr.lv === lv), ln = its.reduce((s,x) => s + remainOf(p,x.i), 0), lq = its.reduce((s,x) => s + x.pr.qty, 0);
+            return its.map(({pr,i}, k) => { const n = remainOf(p,i); return `
+          <tr class="${n?'':'soldout'} ${k === its.length - 1 ? 'lv-end' : ''}">
+            ${k === 0 ? `<td rowspan="${its.length}" class="lv-cell"><span class="lv-no">${lv}</span>${tagOf(pr)}${its.length > 1 ? `<small>${its.length} 種・剩 ${ln}/${lq}</small>` : ''}</td>` : ''}
+            <td><div class="row" style="gap:12px">${art(p.hue, glyphOf(pr), 'pthumb', '', pr.img)}<div class="pname">${pr.name}<small>${p.src==='m'?(pr.name.includes('官方')?'來源：官方正版':pr.name.includes('自製')?'來源：CHIAKI 自製':'來源：合作工坊'):(p.src==='o'?'全新未拆封・正版商品':'CHIAKI 原創設計')}</small></div></div></td>
             <td class="r"><b>${n}</b> / ${pr.qty}</td>
-            <td class="r">${live && left ? (n/totalLeft*100).toFixed(2) + '%' : '—'}</td>
+            <td class="r">${live && left ? probPct(p, i) : '—'}</td>
             <td class="r hide-s">${pr.rv ? fmt(pr.rv) + ' 點' : '<span class="dim">不可回收</span>'}</td>
-          </tr>`}).join('')}
-          ${p.last ? `<tr><td>${rankTag('LAST')}</td><td><div class="row" style="gap:12px">${art(p.hue,'L','pthumb')}<div class="pname">${p.last}<small>抽出本賞池最後一籤者獲得</small></div></div></td><td class="r"><b>${left?1:0}</b> / 1</td><td class="r dim">最後一籤</td><td class="r hide-s dim">不可回收</td></tr>` : ''}
+          </tr>`; }).join(''); }).join('')}
+          ${p.last ? `<tr><td class="lv-cell">${rankTag('LAST')}</td><td><div class="row" style="gap:12px">${art(p.hue,'L','pthumb')}<div class="pname">${p.last}<small>抽出本賞池最後一籤者獲得</small></div></div></td><td class="r"><b>${left?1:0}</b> / 1</td><td class="r dim">最後一籤</td><td class="r hide-s dim">不可回收</td></tr>` : ''}
         </tbody>
       </table>
     </section>
 
-    ${live && left ? `
-    <section class="board-wrap" id="board" aria-labelledby="h-bd">
-      <div class="sec-h"><h2 id="h-bd"><small>SELECT TICKETS</small>選擇籤號${p.sets.length>1?`<span class="muted" style="font-size:14px;font-weight:400;margin-left:8px">第 ${p.setIdx+1} 套</span>`:''}</h2>
-        <button class="btn s" data-act="fullboard">${ic('expand','width:16px;height:16px')}全螢幕選籤</button></div>
-      <div class="legend"><span><i style="background:#4b4643"></i>可選</span><span><i style="background:var(--gold-2)"></i>已選</span><span><i style="background:repeating-linear-gradient(135deg,#2a2a2e 0 3px,#232326 3px 6px);border:1px dashed var(--line-2)"></i>他人鎖籤中</span><span><i style="background:#1f2c30"></i>已抽出（顯示${p.src==='s'?'等級':'賞級'}）</span></div>
-      <div class="board" role="group" aria-label="籤號">${boardHTML(p)}</div>
-      <div class="buybar" id="buybar">${buybarHTML(p)}</div>
-    </section>` : ''}
+    ${live && left ? packsSection(p) : ''}
   </div>`;
 };
 routes.pool.after = (r) => {
@@ -166,7 +160,7 @@ routes.pool.after = (r) => {
 };
 
 /* --- selection + purchase --- */
-function curPool(){ const r = parseHash(); return r.name === 'pool' ? (poolById(r.arg) || POOLS[0]) : null; }
+function curPool(){ const r = parseHash(); return ['pool','quick'].includes(r.name) ? (poolById(r.arg) || POOLS[0]) : null; }
 function toggleTicket(no){
   const p = curPool(); if (!p) return;
   const i = S.sel.indexOf(no);
@@ -197,7 +191,7 @@ function buyDialog(){
   const hasLast = p.last && n >= remaining(p);
   openModal(`<h3 id="mdlT">確認抽賞</h3>
     <div class="sumrow"><span class="muted">賞池</span><b style="text-align:right;max-width:65%">${p.title}</b></div>
-    <div class="sumrow"><span class="muted">籤號</span><b style="text-align:right;max-width:65%">${S.sel.slice().sort((a,b)=>a-b).map(pad).join('、')}</b></div>
+    <div class="sumrow"><span class="muted">籤號</span><b style="text-align:right;max-width:65%">系統隨機配籤・付款後揭曉</b></div>
     <div class="sumrow"><span class="muted">單價 × 數量</span><b>${fmt(p.price)} × ${n}</b></div>
     ${hasLast ? `<div class="sumrow"><span class="muted">最後賞</span><b style="color:var(--gold-2)">${p.last}</b></div>` : ''}
     <div class="field" style="margin:16px 0 8px"><span style="font-size:13px;color:var(--tx-2)">配送方式${sq.locked?'（本套已設定）':''}</span>
@@ -226,19 +220,20 @@ function fullBoard(){
 /* server-side (simulated): atomically settle results */
 function settle(p, nos){
   const results = [];
+  if (p.play === 'prob'){ const used = new Set(); nos = nos.map(() => { const t = probPick(p, used); used.add(t.no); return t.no; }); }   // 機率賞：每抽依公布機率決定等級
   nos.sort((a,b)=>a-b).forEach(no => {
     const t = p.tickets[no-1];
     if (t.taken) return;            // race lost — in production the API rejects & refunds
     t.taken = true; t.by = 'me';
     const pr = p.prizes[t.pi];
-    results.push({no, rk:pr.rk, g:pr.g, custom:pr.custom, tier:pr.tier, rv:pr.rv, name:pr.name, pname:pr.name, hue:p.hue});
+    results.push({no, rk:pr.rk, g:pr.g, lv:pr.lv, lvName:pr.lvName, small:pr.small, tag:pr.tag, img:pr.img, custom:pr.custom, tier:pr.tier, rv:pr.rv, name:pr.name, pname:pr.name, hue:p.hue});
     if (p.guar){
       if (pr.tier >= p.guar.minTier) S.guar[p.id] = 0;
       else {
         S.guar[p.id] = (S.guar[p.id]||0) + 1;
         if (S.guar[p.id] >= p.guar.every && (p.reserveUsed||0) < p.guar.reserve){
           p.reserveUsed = (p.reserveUsed||0) + 1; S.guar[p.id] = 0;
-          results.push({no, g:p.guar.g, custom:p.src==='s', tier:GRADE[p.guar.g].tier, rv:p.guar.rv, name:p.guar.name, pname:p.guar.name, hue:p.hue, bonus:'保底獎勵'});
+          results.push({no, g:p.guar.g, lv:p.guar.lv || 2, lvName:p.guar.lvName || GRADE[p.guar.g].label, small:false, rk:'B', custom:p.src==='s', tier:GRADE[p.guar.g].tier, rv:p.guar.rv, name:p.guar.name, pname:p.guar.name, hue:p.hue, bonus:'保底獎勵'});
         }
       }
     }
@@ -258,7 +253,7 @@ function confirmBuy(){
     S.tx.unshift({t:`運費預收 ・ ${SHIP_M[sq.m]} ×${sq.add}（${p.title.split(' ～')[0]}${p.sets.length>1?' 第 '+(p.setIdx+1)+' 套':''}）`, d:twNow(), a:-sq.cost, ic:'truck'}); }
   const results = settle(p, nos);
   const today = twDate();
-  results.forEach((x,i) => S.wh.unshift({id:'n'+Date.now()+i, no:x.no, txn:null, pool:p.id, set:p.setIdx, rk:x.rk, g:x.g, custom:x.custom, rv:x.rv, pname:x.pname, name:x.custom ? x.name : `${p.ip} ${x.name}`, hue:p.hue, at:today, st:'stored'}));
+  results.forEach((x,i) => S.wh.unshift({id:'n'+Date.now()+i, no:x.no, txn:null, pool:p.id, set:p.setIdx, rk:x.rk, g:x.g, lv:x.lv, lvName:x.lvName, small:x.small, img:x.img, custom:x.custom, rv:x.rv, pname:x.pname, name:x.custom ? x.name : `${p.ip} ${x.name}`, hue:p.hue, at:today, st:'stored'}));
   S.tx.unshift({t:`抽賞 ・ ${p.title} ×${nos.length}`, d:twNow(), a:-(nos.length * p.price), ic:'ticket'});
   results.filter(x => x.tier >= 2).forEach(x => drawLog.unshift({u:'c***i', pool:p.ip, txt:labelOf(x)}));
   clearHold(); closeModal();
@@ -304,18 +299,21 @@ function kujiInner(r, opts = {}){
   const id = 'ki' + (++_kid);
   const t = r.tier != null ? r.tier : (r.rk ? RK[r.rk].tier : 0), foil = TIER[t].foil;
   const rainbow = foil === 'rainbow';
-  const letter = r.rk === 'LAST' ? 'LAST' : r.rk === 'P' ? '參加' : r.rk;
+  const lm = (r.lvName || '').match(/^([A-Z])賞$/), letter = r.rk === 'LAST' ? 'LAST' : r.rk === 'P' ? '參加' : lm ? lm[1] : r.rk;
   const lsize = r.rk === 'LAST' ? 46 : r.rk === 'P' ? 44 : 66;
   const fill = t >= 1 ? `url(#${id}g)` : '#f4f6f6';
   const stroke = rainbow ? `url(#${id}r)` : (t >= 1 ? foil : 'rgba(215,223,224,.75)');
   const named = r.custom && r.rk !== 'LAST';
-  const nm = named ? r.name : '', lines = nm.length > 11 ? [nm.slice(0, Math.ceil(nm.length/2)), nm.slice(Math.ceil(nm.length/2))] : [nm];
+  const nm = named ? r.name : '';
+  let cut = Math.ceil(nm.length / 2);   // break at the space nearest the middle so words stay whole
+  const sp = [...nm].map((c, i) => c === ' ' ? i : -1).filter(i => i > 0); if (sp.length) cut = sp.reduce((b, i) => Math.abs(i - nm.length / 2) < Math.abs(b - nm.length / 2) ? i : b, sp[0]);
+  const lines = nm.length > 11 ? [nm.slice(0, cut).trim(), nm.slice(cut).trim()] : [nm];
   const nsize = lines.length > 1 ? 19 : nm.length <= 5 ? 32 : nm.length <= 8 ? 24 : 20;
   const centre = named
     ? lines.map((l,k) => `<text x="150" y="${lines.length>1 ? 112 + k*28 : 124}" text-anchor="middle" font-family="Noto Serif TC,Noto Serif CJK TC,serif" font-weight="700" font-size="${nsize}" letter-spacing="1" fill="${fill}">${l}</text>`).join('')
     : `<text x="${r.rk==='LAST'||r.rk==='P'?140:142}" y="134" text-anchor="middle" font-family="Cormorant Garamond,Noto Serif TC,serif" font-weight="700" font-size="${lsize}" fill="${fill}">${letter}</text>
     <text x="${r.rk==='LAST'?200:r.rk==='P'?194:176}" y="134" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="700" font-size="20" fill="${fill}">賞</text>`;
-  const foot = named ? GRADE[r.g].label : opts.foot;
+  const foot = named ? lvLabel(r) : opts.foot;
   return `<svg viewBox="0 0 300 204" role="img" aria-label="${labelOf(r)}">
     <defs>
       <linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1">${rainbow
@@ -473,11 +471,11 @@ async function finishPeel(){
     else if (tier === 1) fx.burst('blue', 36, rc);
   }
   if (tier >= 3){ $('#cue').style.setProperty('--cue-c', CUE_C[tier]); $('#cue').textContent = r.custom && r.rk !== 'LAST' ? '大 獎' : [...labelOf(r)].join(' '); }
-  else $('#cue').innerHTML = `<small>${r.custom && r.rk !== 'LAST' ? GRADE[r.g].label : labelOf(r)}</small>`;
+  else $('#cue').innerHTML = `<small>${r.custom && r.rk !== 'LAST' ? lvLabel(r) : labelOf(r)}</small>`;
   await sleep(RM() ? 0 : 450);
   if (!$('#stage') || $('#sum.show')) return;
   const res = $('#res');
-  res.innerHTML = `${art(r.hue, glyphOf(r))}<div class="t">${tagOf(r, true)}<b>${r.name}</b><span>${r.bonus?r.bonus+' ・ ':''}已存入中獎倉庫</span></div>`;
+  res.innerHTML = `${art(r.hue, glyphOf(r), '', '', r.img)}<div class="t">${tagOf(r, true)}<b>${r.name}</b><span>${r.bonus?r.bonus+' ・ ':''}${D.demo ? '免費體驗・不發放' : '已存入中獎倉庫'}</span></div>`;
   res.classList.add('show');
   D.i++;
   const more = D.i < D.results.length;
@@ -496,6 +494,11 @@ function showSummary(){
   const sorted = D.results.slice().sort((a,b) => b.tier - a.tier);
   const hi = sorted.filter(x => x.tier >= 2).length;
   const s = $('#sum');
+  if (D.demo){ s.innerHTML = `<h2>體驗結果</h2><div class="sub">共 ${D.results.length} 件${hi?`，其中 <b style="color:var(--gold-2)">${hi}</b> 件為中獎以上`:''} ・ 免費體驗，獎品不會發放、也不扣代幣</div>
+    <div class="sgrid">${sorted.map((x,i) => `<div class="sitem ${x.tier>=3?'hi':''}" style="animation-delay:${i*60}ms"><div class="mini">${kujiInner(x, {sub:'體驗 No.'+pad(x.no), foot:x.name})}</div>
+      ${tagOf(x, true)}<b>${x.name}</b><span>體驗模式</span></div>`).join('')}</div>
+    <div class="acts"><button class="btn" data-act="close-stage">再玩一次</button><a class="btn gold" href="${p.demoOnly ? '#/lobby' : '#/quick/' + p.id}" data-act="close-stage">${ic('ticket')}${p.demoOnly ? '去抽賞大廳' : '真的去抽'}</a></div>`; }
+  else {
   s.innerHTML = `<h2>抽賞結果</h2><div class="sub">共 ${D.results.length} 件獎品${hi?`，其中 <b style="color:var(--gold-2)">${hi}</b> 件為中獎以上`:''} ・ 已全數存入中獎倉庫</div>
     <div class="stub">
       <div class="hd"><b>客戶留存用</b><span class="brand" style="font-size:16px;color:#e9eeef">CHIAKI</span></div>
@@ -506,13 +509,14 @@ function showSummary(){
     <div class="sgrid">${sorted.map((x,i) => `<div class="sitem ${x.tier>=3?'hi':''}" style="animation-delay:${i*60}ms"><div class="mini">${kujiInner(x, {sub:'No.'+pad(x.no), foot:x.name})}</div>
       ${tagOf(x, true)}<b>${x.name}</b><span>${x.bonus?x.bonus+' ・ ':''}No.${pad(x.no)}</span></div>`).join('')}</div>
     <div class="acts"><button class="btn" data-act="close-stage">再抽一次</button><a class="btn gold" href="#/warehouse" data-act="close-stage">${ic('box')}前往中獎倉庫</a></div>`;
+  }
   s.classList.add('show');
   $('#sbtm').innerHTML = '';
   setTimeout(() => { const b = $('.acts .btn', s); b && b.focus(); }, 60);
 }
 function closeStage(){
   fx.stop(); $('#stageRoot').innerHTML = ''; document.documentElement.style.overflow = ''; D = null;
-  if (parseHash().name === 'pool') render(true);
+  if (['pool','quick','play'].includes(parseHash().name)) render(true);
 }
 
 /* particles: seam sparks + reveal bursts */
