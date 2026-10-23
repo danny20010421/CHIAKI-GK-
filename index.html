@@ -1109,6 +1109,8 @@ a.vip:hover{background:rgba(201,164,92,.08)}
 .bd-log ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto}
 .bd-log li{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:12px}
 .bd-log .bd-items{display:flex;flex-wrap:wrap;gap:4px}
+.bd-bgm{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px}
+.bd-bgm svg{flex:none;display:block}
 </style>
 </head>
 <body>
@@ -4565,13 +4567,13 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 /* =========================================================
    限定賞池：漩漩生日一番賞（輸入通關密碼才看得到）
    每輪 3 抽・3 抽保底一個獎品（最大獎權重較低）・抽到「再來兩抽」本輪 +2 抽
-   每輪結束後需等 30 秒・獎項皆不可回收・抽獎紀錄保留
+   每輪結束後需等 10 秒・每輪抽完恢復原配率・獎項皆不可回收・抽獎紀錄保留
    ========================================================= */
 PLAY.bday = '生日限定';
 const _probPctB = probPct; probPct = (p, i) => p.play === 'bday' ? '依規則' : _probPctB(p, i);
 (() => { const I = k => DEMO_IMG(k);
   const B = {id:'bday', title:'漩漩生日一番賞', ip:'CHIAKI 限定', src:'s', play:'bday', price:0, hue:330, seed:1126, drawn:0, locked:true, isNew:true, img:I('bdcover'),
-    desc:'每輪 3 抽，3 抽保底一個獎品；抽到「再來兩抽」本輪再抽 2 次。每輪結束後需等待 30 秒才能再玩。獎項皆不提供回收，抽中紀錄會保留。',
+    desc:'每輪 3 抽，有機會中多個獎品，每輪保底一個獎品；抽到「再來兩抽」本輪再多抽 2 次。每輪結束後需等待 10 秒才能再玩，每次抽完都會恢復原配率。獎項皆不提供回收，抽中紀錄會保留。',
     ship:{home:0, cvs:0}, packs:[3],
     levels:[
       {name:'最大獎', items:[{n:'黃金（8000 元抵用券）', q:1, img:I('bdgold'), tag:'其他'}]},
@@ -4645,7 +4647,7 @@ if (_playB.after) routes.play.after = _playB.after;
 S.bdLog = (() => { try { return JSON.parse(localStorage.getItem('ck_bdlog') || '[]'); } catch(_){ return []; } })();
 const bdSave = () => { try { localStorage.setItem('ck_bdlog', JSON.stringify(S.bdLog.slice(0, 200))); } catch(_){} };
 S.bdCd = 0;
-const BD_CD = 30;
+const BD_CD = 10;
 const bdLeft = () => Math.max(0, Math.ceil((S.bdCd - Date.now()) / 1000));
 const _poolB = routes.pool, _poolBA = routes.pool.after;
 routes.pool = r => { const p = poolById(r.arg);
@@ -4660,12 +4662,49 @@ routes.pool = r => { const p = poolById(r.arg);
 routes.pool.after = r => { if (_poolBA) _poolBA(r); const p = poolById(r.arg); if (!p || p.play !== 'bday') return;
   const tick = () => { const b = $('#bdGo'); if (!b) return; const s = bdLeft(), left = remaining(p);
     b.disabled = !!s || !left; b.innerHTML = !left ? '已全部抽完' : s ? `${ic('clock','width:18px;height:18px')}${s} 秒後可再抽` : `${ic('ticket','width:18px;height:18px')}抽 3 抽（免費）`; };
-  tick(); const iv = setInterval(tick, 500); cleanup.push(() => clearInterval(iv)); };
+  tick(); const iv = setInterval(tick, 500); cleanup.push(() => clearInterval(iv)); BGM.ui(); };
+
+/* ---------- 背景音樂：生日快樂歌（旋律為公有領域，Web Audio 即時合成，不需音檔） ---------- */
+const BGM = {
+  on: (() => { try { return localStorage.getItem('ck_bdbgm') !== '0'; } catch(_){ return true; } })(),
+  ctx: null, bus: null, tm: 0, playing: false,
+  /* 3/4 拍，數字為拍數；F = 頻率 */
+  seq: [['G4',.75],['G4',.25],['A4',1],['G4',1],['C5',1],['B4',2],['G4',.75],['G4',.25],['A4',1],['G4',1],['D5',1],['C5',2],
+        ['G4',.75],['G4',.25],['G5',1],['E5',1],['C5',1],['B4',1],['A4',1],['F5',.75],['F5',.25],['E5',1],['C5',1],['D5',1],['C5',3]],
+  bass: [['C3',3],['G2',3],['G2',3],['C3',3],['C3',3],['F2',3],['C3',2],['G2',1],['C3',3]],
+  F: n => { const m = {C:0,D:2,E:4,F:5,G:7,A:9,B:11}[n[0]], o = +n.slice(-1); return 440 * Math.pow(2, (m + (o - 4) * 12 - 9) / 12); },
+  note(t, f, d, g, type){ const c = this.ctx, o = c.createOscillator(), o2 = c.createOscillator(), v = c.createGain();
+    o.type = type || 'sine'; o.frequency.value = f; o2.type = 'triangle'; o2.frequency.value = f * 2;
+    const v2 = c.createGain(); v2.gain.value = .18; o2.connect(v2).connect(v); o.connect(v); v.connect(this.loop);
+    v.gain.setValueAtTime(0, t); v.gain.linearRampToValueAtTime(g, t + .015); v.gain.exponentialRampToValueAtTime(.0008, t + Math.max(.35, d * 1.1));
+    o.start(t); o2.start(t); o.stop(t + d * 1.2 + .4); o2.stop(t + d * 1.2 + .4); },
+  schedule(){ const c = this.ctx, beat = 60 / 104, t0 = c.currentTime + .08;
+    this.loop = c.createGain(); this.loop.connect(this.bus);
+    let t = t0; this.seq.forEach(([n, b]) => { this.note(t, this.F(n), b * beat, .32); t += b * beat; });
+    let tb = t0 + beat; this.bass.forEach(([n, b]) => { this.note(tb, this.F(n), b * beat * .9, .16, 'sine'); tb += b * beat; });
+    const len = (t - t0) + beat * 2;   // 段落之間留 2 拍
+    clearTimeout(this.tm); this.tm = setTimeout(() => { if (this.playing) this.schedule(); }, Math.max(200, (len - .3) * 1000)); },
+  start(){ if (!this.on || this.playing) return; try {
+      if (!this.ctx){ const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; this.ctx = new AC(); this.bus = this.ctx.createGain(); this.bus.gain.value = .5; this.bus.connect(this.ctx.destination); }
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      this.playing = true; this.bus.gain.cancelScheduledValues(this.ctx.currentTime); this.bus.gain.setValueAtTime(.5, this.ctx.currentTime); this.schedule(); this.ui(); } catch(_){} },
+  stop(){ if (!this.playing) return; this.playing = false; clearTimeout(this.tm);
+    try { const c = this.ctx, g = this.bus.gain; g.cancelScheduledValues(c.currentTime); g.setValueAtTime(g.value, c.currentTime); g.linearRampToValueAtTime(0, c.currentTime + .25);
+      const old = this.loop; setTimeout(() => { try { old.disconnect(); } catch(_){} }, 300); } catch(_){} this.ui(); },
+  toggle(){ this.on = !this.on; try { localStorage.setItem('ck_bdbgm', this.on ? '1' : '0'); } catch(_){} if (this.on) this.start(); else this.stop(); this.ui(); },
+  ui(){ const b = $('#bdBgm'); if (!b) return; b.setAttribute('aria-pressed', this.on); b.innerHTML = `${ic(this.on ? 'sound' : 'mute','width:16px;height:16px')}<span>${this.on ? '生日快樂歌' : '音樂已關閉'}</span>`; }
+};
+const onBday = () => { const r = parseHash(); return r.name === 'pool' && r.arg === 'bday'; };
+/* 瀏覽器規定要先有使用者操作才能出聲：在生日賞池頁第一次點擊／觸控時開始播放 */
+document.addEventListener('pointerdown', e => { if (onBday() && BGM.on && !BGM.playing && !e.target.closest('[data-act="bd-bgm"]')) BGM.start(); }, true);
+document.addEventListener('click', e => { const el = e.target.closest('[data-act="bd-bgm"]'); if (!el) return; e.preventDefault(); BGM.toggle(); });
+addEventListener('hashchange', () => { if (!onBday()) BGM.stop(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) BGM.stop(); else if (onBday() && BGM.on && BGM.ctx) BGM.start(); });
 const _packsB = packsSection;
 packsSection = function(p){ if (p.play !== 'bday') return _packsB(p);
-  return `<section class="packs-wrap" id="packs" aria-labelledby="h-pk" tabindex="-1"><div class="sec-h"><h2 id="h-pk"><small>DRAW</small>開始抽獎<span class="muted" style="font-size:14px;font-weight:400;margin-left:8px">剩 ${remaining(p)} 籤</span></h2></div>
+  return `<section class="packs-wrap" id="packs" aria-labelledby="h-pk" tabindex="-1"><div class="sec-h"><h2 id="h-pk"><small>DRAW</small>開始抽獎<span class="muted" style="font-size:14px;font-weight:400;margin-left:8px">共 ${p.total} 籤・每輪恢復原配率</span></h2><button type="button" class="btn s ghost bd-bgm" id="bdBgm" data-act="bd-bgm" aria-pressed="${BGM.on}">${ic(BGM.on ? 'sound' : 'mute','width:16px;height:16px')}<span>${BGM.on ? '生日快樂歌' : '音樂已關閉'}</span></button></div>
     <button class="btn gold block bd-go" id="bdGo" type="button" data-act="bd-go">${ic('ticket','width:18px;height:18px')}抽 3 抽（免費）</button>
-    <ul class="bd-rules"><li>每輪 3 抽，3 抽保底一個獎品（最大獎的機率比其他獎品低）。</li><li>抽到「再來兩抽」，本輪再多抽 2 次。</li><li>每輪結束後需等待 ${BD_CD} 秒才能再玩。</li><li>獎項皆不提供回收；抽中的獎品會記錄在下方「我的抽獎紀錄」。</li></ul></section>`; };
+    <ul class="bd-rules"><li>每輪 3 抽，有機會中多個獎品，每輪保底一個獎品。</li><li>抽到「再來兩抽」，本輪再多抽 2 次。</li><li>每輪結束後需等待 ${BD_CD} 秒才能再玩。</li><li>每次抽完都會恢復原配率。</li><li>獎項皆不提供回收；抽中的獎品會記錄在下方「我的抽獎紀錄」。</li></ul></section>`; };
 
 /* 一輪：前 2 抽隨機（最大獎權重 0.35），第 3 抽若前面都沒中獎則只從獎品中抽；再來兩抽 → 追加 2 抽 */
 const BD_W_TOP = .35;
@@ -4682,10 +4721,11 @@ function bdRound(p){
   return out; }
 document.addEventListener('click', e => { const el = e.target.closest('[data-act="bd-go"]'); if (!el || el.disabled) return; const p = curPool(); if (!p || p.play !== 'bday') return;
   if (bdLeft()) return toast(`請再等 ${bdLeft()} 秒`); if (!remaining(p)) return toast('已全部抽完');
-  const res = bdRound(p); if (!res.length) return;
+  const snap = p.tickets.map(t => t.taken), res = bdRound(p); p.tickets.forEach((t, i) => { t.taken = snap[i]; if (!snap[i]) delete t.by; });   // 每輪抽完恢復原配率
+  if (!res.length) return;
   S.bdLog.unshift({at:twNow(), items:res.map(x => x.name)}); bdSave();
   S.audit.unshift({t:'剛剛', who:'Chiaki 玩家', a:`漩漩生日一番賞：${res.filter(x => x.lv < 6).map(x => x.name).join('、') || '未中獎'}`});
-  S.bdCd = Date.now() + 864e5;   // 演出期間先鎖住，結束後才開始 30 秒倒數
+  S.bdCd = Date.now() + 864e5;   // 演出期間先鎖住，結束後才開始 10 秒倒數
   runDraw(p, res); });
 const _closeStageB = closeStage;
 closeStage = function(){ const was = D && D.p && D.p.play === 'bday'; if (was) S.bdCd = Date.now() + BD_CD * 1000; _closeStageB(); };
