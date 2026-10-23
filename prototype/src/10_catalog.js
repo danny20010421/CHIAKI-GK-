@@ -35,6 +35,14 @@
       {name:'5 獎', items:[{n:'火影同人貼紙', q:9498, rv:10, tag:'其他', ship:'c711', img:DEMO_IMG('nrsticker')},
                          {n:'隨機一番賞小獎', q:10000, rv:100, tag:'一番賞', ship:'c711', img:DEMO_IMG('nrmystery')}]}], last:null};
   buildPool(N); POOLS.splice(1, 0, N); })();
+/* 抽賞大廳：新手免費體驗池（不扣 CC幣、獎品不發放），固定排在最前面 */
+function demoCard(p){
+  return poolCard(p).replace(`href="#/pool/${p.id}"`, 'href="#/play" aria-label="免費體驗：' + p.title + '"')
+    .replace(/<span class="status tag[^"]*">[^<]*<\/span>/, '').replace('<div class="badges">', '<span class="status tag ok">新手體驗</span><div class="badges">')
+    .replace(/<div class="price">[\s\S]*?<\/div>/, '<div class="price free">免費<small>不扣 CC幣</small></div>')
+    .replace(/<div class="top[^"]*">[\s\S]*?<\/div>/, `<div class="top">${ic('gift','width:14px;height:14px')}100% 中獎・體驗用，獎品不發放</div>`)
+    .replace(/<div class="meter[\s\S]*?<\/div>\s*<div class="meta">[\s\S]*?<\/div>/, '<div class="meta"><span>每天都能玩，熟悉撕籤流程</span></div>');
+}
 /* 機率賞：先依公布機率決定等級（該級有剩才算），其餘依剩餘數量隨機 */
 function probPick(p, used){
   const free = p.tickets.filter(t => !t.taken && !(used && used.has(t.no))), r = Math.random(); let acc = 0;
@@ -109,6 +117,7 @@ routes.lobby = (r) => {
   const q = r.q, ip = q.get('ip') || '', tg = q.get('tag') || '', sort = q.get('sort') || 'hot', sf = q.get('src') || '', pf = q.get('play') || '', kw = (q.get('q') || '').trim(), kwl = kw.toLowerCase();
   const base = POOLS.filter(p => !p.off && !p.demoOnly && ipShownN(p.ip) && poolMatches(p, kwl));
   let list = base.filter(p => (!ip || p.ip === ip) && (!tg || poolTags(p).includes(tg)) && (!sf || p.src === sf) && (!pf || p.play === pf));
+  const demo = POOLS.find(p => p.demoOnly && !p.off), showDemo = !!demo && !ip && !tg && !sf && !pf && (!kw || poolMatches(demo, kwl));
   const key = p => p.soon ? 9 : 0;
   if (sort === 'left') list.sort((a,b) => key(a)-key(b) || remaining(a)/a.total - remaining(b)/b.total);
   else if (sort === 'new') list.sort((a,b) => key(a)-key(b) || (b.isNew?1:0)-(a.isNew?1:0));
@@ -133,14 +142,14 @@ routes.lobby = (r) => {
         <form class="lsearch" data-act="search" role="search"><label class="sr" for="lq">搜尋賞池</label>${ic('search','width:18px;height:18px')}<input class="input" id="lq" name="q" type="search" value="${kw.replace(/"/g,'&quot;')}" placeholder="作品、角色、英文名或標籤，例如：海賊王、GK" autocomplete="off"><button class="btn s gold" type="submit">搜尋</button></form>
         ${hits.length ? `<div class="iphits"><span class="dim">相關作品</span>${hits.map(x => `<a class="chip" href="#/lobby?ip=${encodeURIComponent(x.n)}">${x.n}<span class="cn">${poolsOfIp(x.n).length}</span></a>`).join('')}</div>` : ''}
         <div class="toolbar">
-          <span class="count">共 <b class="num">${list.length}</b> 個賞池${kw?`・「${kw}」`:''}${tg?`・${tg}`:''}${ip?`・${ip}`:''}${sf?`・${SRC[sf].t} <a href="${link('src','')}">清除</a>`:''}${pf?`・${PLAY[pf]} <a href="${link('play','')}">清除</a>`:''}</span>
+          <span class="count">共 <b class="num">${list.length + (showDemo ? 1 : 0)}</b> 個賞池${kw?`・「${kw}」`:''}${tg?`・${tg}`:''}${ip?`・${ip}`:''}${sf?`・${SRC[sf].t} <a href="${link('src','')}">清除</a>`:''}${pf?`・${PLAY[pf]} <a href="${link('play','')}">清除</a>`:''}</span>
           <button class="btn s ffilter-btn" data-act="toggle-filter" aria-controls="filters" aria-expanded="${!!S.filterOpen}">${ic('filter','width:16px;height:16px')}篩選${tg || ip ? `<span class="cn">${[tg, ip].filter(Boolean).length}</span>` : ''}</button>
           <label class="sr" for="sortSel">排序</label>
           <select class="input" id="sortSel" data-act="sort">
             ${[['hot','熱門優先'],['left','即將完售'],['new','最新上架'],['pl','價格低→高'],['ph','價格高→低']].map(([v,t]) => `<option value="${v}" ${sort===v?'selected':''}>${t}</option>`).join('')}
           </select>
         </div>
-        ${list.length ? `<div class="grid lgrid">${list.map(poolCard).join('')}</div>`
+        ${list.length || showDemo ? `<div class="grid lgrid">${showDemo ? demoCard(demo) : ''}${list.map(poolCard).join('')}</div>`
           : ip ? `<div class="empty">「${ip}」目前沒有進行中的賞池。<br><br><button class="btn gold" data-act="follow" data-ip="${ip}" aria-pressed="${S.follow.includes(ip)}">${ic('heart','width:18px;height:18px')}${S.follow.includes(ip) ? '已追蹤，上新會通知你' : '追蹤這個 IP，上新通知我'}</button></div>`
           : `<div class="empty">沒有符合條件的賞池，試試放寬篩選。</div>`}
       </div>
