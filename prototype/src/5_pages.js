@@ -1,4 +1,6 @@
 <script>
+/* coupons the member actually holds (codes from 行銷管理, still enabled) */
+const myCoupons = () => { S.myCoupons = S.myCoupons || ['WELCOME90']; return S.myCoupons.map(c => (S.coupons || []).find(x => x.code === c && x.on)).filter(Boolean); };
 /* =========================================================
    WAREHOUSE (我的收藏)
    ========================================================= */
@@ -15,7 +17,7 @@ routes.warehouse = () => {
         ${S.whTab==='stored' ? `<input type="checkbox" data-act="whsel" data-id="${w.id}" ${S.whSel.includes(w.id)?'checked':''} aria-label="選取 ${w.name}">` : ''}
         ${art(w.hue, glyphOf(w))}
         <div class="i"><b>${w.name}</b><span>${w.st==='stored' ? (() => { const x = daysLeft(w.at); return `保管至 ${x.end} ・ 回收值 ${w.rv ? fmt(w.rv)+' 點' : '不可回收'}`; })() : w.at + ' 入庫' + (w.track ? ' ・ ' + w.track : '')}</span>${w.st==='ship' && w.ship ? trackHTML(w.ship) : ''}
-          <div class="row" style="gap:8px">${tagOf(w)}${w.st==='stored' ? (() => { const x = daysLeft(w.at); return x.d <= 0 ? '<span class="tag bad">今日到期</span>' : x.d <= 7 ? `<span class="tag warn">${x.d} 天後到期</span>` : ''; })() : w.st==='ship'?'<span class="tag info">運送中</span>':w.st==='done'?'<span class="tag ok">已簽收</span>':w.st==='recycled'?'<span class="tag">已轉點數</span>':''}</div></div>
+          <div class="row" style="gap:8px">${tagOf(w)}${w.st==='stored' ? (() => { const x = daysLeft(w.at); return x.d <= 0 ? '<span class="tag bad">今日到期</span>' : x.d <= 7 ? `<span class="tag warn">${x.d} 天後到期</span>` : ''; })() : w.st==='ship'?(w.ship && ['已出貨','已送達'].includes(w.ship.st) ? '<span class="tag info">運送中</span>' : '<span class="tag warn">揀貨中</span>'):w.st==='done'?'<span class="tag ok">已簽收</span>':w.st==='recycled'?'<span class="tag">已轉點數</span>':''}</div></div>
       </label>`).join('')}</div>` : `<div class="empty">${S.whTab==='stored'?'倉庫目前是空的，去抽一抽吧！<br><br><a class="btn gold" href="#/lobby">前往抽賞大廳</a>':'沒有紀錄'}</div>`}
     ${S.whTab==='stored' && list.length ? `<div class="actbar"><span class="t">已選 <b class="num">${n}</b> 件</span>
       <button class="btn" data-act="recycle" ${n?'':'disabled'}>${ic('recycle','width:18px;height:18px')}回收換點數</button>
@@ -27,11 +29,12 @@ function shipDialog(){
   openModal(`<h3 id="mdlT">申請出貨（合併 ${n} 件）</h3>
     <div class="field" style="margin-bottom:16px"><span style="font-size:13px;color:var(--tx-2)">配送方式</span>
       <div class="pays" role="radiogroup" aria-label="配送方式" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-        ${[['home','宅配到府','truck'],['c711','7-ELEVEN 交貨便','store'],['fami','全家 店到店','store']].map(([k,t,i],x) =>
-          `<button class="pay" role="radio" data-act="shipm" data-k="${k}" aria-pressed="${x===0}" aria-checked="${x===0}">${ic(i,'width:18px;height:18px')}${t}</button>`).join('')}
+        ${[['home','宅配到府','truck'],['c711','7-11 交貨便','store'],['fami','全家店到店','store']].map(([k,t,i],x) =>
+          `<button class="pay" role="radio" data-act="shipm" data-k="${k}" aria-pressed="${k===(S.shipM||'home')}" aria-checked="${k===(S.shipM||'home')}">${ic(i,'width:18px;height:18px')}<span class="pl">${t}</span></button>`).join('')}
       </div></div>
-    <div class="field" style="margin-bottom:16px"><label for="rcv">收件人</label><input class="input" id="rcv" value="陳○○" autocomplete="name"></div>
-    <div class="field" style="margin-bottom:16px"><label for="addr" id="addrL">收件地址</label><input class="input" id="addr" placeholder="縣市／區／路段門牌" autocomplete="street-address"></div>
+    <div class="field" style="margin-bottom:16px"><label for="rcvP">收件人手機</label><input class="input" id="rcvP" inputmode="tel" autocomplete="tel" placeholder="09xx-xxx-xxx"></div>
+    <div class="field" style="margin-bottom:16px"><label for="rcv">收件人</label><input class="input" id="rcv" autocomplete="name" placeholder="真實姓名（取件需核對證件）"></div>
+    <div class="field" style="margin-bottom:16px"><label for="addr" id="addrL">${(S.shipM||'home')==='home'?'收件地址':'取貨門市'}</label><input class="input" id="addr" placeholder="${(S.shipM||'home')==='home'?'縣市／區／路段門牌':'門市名稱或店號'}" autocomplete="street-address"></div>
     <div class="sumrow" style="border-bottom:0"><span class="muted">運費</span><b>已於抽賞時預收・本次免付</b></div>
     <p class="dim" style="font-size:12px">配送方式以抽賞時預收運費之方式為準，如需變更請聯繫客服。材積超過超商限制之商品將改以宅配寄送；出貨後可於「出貨中」查看物流追蹤。</p>
     <button class="btn gold block" data-act="ship-ok">確認出貨</button>`);
@@ -74,7 +77,7 @@ routes.wallet = () => `<div class="wrap">
   <div class="wal-top">
     <div class="balance main"><span>儲值代幣</span><b><span class="coin" style="width:32px;height:32px;font-size:16px">C</span><span class="num">${fmt(S.coins)}</span></b><small>可退款 ${fmt(S.coins - S.coinsNR)} ・ 不可退款 ${fmt(S.coinsNR)}${S.coinsNR ? ' ' + nrTag : ''}</small></div>
     <div class="balance"><span>平台點數</span><b class="num">${fmt(S.points)}</b><small>活動與回收取得 ・ 站內折抵，不可提領</small></div>
-    <div class="balance"><span>可用優惠券</span><b class="num">3</b><small><a href="#/me">查看優惠券</a></small></div>
+    <div class="balance"><span>可用優惠券</span><b class="num">${myCoupons().length}</b><small><a href="#/me">查看優惠券</a></small></div>
   </div>
   <div class="layout2" style="margin-top:32px">
     <div class="panel">
@@ -90,8 +93,8 @@ routes.wallet = () => `<div class="wrap">
       <p class="dim" style="font-size:12px;margin:12px 0 0">付款由綠界科技 ECPay 處理，本平台不儲存任何信用卡資料。</p>
     </div>
     <div class="panel">
-      <h3>交易紀錄 <a href="#/me" style="font-size:13px;font-weight:400">全部</a></h3>
-      <div class="txl">${S.tx.slice(0,8).map(x => `<div class="tx"><span class="ic">${ic(x.ic)}</span><div class="d"><b>${x.t}</b><span>${x.d}</span></div><span class="a ${x.a>0?'p':''}">${x.a>0?'+':''}${fmt(x.a)}${x.pt?' 點':''}${x.nr?'<br><span class="tag warn" style="height:20px;font-size:11px">不可退款</span>':''}</span></div>`).join('')}</div>
+      <h3 class="row between">交易紀錄 ${S.tx.length > 8 ? `<button class="btn s ghost" data-act="txall" aria-expanded="${!!S.txAll}">${S.txAll ? '收合' : `全部 ${S.tx.length} 筆`}</button>` : ''}</h3>
+      <div class="txl">${S.tx.slice(0, S.txAll ? S.tx.length : 8).map(x => `<div class="tx"><span class="ic">${ic(x.ic)}</span><div class="d"><b>${x.t}</b><span>${x.d}</span></div><span class="a ${x.a>0?'p':''}">${x.a>0?'+':''}${fmt(x.a)}${x.pt?' 點':''}${x.nr?'<br><span class="tag warn" style="height:20px;font-size:11px">不可退款</span>':''}</span></div>`).join('')}</div>
       <button class="btn block ghost" style="margin-top:16px" data-act="refund">${ic('doc','width:18px;height:18px')}申請未使用代幣退款</button>
     </div>
   </div></div>`;
@@ -119,7 +122,7 @@ routes.me = () => {
     <div style="display:grid;gap:24px">
       <div class="panel" id="me-draws"><h3>抽賞紀錄 <span class="dim" style="font-size:12px;font-weight:400">保留最近 3 個月</span></h3>
         <div class="tbl-wrap" style="border:0;background:none"><table class="tbl" style="min-width:520px"><thead><tr><th>時間</th><th>賞池</th><th>籤號</th><th>結果</th></tr></thead><tbody>
-          ${S.wh.filter(w => (new Date() - new Date(w.at)) / 864e5 <= 90).slice(0,8).map((w,i) => `<tr><td class="dim">${w.at}</td><td>${(poolById(w.pool)||{}).ip||'-'}</td><td class="num">No.${pad(7+i*9)}</td><td>${tagOf(w,true)}</td></tr>`).join('')}
+          ${S.wh.filter(w => (new Date() - new Date(w.at)) / 864e5 <= 90).slice(0,8).map((w,i) => `<tr><td class="dim">${w.at}</td><td>${(poolById(w.pool)||{}).ip||'-'}</td><td class="num">${w.no ? 'No.' + pad(w.no) : '—'}</td><td>${tagOf(w,true)}</td></tr>`).join('')}
         </tbody></table></div><p class="dim" style="font-size:12px;margin:12px 0 0">抽賞紀錄僅保留最近 3 個月，超過者自最舊一筆起自動移除。</p></div>
       <div class="panel" id="me-notify"><h3>通知</h3>
         ${S.notifs.map(n => `<div class="tx"><span class="ic">${ic(n.ic)}</span><div class="d"><b style="font-weight:400">${n.t}</b><span>${n.d}</span></div></div>`).join('')}
@@ -139,11 +142,11 @@ routes.me = () => {
         <p class="dim" style="font-size:12px;margin:12px 0 0">LINE 官方帳號綁定完成後自動發放；IG／FB 追蹤獎勵經客服確認後於 3 個工作天內發放。</p></div>
       <div class="panel" id="me-invite"><h3>邀請好友</h3>
         <div class="invite"><code>${S.invite.code}</code><button class="btn" data-act="x-invite">${ic('copy','width:18px;height:18px')}複製連結</button></div>
-        <div class="row between" style="margin:16px 0 8px;font-size:13px"><span>已成功邀請 <b class="num">${S.invite.ok}</b> / ${S.invite.goal} 人</span><b style="color:var(--gold-2)">贈 ${fmt(S.invite.reward)} 平台代幣</b></div>
-        <div class="meter"><i style="width:${S.invite.ok/S.invite.goal*100}%"></i></div>
+        <div class="row between" style="margin:16px 0 8px;font-size:13px"><span>已成功邀請 <b class="num">${S.invite.ok}</b> / ${S.cfg.inviteGoal || S.invite.goal} 人</span><b style="color:var(--gold-2)">贈 ${fmt(S.cfg.inviteReward != null ? S.cfg.inviteReward : S.invite.reward)} 平台代幣</b></div>
+        <div class="meter"><i style="width:${Math.min(100, S.invite.ok/(S.cfg.inviteGoal || S.invite.goal)*100)}%"></i></div>
         <p class="dim" style="font-size:12px;margin:12px 0 0">好友需完成註冊與手機驗證才計入；贈送之平台代幣為不可退款代幣，如有疑問請聯絡官方小編。</p></div>
       <div class="panel" id="me-coupon"><h3>優惠券</h3>
-        <div class="coupon"><div class="l"><b>9 折</b><span>抽賞</span></div><div class="r"><b>新會員首抽折扣</b><span>2026-11-30 到期 ・ 限單筆 1,000 幣以上</span></div></div></div>
+        ${myCoupons().map(c => `<div class="coupon"><div class="l"><b>${(c.d.match(/(\d)\s*折/) || [])[1] ? c.d.match(/(\d)\s*折/)[1] + ' 折' : /免運/.test(c.d) ? '免運' : '優惠'}</b><span>${/免運/.test(c.d) ? '出貨' : '抽賞'}</span></div><div class="r"><b>${c.d}</b><span>${c.exp} 到期 ・ 代碼 ${c.code}</span></div></div>`).join('') || '<p class="muted" style="margin:0">目前沒有可用的優惠券</p>'}</div>
       <div class="panel" id="me-sec"><h3>登入與安全</h3>
         <div class="kv"><span>登入方式</span><b>手機 OTP ・ Google</b></div>
         <div class="kv"><span>兩步驟驗證 MFA</span><button class="btn s" data-act="mfa">啟用</button></div>
@@ -220,7 +223,7 @@ const DOCS = {
     ['未使用代幣退款','未使用之儲值代幣可於客服中心或錢包頁提出退款申請，經審核後退還至原付款方式或指定帳戶；活動贈送之點數不予退還。'],
     ['抽賞商品之退換貨','抽賞屬隨機取得商品之服務，結果確定後恕不接受退換或更換賞級。'],
     ['瑕疵品處理','收到商品如有非人為之瑕疵或運送破損，請於簽收後 7 日內拍照並透過工單聯繫，本平台將協助補寄或換貨。'],
-    ['配送方式與運費','提供宅配到府（每份 150–300 代幣）與 7-ELEVEN 交貨便、全家店到店（每份 60–150 代幣），實際金額依各套設定。運費於該套首次抽賞時按套預收；每份運費可寄送該套 20 件小獎，大獎、中獎不佔名額，小獎超過 20 件時再預收一份；回收之小獎不計入名額。'],
+    ['配送方式與運費','提供宅配到府（每份 150–300 代幣）與 7-ELEVEN 交貨便、全家店到店（每份 60–150 代幣），實際金額依各套設定。運費於該套首次抽賞時按套預收一份；同一套持有之小獎（含當次購買數量）每累計滿 20 件再預收一份，大獎、中獎不計入；回收之小獎不計入，多收之運費依規定退還。'],
     ['出貨時效','官方商品依官方出貨時程辦理，平台商品依平台公告之出貨時程辦理；材積超過超商限制之商品將改以宅配寄送。'],
     ['保管期限','獎品入庫後免費保管 30 天，到期前 7 天及到期當天以站內通知提醒；逾期未申請出貨者，可回收之獎品依回收值自動轉為代幣；不可回收之獎品（如大獎）不會自動轉換，將由客服另行通知處理。'],
     ['獎品回收','各獎品之回收值依各套設定公開於賞池頁；回收所得為平台點數，僅可站內折抵，確認回收後無法撤回。']]],
@@ -244,7 +247,7 @@ routes.support = () => `<div class="wrap">
            ['機率如何計算？','採固定清單、無放回抽取。每個賞級的機率 = 該賞剩餘數 ÷ 總剩餘數，每抽一次即時更新於賞池頁。'],
            ['保底挑戰怎麼運作？','於賞池頁事前公開保底條件與保底專用庫存數量；保底庫存用罄即停止並公告。實際條款以法務審定版本為準。'],
            ['中獎後多久出貨？','官方商品依官方出貨時程，平台商品依平台公告之出貨時程辦理；獎品入庫後可隨時申請出貨，並可合併多件。'],
-           ['運費怎麼計算？','運費於該套首次抽賞時按套預收（宅配或超商交貨便，金額依各套設定）。每份運費可寄送該套 20 件小獎，大獎、中獎不佔名額；小獎超過 20 件時會再預收一份，回收小獎則可釋出名額。'],
+           ['運費怎麼計算？','運費於該套首次抽賞時按套預收一份（宅配或超商交貨便，金額依各套設定）。同一套小獎（含當次購買數量）每累計滿 20 件會再預收一份，所以一次抽 20 抽以上會預收兩份；大獎、中獎不計入，回收小獎後多收的運費會退還。'],
            ['獎品可以放多久？','入庫後免費保管 30 天，到期前 7 天及到期當天會提醒；逾期未申請出貨的可回收獎品，將依回收值自動轉為代幣；大獎等不可回收的獎品則由客服另行通知。'],
            ['儲值代幣可以退款嗎？','未使用之儲值代幣可依《退款與配送規範》提出申請，經審核後辦理退款；已用於抽賞之代幣恕不退還。'],
            ['回收點數可以換現金嗎？','不行。平台點數僅可在站內折抵使用，不得提領或兌換現金。']].map(([q,a],i) =>
@@ -298,22 +301,22 @@ routes.admin = () => {
   const cur = ADM.find(a => a[1] === S.admin) || ADM[0];
   let grp = '';
   const side = ADM.map(a => { const g = a[0] !== grp ? `<div class="grp">${a[0]}</div>` : ''; grp = a[0];
-    return g + `<button data-act="adm" data-k="${a[1]}" aria-current="${S.admin===a[1]}">${ic(a[3],'width:18px;height:18px')}${a[2]}${a[1]==='risk'?'<span class="bd">1</span>':a[1]==='ship'?`<span class="bd" style="background:var(--warn)">${S.shipments.filter(x=>!['已出貨','已送達'].includes(x.st)).length}</span>`:a[1]==='cs'?`<span class="bd">${S.tickets.filter(t=>t.st==='待處理').length}</span>`:a[1]==='refund'?`<span class="bd" style="background:var(--warn)">${S.refunds.filter(f=>f.st==='待審核').length}</span>`:''}</button>`; }).join('');
+    return g + `<button data-act="adm" data-k="${a[1]}" aria-current="${S.admin===a[1]}">${ic(a[3],'width:18px;height:18px')}${a[2]}${a[1]==='risk'?(S.blocked.length?`<span class="bd">${S.blocked.length}</span>`:''):a[1]==='ship'?`<span class="bd" style="background:var(--warn)">${S.shipments.filter(x=>!['已出貨','已送達'].includes(x.st)).length}</span>`:a[1]==='cs'?`<span class="bd">${S.tickets.filter(t=>t.st==='待處理').length}</span>`:a[1]==='refund'?`<span class="bd" style="background:var(--warn)">${S.refunds.filter(f=>f.st==='待審核').length}</span>`:''}</button>`; }).join('');
   const live = POOLS.filter(p => !p.soon);
   const poolTable = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>賞池</th><th>來源／玩法</th><th class="r">單價</th><th class="r">已抽 / 總數</th><th class="r">實際收益</th><th>狀態</th><th></th></tr></thead><tbody>
-    ${POOLS.map(p => { const d = p.soon ? 0 : p.total - remaining(p); return `<tr><td>${p.title.split(' ～')[0]}</td><td><span class="tag ${SRC[p.src].c}">${SRC[p.src].t.slice(0,2)}</span> <span class="dim" style="font-size:12px">${PLAY[p.play]}</span></td>
-      <td class="r">${fmt(p.price)}</td><td class="r">${d} / ${p.total}</td><td class="r">${fmt(d*p.price)}</td>
-      <td>${p.soon?'<span class="tag info">排程上架</span>':remaining(p)?'<span class="tag ok">上架中</span>':'<span class="tag">已完售</span>'}</td><td><button class="btn s ghost">編輯</button></td></tr>`; }).join('')}
+    ${POOLS.map(p => { const d = soldAll(p); return `<tr><td>${p.title.split(' ～')[0]}</td><td><span class="tag ${SRC[p.src].c}">${SRC[p.src].t.slice(0,2)}</span> <span class="dim" style="font-size:12px">${PLAY[p.play]}</span></td>
+      <td class="r">${fmt(p.price)}</td><td class="r">${d} / ${totalAll(p)}</td><td class="r">${fmt(d*p.price)}</td>
+      <td>${p.soon?'<span class="tag info">排程上架</span>':remaining(p)?'<span class="tag ok">上架中</span>':'<span class="tag">已完售</span>'}</td><td><button class="btn s ghost" data-act="x-pooled" data-k="${p.id}">編輯</button></td></tr>`; }).join('')}
     </tbody></table></div>`;
   const body = ADM_VIEWS[cur[1]] ? ADM_VIEWS[cur[1]]() : cur[1] === 'dash' ? `
     <div class="kpis">
       <div class="kpi"><span>今日 GMV</span><b>NT$ 86,450</b><em>▲ 12% vs 昨日</em></div>
-      <div class="kpi"><span>今日抽數</span><b>${fmt(live.reduce((s,p)=>s+p.total-remaining(p),0))}</b><em>▲ 8%</em></div>
+      <div class="kpi"><span>累計抽數</span><b>${fmt(live.reduce((s,p)=>s+soldAll(p),0))}</b><em style="color:var(--tx-3)">全部賞池・全部套數</em></div>
       <div class="kpi"><span>新註冊會員</span><b>42</b><em>轉換率 18%</em></div>
       <div class="kpi"><span>待出貨件數</span><b style="color:var(--warn)">12</b><em style="color:var(--tx-3)">最久 2 天</em></div>
     </div>
     <div class="agrid">
-      <div><div class="row between" style="margin-bottom:12px"><b>賞池管理</b><button class="btn s gold">${ic('plus','width:16px;height:16px')}建立賞池</button></div>${poolTable}</div>
+      <div><div class="row between" style="margin-bottom:12px"><b>賞池管理</b><button class="btn s gold" data-act="x-pooled">${ic('plus','width:16px;height:16px')}建立賞池</button></div>${poolTable}</div>
       <div class="panel"><h3>風控警示 <span class="tag bad">1</span></h3>
         <div class="risk"><span class="dot" style="background:var(--bad)"></span><div><b>同裝置 4 帳號連續搶籤</b><div class="dim">星屑學園 ・ 10:42 ・ 已暫停鎖籤權限</div></div></div>
         <h3 style="margin-top:24px">待辦覆核</h3>
@@ -446,7 +449,14 @@ document.addEventListener('click', e => {
     'quick': () => quickPick(el.dataset.n),
     'buy': () => { if ($('#fsBar')) closeModal(); buyDialog(); },
     'fullboard': () => fullBoard(),
-    'verify': () => { if (!$('#vOk').checked){ toast('請勾選年齡確認'); return; } S.verified = true; closeModal(); toast('年齡驗證完成'); buyDialog(); },
+    'verify': () => { const ph = $('#vPhone').value.replace(/[-\s]/g,''), b = $('#vBirth').value, min = (S.cfg && S.cfg.ageMin) || 18;
+      if (!/^09\d{8}$/.test(ph)){ toast('請輸入正確的手機號碼（09 開頭共 10 碼）'); $('#vPhone').focus(); return; }
+      if (!b){ toast('請填寫出生年月日'); $('#vBirth').focus(); return; }
+      const [y, m, d] = b.split('-').map(Number), t = twDate().split('-').map(Number);
+      const age = t[0] - y - ((t[1] < m || (t[1] === m && t[2] < d)) ? 1 : 0);
+      if (!(age >= min) || age > 120){ toast(age < min ? `付費抽賞限年滿 ${min} 歲之會員使用` : '請確認出生年月日'); $('#vBirth').focus(); return; }
+      if (!$('#vOk').checked){ toast('請勾選年齡確認'); $('#vOk').focus(); return; }
+      S.verified = true; closeModal(); toast('身分驗證完成'); buyDialog(); },
     'confirm-buy': () => confirmBuy(),
     'next': () => { if (!D || D.busy) return; if (D.i >= D.results.length) showSummary(); else nextTicket(); },
     'auto': () => { if (!D) return; D.auto = !D.auto; el.setAttribute('aria-pressed', D.auto); el.textContent = D.auto ? '自動撕開中' : '全部自動撕開';
@@ -456,9 +466,9 @@ document.addEventListener('click', e => {
     'rm-toggle': () => { document.body.classList.toggle('rm'); const on = document.body.classList.contains('rm'); el.setAttribute('aria-pressed', on); toast(on ? '已開啟減少動態效果' : '已關閉減少動態效果'); if (parseHash().name === 'me') render(true); },
     'follow': () => { const ip = el.dataset.ip; const i = S.follow.indexOf(ip); if (i >= 0) S.follow.splice(i,1); else S.follow.push(ip); toast(i >= 0 ? `已取消追蹤 ${ip}` : `已追蹤 ${ip}，上新將通知你`); render(true); },
     'notify': () => toast('已設定開賣提醒'),
-    'toggle-filter': () => { const f = $('#filters'); f.classList.toggle('open'); el.setAttribute('aria-expanded', f.classList.contains('open')); },
-    'open-search': () => { openModal(`<h3 id="mdlT">搜尋</h3><form data-act="search" class="invite" role="search"><label class="sr" for="mq">關鍵字</label><input class="input" id="mq" name="q" type="search" placeholder="賞池、IP、商品" autocomplete="off"><button class="btn gold" type="submit">搜尋</button></form>
-        <div class="ipf" style="margin-top:16px">${[...new Set(POOLS.map(p=>p.ip))].map(x=>`<a class="chip" href="#/lobby?ip=${encodeURIComponent(x)}">${x}</a>`).join('')}</div>`); setTimeout(()=>$('#mq').focus(),60); },
+    'toggle-filter': () => { const f = $('#filters'); S.filterOpen = f.classList.toggle('open'); el.setAttribute('aria-expanded', S.filterOpen); },
+    'open-search': () => { openModal(`<h3 id="mdlT">搜尋</h3><form data-act="search" class="invite" role="search"><label class="sr" for="mq">關鍵字</label><input class="input" id="mq" name="q" type="search" placeholder="賞池、IP、獎品名稱" autocomplete="off"><button class="btn gold" type="submit">搜尋</button></form>
+        <div class="ipf" style="margin-top:16px">${[...new Set(POOLS.map(p=>p.ip))].map(x=>`<a class="chip" href="#/lobby?ip=${encodeURIComponent(x)}">${x}</a>`).join('')}</div>`); setTimeout(() => { const m = $('#mq'); m && m.focus(); }, 60); },
     'set': () => { const p = curPool(); if (!p) return; clearHold(); p.setIdx = +el.dataset.k; render(true); },
     'bind-line': () => { S.binds.group = 'done'; S.points += 50; closeModal(); toast('歡迎加入 LINE 社群，已獲得 50 點'); if (parseHash().name === 'me') render(true); },
     'bind-sms': () => { const v = ($('#bPhone')||{}).value || ''; if (!/^0?9\d{8}$/.test(v.replace(/[-\s]/g,''))){ toast('請輸入正確的手機號碼'); $('#bPhone').focus(); return; } closeModal(); toast('訂閱成功，開賞消息將以簡訊通知'); },
@@ -470,35 +480,58 @@ document.addEventListener('click', e => {
     'whtab': () => { S.whTab = el.dataset.k; S.whSel = []; render(true); },
     'whall': () => { const ids = S.wh.filter(w => w.st === 'stored').map(w => w.id); S.whSel = S.whSel.length === ids.length ? [] : ids; render(true); },
     'ship': () => shipDialog(),
-    'shipm': () => { $$('[data-act="shipm"]').forEach(b => { b.setAttribute('aria-pressed', b === el); b.setAttribute('aria-checked', b === el); });
+    'shipm': () => { S.shipM = el.dataset.k; $$('[data-act="shipm"]').forEach(b => { b.setAttribute('aria-pressed', b === el); b.setAttribute('aria-checked', b === el); });
       const home = el.dataset.k === 'home'; $('#addrL').textContent = home ? '收件地址' : '取貨門市'; $('#addr').placeholder = home ? '縣市／區／路段門牌' : '選擇門市（串接超商電子地圖）'; },
-    'ship-ok': () => { S.wh.forEach(w => { if (S.whSel.includes(w.id)){ w.st = 'ship'; w.track = '揀貨中'; } }); const n = S.whSel.length; S.whSel = []; closeModal(); render(true); toast(`已申請出貨 ${n} 件`); },
+    'ship-ok': () => { const rcv = $('#rcv').value.trim(), ph = $('#rcvP').value.replace(/[-\s]/g,''), ad = $('#addr').value.trim(), m = S.shipM || 'home';
+      if (!rcv){ toast('請填寫收件人姓名'); $('#rcv').focus(); return; }
+      if (!/^09\d{8}$/.test(ph)){ toast('請輸入正確的收件人手機'); $('#rcvP').focus(); return; }
+      if (ad.length < (m === 'home' ? 6 : 2)){ toast(m === 'home' ? '請填寫完整收件地址' : '請填寫取貨門市'); $('#addr').focus(); return; }
+      const n = S.whSel.length, sh = {id:'SH-' + String(13 + S.shipments.length).padStart(4,'0'), user:'Chiaki 玩家', items:n, m, st:'申請', carrier:'', no:'', to:ad, at:twNow()};
+      S.shipments.unshift(sh);
+      S.wh.forEach(w => { if (S.whSel.includes(w.id)){ w.st = 'ship'; w.track = sh.id; w.ship = sh; } });
+      S.whSel = []; closeModal(); render(true); toast(`已申請出貨 ${n} 件，出貨單 ${sh.id}`); },
     'recycle': () => recycleDialog(),
     'frway': () => { S.frWay = el.dataset.k; recycleDialog(); },
     'recycle-ok': () => { const items = S.wh.filter(w => S.whSel.includes(w.id)), fr = shipRefundCalc(items), frAmt = fr.reduce((s,x)=>s+x.amt,0);
       fr.forEach(x => { S.shipPaid[x.key].n = x.need; });
       if (frAmt){ if (S.frWay === 'bank' || S.frWay === 'ecpay') S.refunds.unshift({id:'RF-00' + (S.refunds.length + 4), user:'Chiaki 玩家', kind:'twd', via:S.frWay==='bank'?'銀行轉帳':'綠界退刷', amt:frAmt, st:'待審核', note:'回收小獎後多出運費'});
-        else { S.coins += frAmt; S.coinsNR += frAmt; syncBal(); S.tx.unshift({t:'預收運費部分退還（回收小獎）', d:new Date().toLocaleString('zh-TW',{hour12:false}), a:frAmt, ic:'truck', nr:true}); } }
+        else { S.coins += frAmt; S.coinsNR += frAmt; syncBal(); S.tx.unshift({t:'預收運費部分退還（回收小獎）', d:twNow(), a:frAmt, ic:'truck', nr:true}); } }
       let pts = 0; S.wh.forEach(w => { if (S.whSel.includes(w.id) && w.rv){ w.st = 'recycled'; pts += w.rv; } }); S.points += pts;
-      S.tx.unshift({t:'回收獎品 → 平台點數', d:new Date().toLocaleString('zh-TW',{hour12:false}), a:pts, ic:'recycle', pt:true}); S.whSel = []; closeModal(); render(true); toast(`已回收，獲得 ${pts} 點`); },
+      S.tx.unshift({t:'回收獎品 → 平台點數', d:twNow(), a:pts, ic:'recycle', pt:true}); S.whSel = []; closeModal(); render(true); toast(`已回收，獲得 ${pts} 點`); },
     'pack': () => { S.pick.pack = +el.dataset.v; render(true); },
     'paym': () => { S.pick.pay = el.dataset.k; render(true); },
-    'promo': () => toast('優惠碼已套用'),
+    'txall': () => { S.txAll = !S.txAll; render(true); },
+    'promo': () => { const v = ($('#promo').value || '').trim().toUpperCase(); if (!v){ toast('請輸入邀請碼或優惠碼'); $('#promo').focus(); return; }
+      const cp = (S.coupons || []).find(c => c.code === v && c.on);
+      if (cp){ S.myCoupons = S.myCoupons || []; if (!S.myCoupons.includes(v)) S.myCoupons.push(v); toast(`已領取：${cp.d}`); }
+      else if (/^CHK[0-9A-Z]{3}$/.test(v)) toast('邀請碼已綁定，完成首次儲值後雙方各得獎勵');
+      else toast('查無此代碼或已過期，請確認大小寫與有效期限'); },
     'topup': () => { const v = S.pick.pack, b = (PACKS.find(p => p[0] === v)||[0,0])[1]; const pay = PAYS.find(p => p[0] === S.pick.pay);
       openModal(`<h3 id="mdlT">確認付款</h3><p class="muted" style="font-size:14px">即將前往綠界科技 ECPay 安全付款頁面，付款完成後代幣將自動入帳。</p>
         <div class="sumrow"><span class="muted">付款方式</span><b>${pay[1]}</b></div><div class="sumrow"><span class="muted">金額</span><b>NT$ ${fmt(v)}</b></div>${b?`<div class="sumrow"><span class="muted">活動贈點</span><b>+${b} 點</b></div>`:''}
         <button class="btn gold block" style="margin-top:24px" data-act="paid">前往付款</button>`); },
     'paid': () => { const v = S.pick.pack, b = (PACKS.find(p => p[0] === v)||[0,0])[1]; S.coins += v; S.points += b; syncBal();
-      S.tx.unshift({t:'儲值 ・ ' + PAYS.find(p => p[0] === S.pick.pay)[1], d:new Date().toLocaleString('zh-TW',{hour12:false}), a:v, ic:'card'}); closeModal(); render(true); toast(`儲值成功 +${fmt(v)} 幣`); },
-    'refund': () => openModal(`<h3 id="mdlT">申請未使用代幣退款</h3><p class="muted" style="font-size:14px">未使用之儲值代幣可依《退款與配送規範》申請退款，客服將以 Email 通知審核結果。</p>
-        <div class="field" style="margin:16px 0"><label for="rfAmt">申請金額（代幣）</label><input class="input" id="rfAmt" inputmode="numeric" value="${S.coins}"></div><button class="btn gold block" data-act="refund-ok">送出申請</button>`),
-    'copy': () => { try { navigator.clipboard.writeText('CHK8A2'); } catch(_){} toast('邀請碼已複製'); },
+      S.tx.unshift({t:'儲值 ・ ' + PAYS.find(p => p[0] === S.pick.pay)[1], d:twNow(), a:v, ic:'card'}); closeModal(); render(true); toast(`儲值成功 +${fmt(v)} 幣`); },
+    'refund': () => { const can = Math.max(0, S.coins - S.coinsNR); openModal(`<h3 id="mdlT">申請未使用代幣退款</h3><p class="muted" style="font-size:14px">未使用之儲值代幣可依《退款與配送規範》申請退款，客服將以 Email 通知審核結果。不可退款代幣（活動、運費退還、逾期轉換）不在此列。</p>
+        <div class="sumrow"><span class="muted">可申請退款</span><b>${fmt(can)} 幣</b></div>${S.coinsNR ? `<div class="sumrow"><span class="muted">不可退款代幣</span><b class="dim">${fmt(S.coinsNR)} 幣</b></div>` : ''}
+        <div class="field" style="margin:16px 0"><label for="rfAmt">申請金額（代幣）</label><input class="input num" id="rfAmt" inputmode="numeric" value="${can}" data-max="${can}"></div><button class="btn gold block" data-act="refund-ok" ${can ? '' : 'disabled'}>送出申請</button>`); },
+    'copy': () => copyText('CHK8A2', '邀請碼已複製'),
     'shipsel': () => { S.shipPick = el.dataset.k; const ok = $('#ruleOk') && $('#ruleOk').checked; if (ok) S.rulesOk = true; buyDialog(); },
-    'refund-ok': () => { closeModal(); toast('退款申請已送出，案件編號 RF-20261023-0012'); },
+    'refund-ok': () => { const inp = $('#rfAmt'), raw = inp.value.trim(), v = Number(raw), max = +inp.dataset.max;
+      if (!/^\d+$/.test(raw) || v < 1){ toast('請輸入正整數金額'); inp.focus(); return; }
+      if (v > max){ toast(`最多可申請 ${fmt(max)} 幣`); inp.focus(); return; }
+      const id = 'RF-' + twDate().replace(/-/g,'') + '-' + String(S.refunds.length + 1).padStart(4,'0');
+      S.coins -= v; syncBal();
+      S.refunds.unshift({id, user:'Chiaki 玩家', kind:'twd', via:'原付款方式退回', amt:v, st:'待審核', note:'未使用儲值代幣退款', back:true});
+      S.tx.unshift({t:`退款申請 ${id}（審核中，駁回時退回）`, d:twNow(), a:-v, ic:'card'});
+      closeModal(); toast(`退款申請已送出，案件編號 ${id}`); render(true); },
     'mfa': () => toast('已寄送兩步驟驗證設定說明至您的信箱'),
     'addcart': () => { S.cart.push(el.dataset.id); toast('已加入購物車'); render(true); },
-    'cart': () => { const items = S.cart.map(id => PRODUCTS.find(p => p.id === id)); const sum = items.reduce((s,x) => s + x.price, 0);
-      openModal(`<h3 id="mdlT">購物車</h3>${items.length ? items.map(x => `<div class="sumrow"><span>${x.name}</span><b>NT$ ${fmt(x.price)}</b></div>`).join('') + `<div class="sumrow" style="border-bottom:0;min-height:56px"><span>小計</span><b style="font-size:20px">NT$ ${fmt(sum)}</b></div><button class="btn gold block" data-act="close-modal">前往結帳</button>` : '<p class="muted">購物車是空的</p>'}`); },
+    'cart': () => { const items = S.cart.map(id => PRODUCTS.find(p => p.id === id)).filter(Boolean); const sum = items.reduce((s,x) => s + x.price, 0);
+      openModal(`<h3 id="mdlT">購物車</h3>${items.length ? items.map((x,i) => `<div class="sumrow"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.name}</span><span class="row" style="gap:8px;flex:none"><b>NT$ ${fmt(x.price)}</b><button class="ibtn" data-act="cartrm" data-k="${i}" aria-label="移除 ${x.name}">${ic('x','width:16px;height:16px')}</button></span></div>`).join('') + `<div class="sumrow" style="border-bottom:0;min-height:56px"><span>小計</span><b style="font-size:20px">NT$ ${fmt(sum)}</b></div><p class="dim" style="font-size:12px;margin:0 0 16px">商城商品以新台幣結帳，將前往綠界付款頁面；運費於結帳頁計算。</p><button class="btn gold block" data-act="checkout">前往結帳</button>` : '<p class="muted">購物車是空的</p>'}`); },
+    'cartrm': () => { S.cart.splice(+el.dataset.k, 1); acts.cart(); if (parseHash().name === 'shop') render(true); },
+    'checkout': () => { const sum = S.cart.map(id => PRODUCTS.find(p => p.id === id)).filter(Boolean).reduce((s,x) => s + x.price, 0), id = 'SO-' + twDate().replace(/-/g,'') + '-' + String(Math.floor(Math.random()*1e4)).padStart(4,'0');
+      S.tx.unshift({t:`商城訂單 ${id}（綠界付款）`, d:twNow(), a:0, ic:'card'}); S.cart = []; closeModal(); toast(`訂單 ${id} 已成立，NT$ ${fmt(sum)} 已付款`); render(true); },
     'ticket': () => { const m = ($('#tkMsg')||{}).value || ''; if (!m.trim()){ toast('請描述問題內容'); $('#tkMsg').focus(); return; }
       const id = 'CS-10' + (27 + S.tickets.length); S.tickets.unshift({id, cat:$('#tkType').value.replace('抽賞結果爭議','抽賞爭議').replace('儲值／付款','儲值/付款').replace('出貨／物流','出貨/物流').replace('帳號與安全','帳號'), user:'Chiaki 玩家', subj:m.trim().slice(0,18), st:'待處理', due:+24, link:$('#tkNo').value || '—', msgs:[{f:'u', t:m.trim(), d:'剛剛'}]});
       toast(`工單已送出，編號 ${id}，客服將於 24 小時內回覆`); render(true); },
@@ -508,7 +541,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   if (e.target.matches('[data-act="sort"]')){ const r = parseHash(); r.q.set('sort', e.target.value); location.hash = '#/lobby?' + r.q.toString(); }
-  if (e.target.matches('[data-act="whsel"]')){ const id = e.target.dataset.id; const i = S.whSel.indexOf(id); if (i >= 0) S.whSel.splice(i,1); else S.whSel.push(id); render(); }
+  if (e.target.matches('[data-act="whsel"]')){ const id = e.target.dataset.id; const i = S.whSel.indexOf(id); if (i >= 0) S.whSel.splice(i,1); else S.whSel.push(id); render(true); }
 });
 document.addEventListener('submit', e => {
   if (e.target.matches('[data-act="search"]')){ e.preventDefault(); const kw = e.target.q.value.trim(); location.hash = '#/lobby' + (kw ? '?q=' + encodeURIComponent(kw) : ''); }
@@ -518,7 +551,7 @@ document.addEventListener('keydown', e => {
 });
 addEventListener('resize', () => fx.resize());
 addEventListener('scroll', () => $('#nav').classList.toggle('scrolled', scrollY > 8), {passive:true});
-addEventListener('hashchange', () => { if ($('#stageRoot').innerHTML) closeStage(); closeModal(); render(); window.scrollTo(0, 0);
+addEventListener('hashchange', () => { if ($('#stageRoot').innerHTML) closeStage(); closeModal(); render(); const de = document.documentElement; de.classList.add('rt'); window.scrollTo(0, 0); requestAnimationFrame(() => de.classList.remove('rt'));
   if (S.pendingDoc){ const k = S.pendingDoc; S.pendingDoc = null; docDialog(k); } });
 
 </script>

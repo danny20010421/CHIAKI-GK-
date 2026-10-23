@@ -2,7 +2,7 @@
 /* =========================================================
    POOL DETAIL + TICKET BOARD
    ========================================================= */
-const HOLD_SEC = 180;
+const holdSec = () => Math.max(60, +((typeof S !== 'undefined' && S.cfg && S.cfg.holdSec) || 180));
 async function commitHash(p){
   const set = p.sets[p.setIdx];
   if (set.hash) return set.hash;
@@ -39,17 +39,19 @@ function buybarHTML(p){
     <button class="btn gold" data-act="buy" ${n?'':'disabled'}>${ic('ticket')}抽賞</button>`;
 }
 function refreshPick(p){
+  const ae = document.activeElement, k = focusKey(ae), scope = $('#modalRoot').contains(ae) ? '#modalRoot ' : '#app ';
   $$('.board').forEach(b => b.innerHTML = boardHTML(p));
   const bb = $('#buybar'); if (bb) bb.innerHTML = buybarHTML(p);
   const fs = $('#fsBar'); if (fs) fs.innerHTML = buybarHTML(p);
+  if (k){ const t = $(scope + k); if (t && t !== document.activeElement) t.focus({preventScroll:true}); }
 }
 function startHold(p){
   if (S.holdTimer) return;
-  S.holdUntil = Date.now() + HOLD_SEC*1000;
+  S.holdUntil = Date.now() + holdSec()*1000;
   S.holdTimer = setInterval(() => {
     const left = Math.max(0, Math.ceil((S.holdUntil - Date.now())/1000));
     $$('#holdT span').forEach(e => e.textContent = `${pad(Math.floor(left/60))}:${pad(left%60)}`);
-    if (left <= 0){ clearHold(); refreshPick(p); toast('鎖籤時間已到，籤號已釋出'); }
+    if (left <= 0){ clearHold(); if ($('[data-act="confirm-buy"]') || $('#fsBar')) closeModal(); refreshPick(p); toast('鎖籤時間已到，籤號已釋出，請重新選籤'); }
   }, 1000);
 }
 function clearHold(){ clearInterval(S.holdTimer); S.holdTimer = null; S.sel = []; S.holdUntil = 0; }
@@ -95,7 +97,7 @@ routes.pool = (r) => {
             <p class="muted" style="margin:0;font-size:12px">累計 ${g.every} 抽未獲得中獎以上獎品，第 ${g.every} 抽額外獲得「${g.name}」。保底專用庫存剩餘 <b class="num">${reserveLeft}</b> 件，用罄即停止保底並公告。</p>
           </div>` : ''}
         <div class="row" style="margin-top:24px;flex-wrap:wrap">
-          <button class="btn gold" data-act="scroll" data-to="board" style="flex:1;min-width:160px">${ic('ticket')}選籤抽賞</button>
+          ${left ? `<button class="btn gold" data-act="scroll" data-to="board" style="flex:1;min-width:160px">${ic('ticket')}選籤抽賞</button>` : `<button class="btn" disabled style="flex:1;min-width:160px">${p.sets.length > 1 && p.sets.some(s => s.tickets.some(t => !t.taken)) ? '本套已完售，請選擇其他套' : '本賞池已完售'}</button>`}
           <button class="btn" data-act="follow" data-ip="${p.ip}" aria-pressed="${S.follow.includes(p.ip)}">${ic('heart','width:18px;height:18px')}${S.follow.includes(p.ip)?'已追蹤':'追蹤 IP'}</button>
         </div>` : `
         <div class="panel" style="margin-top:24px"><div class="row between"><span class="muted">開賣倒數</span><div class="cd" data-cd="${p.soon}"></div></div>
@@ -122,7 +124,7 @@ routes.pool = (r) => {
           <summary><span class="row">${ic('truck','width:18px;height:18px;color:var(--gold-2)')}出貨與保管</span>${ic('down','width:16px;height:16px')}</summary>
           <div class="in"><dl>
             <dt>運費</dt><dd>於首次抽賞時按套預收：宅配到府 ${fmt(p.ship.home)} 幣／7-ELEVEN 交貨便、全家店到店 ${fmt(p.ship.cvs)} 幣</dd>
-            <dt>運費涵蓋</dt><dd>每份運費可寄送本套 20 件小獎，大獎、中獎不佔名額；小獎超過 20 件時預收下一份，回收小獎可釋出名額</dd>
+            <dt>運費涵蓋</dt><dd>首次抽賞預收一份；本套持有之小獎（含本次購買數量）每累計滿 20 件再預收一份。大獎、中獎不計入，回收之小獎不計入且可退還多收之運費</dd>
             <dt>出貨時程</dt><dd>${p.src==='o'?'依官方出貨時程':p.src==='m'?'官方商品依官方出貨時程；平台商品依平台公告時程':'依平台公告之出貨時程'}</dd>
             <dt>保管期限</dt><dd>入庫後免費保管 ${storeDays()} 天，到期前 7 天及到期當天提醒；逾期未申請出貨者，可回收之獎品依回收值自動轉為代幣，不可回收之獎品由客服通知後續處理</dd>
           </dl></div>
@@ -187,7 +189,7 @@ function buyDialog(){
     openModal(`<h3 id="mdlT">首次付費抽賞：年齡與身分驗證</h3>
       <p class="muted" style="margin:0 0 16px;font-size:14px">依本平台《未成年保護》規範，付費抽賞服務限年滿 18 歲之會員使用。首次抽賞前請完成以下驗證。</p>
       <div class="field" style="margin-bottom:16px"><label for="vPhone">手機號碼（OTP 驗證）</label><input class="input" id="vPhone" inputmode="tel" placeholder="09xx-xxx-xxx"></div>
-      <div class="field" style="margin-bottom:16px"><label for="vBirth">出生年月日</label><input class="input" id="vBirth" type="date"></div>
+      <div class="field" style="margin-bottom:16px"><label for="vBirth">出生年月日</label><input class="input" id="vBirth" type="date" max="${twDate()}" min="1900-01-01"></div>
       <label class="check"><input type="checkbox" id="vOk"><span>我確認已年滿 18 歲，並了解抽賞為付費隨機取得商品之服務。</span></label>
       <button class="btn gold block" data-act="verify">完成驗證</button>`);
     return;
@@ -199,12 +201,12 @@ function buyDialog(){
     <div class="sumrow"><span class="muted">單價 × 數量</span><b>${fmt(p.price)} × ${n}</b></div>
     ${hasLast ? `<div class="sumrow"><span class="muted">最後賞</span><b style="color:var(--gold-2)">${p.last}</b></div>` : ''}
     <div class="field" style="margin:16px 0 8px"><span style="font-size:13px;color:var(--tx-2)">配送方式${sq.locked?'（本套已設定）':''}</span>
-      ${sq.locked ? `<div class="sumrow" style="border-bottom:0"><b>${SHIP_M[sq.m]}</b><span class="dim" style="font-size:12px">已預收 ${sq.paid} 份・可寄 ${sq.cap} 件小獎</span></div>`
+      ${sq.locked ? `<div class="sumrow" style="border-bottom:0"><b>${SHIP_M[sq.m]}</b><span class="dim" style="font-size:12px">已預收 ${sq.paid} 份・持有小獎 ${sq.small} 件</span></div>`
         : `<div class="pays" role="radiogroup" aria-label="配送方式" style="grid-template-columns:repeat(3,minmax(0,1fr))">${Object.entries(SHIP_M).map(([k,t]) =>
           `<button class="pay" role="radio" data-act="shipsel" data-k="${k}" aria-checked="${sq.m===k}" aria-pressed="${sq.m===k}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span style="white-space:nowrap">${{home:'宅配到府',c711:'7-11 交貨便',fami:'全家店到店'}[k]}</span><span class="dim" style="font-size:12px">${fmt(k==='home'?p.ship.home:p.ship.cvs)} 幣</span></button>`).join('')}</div>`}
     </div>
     <div class="sumrow"><span class="muted">運費預收</span><b>${sq.add ? `${fmt(sq.cost)} 幣` : '<span class="dim">已預收・本次免收</span>'}</b></div>
-    <p class="dim" style="font-size:12px;margin:8px 0 0;line-height:1.6">${sq.add ? (sq.paid ? `本套小獎累計可能超過 ${sq.cap} 件，預收第 ${sq.paid+1} 份運費。` : '本套首次抽賞，按套預收一份運費。') : ''}每份運費可寄送本套 20 件小獎，大獎、中獎不佔名額；回收小獎可釋出名額。</p>
+    <p class="dim" style="font-size:12px;margin:8px 0 0;line-height:1.6">${sq.add ? (sq.paid ? `持有小獎 ${sq.small} 件加本次 ${n} 抽，累計將達 ${(sq.paid)*20} 件以上，本次預收 ${sq.add} 份運費。` : (sq.add > 1 ? `本套首次抽賞，本次 ${n} 抽已達 20 件以上，預收 ${sq.add} 份運費。` : '本套首次抽賞，預收一份運費。')) : ''}小獎每累計滿 20 件再預收一份，大獎、中獎不計入；回收小獎後多收的運費會退還。</p>
     <div class="sumrow"><span class="muted">優惠券</span><b class="dim">未使用</b></div>
     <div class="sumrow" style="border-bottom:0;min-height:56px"><span>應付</span><b style="font-size:22px;color:var(--gold-2)">${fmt(total)} 幣</b></div>
     <div class="sumrow" style="border-bottom:0"><span class="muted">扣款後餘額</span><b class="${after<0?'':'muted'}" style="${after<0?'color:var(--bad)':''}">${fmt(after)} 幣</b></div>
@@ -246,20 +248,22 @@ function settle(p, nos){
 }
 function confirmBuy(){
   const p = curPool(); if (!p) return;
+  if (!S.sel.length || p.tickets.some(t => S.sel.includes(t.no) && (t.taken || t.held))){ clearHold(); closeModal(); refreshPick(p); toast('鎖籤已失效，本次未扣款，請重新選籤'); return; }
   if (!$('#ruleOk').checked){ toast('請先勾選同意抽賞規則'); $('#ruleOk').focus(); return; }
   S.rulesOk = true;
   const nos = S.sel.slice(), sq = shipQuote(p, nos.length, S.shipPick), total = nos.length * p.price + sq.cost;
   if (total > S.coins){ closeModal(); location.hash = '#/wallet'; return; }
   S.coins -= total; S.coinsNR = Math.max(0, S.coinsNR - total); syncBal();   // 不可退款代幣優先扣抵
   if (sq.add){ S.shipPaid[sq.key] = {n:sq.paid + sq.add, m:sq.m};
-    S.tx.unshift({t:`運費預收 ・ ${SHIP_M[sq.m]} ×${sq.add}（${p.ip}${p.sets.length>1?' 第 '+(p.setIdx+1)+' 套':''}）`, d:new Date().toLocaleString('zh-TW',{hour12:false}), a:-sq.cost, ic:'truck'}); }
+    S.tx.unshift({t:`運費預收 ・ ${SHIP_M[sq.m]} ×${sq.add}（${p.title.split(' ～')[0]}${p.sets.length>1?' 第 '+(p.setIdx+1)+' 套':''}）`, d:twNow(), a:-sq.cost, ic:'truck'}); }
   const results = settle(p, nos);
-  const today = new Date().toISOString().slice(0,10);
-  results.forEach((x,i) => S.wh.unshift({id:'n'+Date.now()+i, pool:p.id, set:p.setIdx, rk:x.rk, g:x.g, custom:x.custom, rv:x.rv, pname:x.pname, name:x.custom ? x.name : `${p.ip} ${x.name}`, hue:p.hue, at:today, st:'stored'}));
-  S.tx.unshift({t:`抽賞 ・ ${p.title} ×${nos.length}`, d:new Date().toLocaleString('zh-TW',{hour12:false}).replace(/\//g,'-'), a:-(nos.length * p.price), ic:'ticket'});
+  const today = twDate();
+  results.forEach((x,i) => S.wh.unshift({id:'n'+Date.now()+i, no:x.no, txn:null, pool:p.id, set:p.setIdx, rk:x.rk, g:x.g, custom:x.custom, rv:x.rv, pname:x.pname, name:x.custom ? x.name : `${p.ip} ${x.name}`, hue:p.hue, at:today, st:'stored'}));
+  S.tx.unshift({t:`抽賞 ・ ${p.title} ×${nos.length}`, d:twNow(), a:-(nos.length * p.price), ic:'ticket'});
   results.filter(x => x.tier >= 2).forEach(x => drawLog.unshift({u:'c***i', pool:p.ip, txt:labelOf(x)}));
   clearHold(); closeModal();
   runDraw(p, results);
+  if (D){ D.paid = nos.length * p.price; D.shipCost = sq.cost; }
 }
 
 /* =========================================================
@@ -331,7 +335,7 @@ function kujiInner(r, opts = {}){
 
 let D = null;
 function runDraw(p, results){
-  D = {p, results, i:0, auto:false, busy:false, f:0, tier:0, done:false, txn:'CK' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + String(Math.floor(Math.random()*1e6)).padStart(6,'0')};
+  D = {p, results, i:0, auto:false, busy:false, f:0, tier:0, done:false, txn:'CK' + twDate().replace(/-/g,'') + '-' + String(Math.floor(Math.random()*1e6)).padStart(6,'0')};
   $('#toastRoot').innerHTML = '';
   $('#stageRoot').innerHTML = `<div class="stage" id="stage" role="dialog" aria-modal="true" aria-label="抽賞演出">
     <div class="amb"></div><div class="rays"></div><canvas id="fxCv"></canvas>
@@ -471,7 +475,7 @@ async function finishPeel(){
   if (tier >= 3){ $('#cue').style.setProperty('--cue-c', CUE_C[tier]); $('#cue').textContent = r.custom && r.rk !== 'LAST' ? '大 獎' : [...labelOf(r)].join(' '); }
   else $('#cue').innerHTML = `<small>${r.custom && r.rk !== 'LAST' ? GRADE[r.g].label : labelOf(r)}</small>`;
   await sleep(RM() ? 0 : 450);
-  if (!$('#stage')) return;
+  if (!$('#stage') || $('#sum.show')) return;
   const res = $('#res');
   res.innerHTML = `${art(r.hue, glyphOf(r))}<div class="t">${tagOf(r, true)}<b>${r.name}</b><span>${r.bonus?r.bonus+' ・ ':''}已存入中獎倉庫</span></div>`;
   res.classList.add('show');
@@ -482,6 +486,7 @@ async function finishPeel(){
     : `<button class="btn gold" data-act="next">${D.results.length>1?'查看全部結果':'完成'}</button>`;
   D.busy = false;
   if (D.auto && more) setTimeout(() => { if (D && !D.busy && $('#stage')) nextTicket(); }, RM() ? 500 : (tier >= 3 ? 2200 : 1300));
+  else if (D.auto && D.results.length > 1) setTimeout(() => { if (D && $('#stage') && !$('#sum.show')) showSummary(); }, RM() ? 600 : (tier >= 3 ? 2400 : 1500));
   else setTimeout(() => { const b = $('#sbtm .btn'); b && b.focus(); }, 60);
 }
 function showSummary(){
@@ -495,7 +500,7 @@ function showSummary(){
     <div class="stub">
       <div class="hd"><b>客戶留存用</b><span class="brand" style="font-size:16px;color:#e9eeef">CHIAKI</span></div>
       <dl><dt>交易編號</dt><dd class="num">${D.txn}</dd><dt>賞池</dt><dd>${p.title}${p.sets && p.sets.length>1?` ・ <span style="white-space:nowrap">第 ${pad(p.setIdx+1)} 套</span>`:''}</dd>
-        <dt>籤號</dt><dd class="num">${[...new Set(D.results.map(x=>x.no))].sort((a,b)=>a-b).map(pad).join('、')}</dd><dt>時間</dt><dd class="num">${new Date().toLocaleString('zh-TW',{hour12:false})}</dd></dl>
+        <dt>籤號</dt><dd class="num">${[...new Set(D.results.map(x=>x.no))].sort((a,b)=>a-b).map(pad).join('、')}</dd>${D.paid != null ? `<dt>扣款</dt><dd class="num">${fmt(D.paid + (D.shipCost||0))} 幣${D.shipCost ? `（含運費預收 ${fmt(D.shipCost)}）` : ''}</dd>` : ''}<dt>時間</dt><dd class="num">${twNow()}</dd></dl>
       <div class="links"><a href="${LINKS.line}" target="_blank" rel="noopener">${ic('users','width:16px;height:16px')}LINE 社群</a><a href="${LINKS.ig}" target="_blank" rel="noopener">${ic('ig','width:16px;height:16px')}Instagram</a><a href="${LINKS.fb}" target="_blank" rel="noopener">${ic('fb','width:16px;height:16px')}Facebook</a></div>
     </div>
     <div class="sgrid">${sorted.map((x,i) => `<div class="sitem ${x.tier>=3?'hi':''}" style="animation-delay:${i*60}ms"><div class="mini">${kujiInner(x, {sub:'No.'+pad(x.no), foot:x.name})}</div>

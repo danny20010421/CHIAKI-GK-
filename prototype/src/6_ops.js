@@ -77,7 +77,8 @@ const ADM_VIEWS = {};
 ADM_VIEWS.cs = () => {
   const tabs = ['全部','待處理','處理中','待用戶回覆','已結案'];
   const list = S.tickets.filter(t => S.csTab === '全部' || t.st === S.csTab);
-  const cur = S.tickets.find(t => t.id === S.csSel) || S.tickets[0];
+  const cur = list.find(t => t.id === S.csSel) || list[0];
+  if (cur) S.csSel = cur.id;
   const stTag = st => ({'待處理':'bad','處理中':'warn','待用戶回覆':'info','已結案':'ok'}[st]);
   const cnt = st => S.tickets.filter(t => t.st === st).length;
   return `<div class="kpis">
@@ -92,7 +93,7 @@ ADM_VIEWS.cs = () => {
           <span class="row between" style="width:100%"><b>${t.subj}</b><span class="tag ${stTag(t.st)}">${t.st}</span></span>
           <span class="dim">${t.id} ・ ${t.cat} ・ ${t.user}</span>
           <span class="${t.due<0?'bad-t':'dim'}">${t.st==='已結案' ? '已結案' : t.due < 0 ? `逾時 ${-t.due} 小時` : `SLA 剩 ${t.due} 小時`}</span></button>`).join('') || '<div class="empty">沒有工單</div>'}</div>
-      <div class="panel cs-detail">
+      ${cur ? `      <div class="panel cs-detail">
         <div class="row between" style="flex-wrap:wrap;gap:8px"><div><b style="font-size:16px">${cur.subj}</b><div class="dim" style="font-size:12px">${cur.id} ・ ${cur.user} ・ 關聯：<a href="#/admin">${cur.link}</a></div></div><span class="tag ${stTag(cur.st)}">${cur.st}</span></div>
         <div class="thread">${cur.msgs.map(m => `<div class="msg ${m.f}"><p>${m.t}</p><span>${m.f==='u'?cur.user:'客服'} ・ ${m.d}</span></div>`).join('')}</div>
         <div class="cs-acts" role="group" aria-label="快速處理">
@@ -108,7 +109,7 @@ ADM_VIEWS.cs = () => {
           <option>退款已核准，款項將於 3–5 個工作天內退回，請留意入帳通知。</option></select></div>
         <div class="field"><label for="csReply">回覆內容</label><textarea class="input" id="csReply" placeholder="輸入回覆，或選擇上方範本"></textarea></div>
         <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn gold" data-act="x-csreply">送出並設為待用戶回覆</button><button class="btn" data-act="x-csclose">結案</button></div>
-      </div>
+      </div>` : '<div class="panel cs-detail"><div class="empty">此分類沒有工單</div></div>'}
     </div>`;
 };
 ADM_VIEWS.ship = () => `<div class="flow">${SHIP_FLOW.map(st => `<div class="flow-s"><b>${S.shipments.filter(s => s.st === st).length}</b><span>${st}</span></div>`).join('')}</div>
@@ -144,13 +145,13 @@ ADM_VIEWS.ip = () => {
   return `<div class="row between" style="margin-bottom:16px;flex-wrap:wrap;gap:8px"><div class="ipf">${IP_CATS.map(c => `<span class="chip">${c} ${S.ips.filter(x => x.cat === c).length}</span>`).join('')}</div>
       <button class="btn s gold" data-act="x-ipadd">${ic('plus','width:16px;height:16px')}新增 IP</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th class="r">排序</th><th>IP 名稱</th><th>分類</th><th class="r">賞池數</th><th>前台顯示</th><th>調整順序</th></tr></thead><tbody>
-    ${S.ips.map((x,i) => `<tr><td class="r num">${i+1}</td><td>${x.n}</td>
+    ${S.ips.map((x,i) => `<tr><td class="r num">${i+1}</td><td><label class="sr" for="ipn${i}">IP 名稱</label><input class="input" id="ipn${i}" data-act="x-ipn" data-k="${i}" value="${x.n.replace(/"/g,'&quot;')}" style="height:32px;min-width:160px"></td>
       <td><label class="sr" for="ipc${i}">分類</label><select class="input" id="ipc${i}" data-act="x-ipcat" data-k="${i}" style="height:32px;padding:0 32px 0 12px">${IP_CATS.map(c => `<option ${c===x.cat?'selected':''}>${c}</option>`).join('')}</select></td>
       <td class="r">${pc(x.n)}</td>
       <td><button class="btn s ${x.vis?'':'ghost'}" data-act="x-ipvis" data-k="${i}" aria-pressed="${x.vis}">${x.vis?'顯示中':'已隱藏'}</button></td>
       <td><span class="row" style="gap:8px"><button class="ibtn" data-act="x-ipmv" data-k="${i}" data-d="-1" aria-label="上移" ${i?'':'disabled'}>${ic('down','transform:rotate(180deg)')}</button><button class="ibtn" data-act="x-ipmv" data-k="${i}" data-d="1" aria-label="下移" ${i<S.ips.length-1?'':'disabled'}>${ic('down')}</button></span></td></tr>`).join('')}
     </tbody></table></div>
-    <p class="dim" style="font-size:12px;margin-top:12px">排序與顯示設定會立即套用到前台抽賞大廳的 IP 篩選。</p>`;
+    <p class="dim" style="font-size:12px;margin-top:12px">排序與顯示設定會立即套用到前台抽賞大廳；隱藏的 IP 不會出現在篩選，其賞池也不會出現在大廳列表。</p>`;
 };
 ADM_VIEWS.risk = () => `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>防護規則</th><th>設定</th><th>狀態</th></tr></thead><tbody>
     ${[['邊緣防火牆（WAF）','SQL 注入、XSS、惡意爬蟲、已知攻擊特徵阻擋'],['速率限制','每 IP 每分鐘 60 次；鎖籤／抽賞每帳號每分鐘 30 次'],['機器人偵測','異常快速操作、無人類互動軌跡'],['登入保護','5 次失敗鎖定 15 分鐘，逐次延長'],
@@ -179,6 +180,7 @@ document.addEventListener('change', e => {
   const el = e.target;
   if (el.matches('[data-act="x-cstpl"]') && el.value) $('#csReply').value = el.value;
   if (el.matches('[data-act="x-ipcat"]')){ S.ips[+el.dataset.k].cat = el.value; toast('已更新分類'); }
+  if (el.matches('[data-act="x-ipn"]')){ const x = S.ips[+el.dataset.k], v = el.value.trim(); if (!v){ el.value = x.n; toast('IP 名稱不可空白'); return; } if (S.ips.some(o => o !== x && o.n === v)){ el.value = x.n; toast('已有相同名稱的 IP'); return; } POOLS.forEach(p => { if (p.ip === x.n) p.ip = v; }); S.follow = S.follow.map(f => f === x.n ? v : f); x.n = v; toast('已更新 IP 名稱'); }
   if (el.matches('[data-act="x-notif"]')){ S.notifPref[el.dataset.k] = el.checked; toast('通知設定已儲存'); }
   if (el.matches('[data-act="x-notev"]')){ S.notifEv[el.dataset.k] = el.checked; toast('通知設定已儲存'); }
 });
@@ -186,9 +188,9 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-act^="x-"]'); if (!el || el.tagName === 'FORM' || el.tagName === 'SELECT' || el.type === 'checkbox') return;
   const a = el.dataset.act, k = el.dataset.k;
   const T = S.tickets.find(t => t.id === S.csSel);
-  const now = () => new Date().toLocaleString('zh-TW',{hour12:false,month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+  const now = () => twNow().slice(5);
   const A = {
-    'x-copy': () => { try { navigator.clipboard.writeText(el.dataset.v); } catch(_){} toast('已複製物流單號'); },
+    'x-copy': () => copyText(el.dataset.v, '已複製物流單號'),
     'x-logout': () => { S.adminOk = false; try { sessionStorage.removeItem('ck_admin'); } catch(_){} render(); },
     'x-cstab': () => { S.csTab = k; render(true); },
     'x-cssel': () => { S.csSel = k; render(true); },
@@ -205,13 +207,13 @@ document.addEventListener('click', e => {
     'x-shipgo': () => { const s = S.shipments.find(x => x.id === k), no = $('#shN').value.trim(); if (!no){ toast('請輸入物流單號'); $('#shN').focus(); return; }
       s.carrier = $('#shC').value; s.no = no; s.st = '已出貨'; closeModal(); toast('已出貨，會員已收到物流單號通知'); render(true); },
     'x-rfok': () => { const f = S.refunds.find(x => x.id === k); f.st = '已核准（待覆核撥款）'; toast('已核准，待第二位管理員覆核撥款'); render(true); },
-    'x-rfno': () => { const f = S.refunds.find(x => x.id === k); f.st = '已駁回'; toast('已駁回並通知會員'); render(true); },
+    'x-rfno': () => { const f = S.refunds.find(x => x.id === k); f.st = '已駁回'; if (f.back){ S.coins += f.amt; syncBal(); S.tx.unshift({t:`退款申請 ${f.id} 已駁回，代幣退回`, d:twNow(), a:f.amt, ic:'card'}); } toast('已駁回並通知會員'); render(true); },
     'x-notest': () => toast(`已送出測試：${k}`),
     'x-ipmv': () => { const i = +k, j = i + +el.dataset.d; [S.ips[i], S.ips[j]] = [S.ips[j], S.ips[i]]; render(true); },
     'x-ipvis': () => { S.ips[+k].vis = !S.ips[+k].vis; render(true); },
     'x-ipadd': () => { const n = 'NEW IP ' + (S.ips.length + 1); S.ips.push({n, cat:'動畫', vis:false}); toast('已新增，請設定名稱與分類'); render(true); },
     'x-unblock': () => { S.blocked.splice(+k, 1); toast('已解除封鎖'); render(true); },
-    'x-invite': () => { try { navigator.clipboard.writeText(location.origin + location.pathname + '#/?ref=' + S.invite.code); } catch(_){} toast('邀請連結已複製'); },
+    'x-invite': () => copyText(location.origin + location.pathname + '#/?ref=' + S.invite.code, '邀請連結已複製'),
     'x-ntwd': () => { const v = +el.dataset.v; S.refunds.unshift({id:'RF-00' + (S.refunds.length + 4), user:'Chiaki 玩家', kind:'twd', via:el.dataset.via, amt:v, st:'待審核', note:'會員申請台幣退款'}); closeModal(); toast('已送出台幣退款申請，審核後通知您'); }
   };
   if (A[a]){ e.preventDefault(); A[a](); }

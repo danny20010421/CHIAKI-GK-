@@ -97,7 +97,7 @@ const tagOf = (x, small) => x.rk === 'LAST' ? rankTag('LAST', small) : x.custom
   ? `<span class="rank ${GRADE[x.g].cls}"${small?' style="min-width:0;height:24px;font-size:11px;padding:0 6px"':''}>${GRADE[x.g].label}</span>` : rankTag(x.rk, small);
 const labelOf = x => x.rk === 'LAST' ? '最後賞' : x.custom ? x.name : RK[x.rk].label;
 const glyphOf = x => x.rk === 'LAST' ? 'L' : x.custom ? ({G:'★',M:'◆',S:'・'}[x.g]) : (x.rk === 'P' ? 'P' : x.rk);
-const SHIP_M = {home:'宅配到府', c711:'7-ELEVEN 交貨便', fami:'全家 店到店'};
+const SHIP_M = {home:'宅配到府', c711:'7-11 交貨便', fami:'全家店到店'};
 const STORE_DAYS_DEFAULT = 30;
 const storeDays = () => (S.cfg && S.cfg.storeDays) || STORE_DAYS_DEFAULT;
 const SRC = {o:{t:'官方套組',c:'src-o'}, s:{t:'自製套組',c:'src-s'}, m:{t:'混合套組',c:'src-m'}};
@@ -181,7 +181,34 @@ function shipQuote(p, n, pick){
   const add = Math.max(0, need - rec.n);
   return {key, m, fee, add, cost:add*fee, paid:rec.n, locked:!!rec.m, small, cap:rec.n*20};
 }
-const daysLeft = at => { const end = new Date(at); end.setDate(end.getDate() + storeDays()); return {end:end.toISOString().slice(0,10), d:Math.ceil((end - new Date(new Date().toISOString().slice(0,10))) / 864e5)}; };
+/* all dates are Taiwan time (UTC+8), regardless of the device clock's zone */
+const twISO = (d = new Date()) => new Date(d.getTime() + 8 * 36e5).toISOString();
+const twDate = d => twISO(d).slice(0,10);
+const twNow = d => { const s = twISO(d); return s.slice(0,10) + ' ' + s.slice(11,16); };
+const daysLeft = at => { const end = new Date(at.slice(0,10) + 'T00:00:00Z'); end.setUTCDate(end.getUTCDate() + storeDays()); return {end:end.toISOString().slice(0,10), d:Math.round((end - new Date(twDate() + 'T00:00:00Z')) / 864e5)}; };
+/* copy follows the admin settings (系統設定) instead of hard-coded numbers */
+function cfgFill(h){
+  const c = (typeof S !== 'undefined' && S.cfg) || {}, warn = c.warnDays || 7, age = c.ageMin || 18;
+  const hold = typeof holdSec === 'function' ? holdSec() : 180, holdTxt = hold % 60 ? `${hold} 秒` : `${hold/60} 分鐘`;
+  return String(h).replace(/保管 30 天/g, `保管 ${storeDays()} 天`).replace(/前 7 天/g, `前 ${warn} 天`).replace(/（7 天前／當天）/g, `（${warn} 天前／當天）`)
+    .replace(/保留 3 分鐘/g, `保留 ${holdTxt}`).replace(/(年滿|未滿) 18 歲/g, `$1 ${age} 歲`)
+    .replace(/累計達 <strong>20 位<\/strong>/g, `累計達 <strong>${c.inviteGoal || 20} 位</strong>`).replace(/1,000 平台代幣/g, `${fmt(c.inviteReward != null ? c.inviteReward : 1000)} 平台代幣`);
+}
+/* copy that reports failure honestly (clipboard is often blocked in in-app browsers) */
+async function copyText(v, okMsg){
+  let ok = false;
+  try { if (navigator.clipboard && window.isSecureContext){ await navigator.clipboard.writeText(v); ok = true; } } catch(_){}
+  if (!ok){ try { const t = document.createElement('textarea'); t.value = v; t.setAttribute('readonly',''); t.style.cssText = 'position:fixed;top:0;left:0;opacity:0'; document.body.appendChild(t); t.select(); ok = document.execCommand('copy'); t.remove(); } catch(_){} }
+  toast(ok ? okMsg : `無法自動複製，請長按選取：${v}`);
+  return ok;
+}
+/* a selector that finds "the same control" again after a re-render */
+function focusKey(el){
+  if (!el || el === document.body || !el.matches) return null;
+  if (el.id) return '#' + CSS.escape(el.id);
+  const attrs = ['data-act','data-tk','data-id','data-k','data-n','data-v','data-ip','data-to','data-doc'].filter(a => el.hasAttribute(a));
+  return attrs.length ? attrs.map(a => `[${a}="${CSS.escape(el.getAttribute(a))}"]`).join('') : null;
+}
 
 /* ---------- App state (demo user) ---------- */
 const S = {
@@ -208,6 +235,11 @@ const S = {
   admin: 'dash',
   binds: {line:false, group:false, ig:false, fb:false, phone:'done'}
 };
+/* lifetime sales across every set of a pool (admin numbers) */
+const soldAll = p => p.soon ? 0 : p.sets.reduce((s, x) => s + x.tickets.filter(t => t.taken).length, 0);
+const totalAll = p => p.sets.reduce((s, x) => s + (x.total || p.total), 0);
+/* sample items carry a fixed ticket number like real draws do */
+S.wh.forEach((w, i) => { if (!w.no){ const p = poolById(w.pool); w.no = p ? (i * 7 + 3) % p.total + 1 : i + 1; } });
 let drawLog = [
   {u:'k***a', pool:'CHIAKI GK', txt:'原創角色 胸像'},{u:'r***n', pool:'星屑學園', txt:'A賞'},{u:'y***i', pool:'妖狐夜行抄', txt:'C賞'},
   {u:'t***2', pool:'CHIAKI ORIGINAL', txt:'黑金色 胸像'},{u:'s***o', pool:'深海偶像 MARINE', txt:'MARINE 1/6 舞台雕像'}
@@ -220,18 +252,32 @@ function toast(msg){
 }
 let lastFocus = null;
 function openModal(html, opts = {}){
-  lastFocus = document.activeElement;
+  const ae = document.activeElement, inside = $('#modalRoot').contains(ae) && ae !== document.body;
+  const again = inside ? focusKey(ae) : null;
+  if (!inside) lastFocus = ae;
   $('#modalRoot').innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="mdlT">
     <div class="scrim" data-act="close-modal"></div>
     <div class="dlg ${opts.wide?'wide':''}">
-      <button class="ibtn x" data-act="close-modal" aria-label="關閉">${ic('x')}</button>${html}</div></div>`;
+      <button class="ibtn x" data-act="close-modal" aria-label="關閉">${ic('x')}</button>${cfgFill(html)}</div></div>`;
   document.documentElement.style.overflow = 'hidden';
-  setTimeout(() => { const f = $('#modalRoot .dlg h3') ; if (f){ f.setAttribute('tabindex','-1'); f.focus(); } }, 30);
+  setTimeout(() => { const g = again && $('#modalRoot .dlg ' + again); if (g){ g.focus(); return; } const f = $('#modalRoot .dlg h3') ; if (f){ f.setAttribute('tabindex','-1'); f.focus(); } }, 30);
 }
 function closeModal(){
   $('#modalRoot').innerHTML = ''; document.documentElement.style.overflow = '';
   if (lastFocus && lastFocus.focus) lastFocus.focus();
 }
+/* keyboard focus stays inside an open dialog / the draw stage */
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Tab') return;
+  const box = $('#modalRoot .dlg') || $('#sum.show') || $('#stage'); if (!box) return;
+  const f = $$('a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea,[tabindex]:not([tabindex="-1"])', box)
+    .filter(x => x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden');
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1], cur = document.activeElement;
+  if (!box.contains(cur)){ e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+  else if (e.shiftKey && cur === first){ e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && cur === last){ e.preventDefault(); first.focus(); }
+});
 function syncBal(){ $('#navBal').textContent = fmt(S.coins); }
 
 const art = (hue, glyph, cls = '', label = '', img = '') =>
@@ -274,16 +320,18 @@ function parseHash(){
 }
 let cleanup = [];
 function render(keep){
+  const ae = document.activeElement, back = keep && $('#app').contains(ae) ? focusKey(ae) : null;
   cleanup.forEach(f => f()); cleanup = [];
   const r = parseHash();
   const fn = routes[r.name] || routes.home;
   const app = $('#app');
-  app.innerHTML = fn(r);
+  app.innerHTML = cfgFill(fn(r));
   $$('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === r.name || (r.name==='pool' && a.dataset.nav==='lobby')));
   $$('[data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === r.name || (r.name==='pool' && a.dataset.tab==='lobby')));
   $('#footer').style.display = r.name === 'admin' ? 'none' : '';
   if (fn.after) fn.after(r);
   if (keep) $$('.reveal', app).forEach(e => e.classList.add('in'));
+  if (back){ const t = $(back, app); if (t) t.focus({preventScroll:true}); }
   observeReveal();
 }
 function observeReveal(){
@@ -413,7 +461,8 @@ routes.home.after = () => { heroFx(); carousel();
    ========================================================= */
 routes.lobby = (r) => {
   const q = r.q, src = q.get('src') || '', play = q.get('play') || '', ip = q.get('ip') || '', sort = q.get('sort') || 'hot', kw = (q.get('q') || '').trim(), price = q.get('price') || '';
-  let list = POOLS.filter(p => (!src || p.src === src) && (!play || p.play === play) && (!ip || p.ip === ip) && (!kw || (p.title + p.ip).includes(kw)));
+  const kwl = kw.toLowerCase(), ipShown = n => { const x = (S.ips||[]).find(i => i.n === n); return !x || x.vis; };
+  let list = POOLS.filter(p => ipShown(p.ip) && (!src || p.src === src) && (!play || p.play === play) && (!ip || p.ip === ip) && (!kwl || [p.title, p.ip, ...p.prizes.map(x => x.name), p.last || ''].join(' ').toLowerCase().includes(kwl)));
   if (price === 'l') list = list.filter(p => p.price < 250); else if (price === 'm') list = list.filter(p => p.price >= 250 && p.price <= 350); else if (price === 'h') list = list.filter(p => p.price > 350);
   const key = p => p.soon ? 9 : 0;
   if (sort === 'left') list.sort((a,b) => key(a)-key(b) || remaining(a)/a.total - remaining(b)/b.total);
@@ -427,7 +476,7 @@ routes.lobby = (r) => {
   return `<div class="wrap">
     <div class="page-h"><h1>抽賞大廳</h1><p>依商品來源、玩法、價格與作品篩選，找到你的下一抽。</p></div>
     <div class="lobby">
-      <aside class="filters" id="filters" aria-label="篩選">
+      <aside class="filters ${S.filterOpen ? 'open' : ''}" id="filters" aria-label="篩選">
         <div class="fgroup"><h4>商品來源</h4><div class="opts">${chip('src','','全部')}${chip('src','o','官方')}${chip('src','s','自製')}${chip('src','m','混合')}</div></div>
         <div class="fgroup"><h4>玩法</h4><div class="opts">${chip('play','','全部')}${chip('play','std','標準選籤')}${chip('play','guar','保底挑戰')}${chip('play','solo','單挑賞池')}</div></div>
         <div class="fgroup"><h4>單抽價格</h4><div class="opts">${chip('price','','不限')}${chip('price','l','250 以下')}${chip('price','m','250–350')}${chip('price','h','350 以上')}</div></div>
@@ -436,7 +485,7 @@ routes.lobby = (r) => {
       <div>
         <div class="toolbar">
           <span class="count">共 <b class="num">${list.length}</b> 個賞池${kw?`・關鍵字「${kw}」`:''}</span>
-          <button class="btn s ffilter-btn" data-act="toggle-filter" aria-controls="filters" aria-expanded="false">${ic('filter','width:16px;height:16px')}篩選</button>
+          <button class="btn s ffilter-btn" data-act="toggle-filter" aria-controls="filters" aria-expanded="${!!S.filterOpen}">${ic('filter','width:16px;height:16px')}篩選</button>
           <label class="sr" for="sortSel">排序</label>
           <select class="input" id="sortSel" data-act="sort">
             ${[['hot','熱門優先'],['left','即將完售'],['new','最新上架'],['pl','價格低→高'],['ph','價格高→低']].map(([v,t]) => `<option value="${v}" ${sort===v?'selected':''}>${t}</option>`).join('')}

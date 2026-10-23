@@ -31,7 +31,7 @@ function checkImage(file, key){
       const w = im.naturalWidth, h = im.naturalHeight, kb = Math.round(file.size / 1024), type = (file.type.split('/')[1] || '').replace('jpg','jpeg');
       const r = [
         ['檔案格式', s.fmt.includes(type), `${type.toUpperCase() || '未知'}（允許 ${s.fmt.map(x => x.toUpperCase()).join('／')}）`],
-        ['檔案大小', kb <= s.kb, `${fmt(kb)} KB（上限 ${fmt(s.kb)} KB）`],
+        ['檔案大小', file.size <= s.kb * 1024, `${file.size < 1024 ? fmt(file.size) + ' B' : fmt(Math.round(file.size / 102.4) / 10) + ' KB'}（上限 ${fmt(s.kb)} KB）`],
         ['最小尺寸', w >= s.min[0] && (!s.min[1] || h >= s.min[1]), `${w}×${h}（至少 ${s.min[0]}×${s.min[1] || '不限'}）`]
       ];
       if (s.h) r.push(['長寬比例', Math.abs(w / h - ratioOf(s)) / ratioOf(s) <= .02, `${(w/h).toFixed(3)}（應為 ${s.w}:${s.h}，誤差 2% 內）`]);
@@ -88,16 +88,17 @@ const barSVG = (data, unit, h = 160) => { const max = Math.max(...data.map(d => 
 Object.assign(ADM_VIEWS, {
   pool: () => `<div class="row between" style="margin-bottom:16px;flex-wrap:wrap;gap:8px"><span class="muted" style="font-size:13px">流程：草稿 → 送審 → 第二位管理員覆核 → 排程／上架 → 完售揭露</span><button class="btn s gold" data-act="x-pooled">${ic('plus','width:16px;height:16px')}建立賞池</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>賞池</th><th>來源／玩法</th><th class="r">單價</th><th class="r">套數</th><th class="r">運費（宅配／超商）</th><th class="r">已抽 / 總數</th><th>狀態</th><th></th></tr></thead><tbody>
-    ${POOLS.map(p => { const d = p.soon ? 0 : p.total - remaining(p); return `<tr><td>${p.title.split(' ～')[0]}</td><td><span class="tag ${SRC[p.src].c}">${SRC[p.src].t.slice(0,2)}</span> <span class="dim" style="font-size:12px">${PLAY[p.play]}</span></td>
-      <td class="r">${fmt(p.price)}</td><td class="r">${p.sets.length}</td><td class="r">${p.ship.home}／${p.ship.cvs}</td><td class="r">${d} / ${p.total}</td>
+    ${(S.poolDrafts || []).map((d,i) => `<tr><td>${d.title}</td><td><span class="tag ${SRC[d.src].c}">${SRC[d.src].t.slice(0,2)}</span> <span class="dim" style="font-size:12px">${PLAY[d.play]}</span></td><td class="r">${fmt(d.price)}</td><td class="r">${d.sets}</td><td class="r">${d.home}／${d.cvs}</td><td class="r dim">—</td><td><span class="tag ${d.st==='待覆核'?'info':'warn'}">${d.st}</span></td><td><button class="btn s" data-act="x-pooled" data-k="draft:${i}">編輯</button></td></tr>`).join('')}
+    ${POOLS.map(p => { const d = soldAll(p); return `<tr><td>${p.title.split(' ～')[0]}</td><td><span class="tag ${SRC[p.src].c}">${SRC[p.src].t.slice(0,2)}</span> <span class="dim" style="font-size:12px">${PLAY[p.play]}</span></td>
+      <td class="r">${fmt(p.price)}</td><td class="r">${p.sets.length}</td><td class="r">${p.ship.home}／${p.ship.cvs}</td><td class="r">${d} / ${totalAll(p)}</td>
       <td>${p.soon?'<span class="tag info">排程上架</span>':remaining(p)?'<span class="tag ok">上架中</span>':'<span class="tag">已完售</span>'}</td>
       <td><span class="row" style="gap:8px"><button class="btn s" data-act="x-pooled" data-k="${p.id}">編輯</button><button class="btn s ghost" data-act="x-adm-go" data-k="prize" data-p="${p.id}">獎品</button></span></td></tr>`; }).join('')}
     </tbody></table></div>`,
   prize: () => { const p = poolById(S.admPool) || POOLS[0];
     return `<div class="row" style="gap:8px;margin-bottom:16px;flex-wrap:wrap"><label class="sr" for="admP">選擇賞池</label><select class="input" id="admP" data-act="x-admpool" style="height:40px;width:auto;padding:0 40px 0 16px">${POOLS.map(x => `<option value="${x.id}" ${x.id===p.id?'selected':''}>${x.title.split(' ～')[0]}</option>`).join('')}</select>
       <span class="dim" style="font-size:12px">${p.src==='s' ? '自製套組：直接設定獎品名稱與大獎／中獎／小獎' : '官方／混合套組：A 賞、B 賞等賞級'}・已發布之數量不可修改</span></div>
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>圖片</th><th>${p.src==='s'?'等級':'賞級'}</th><th>獎品名稱</th><th class="r">數量</th><th class="r">已抽出</th><th class="r">回收值（點）</th><th class="r">已創造收益</th></tr></thead><tbody>
-    ${p.prizes.map((pr,i) => { const out = pr.qty - remainOf(p,i); return `<tr><td>${uploader('prize', 'pz'+i)}</td>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>圖片</th><th>${p.src==='s'?'等級':'賞級'}</th><th>獎品名稱</th><th class="r">每套數量</th><th class="r">已抽出（全部套）</th><th class="r">回收值（點）</th><th class="r">已創造收益</th></tr></thead><tbody>
+    ${p.prizes.map((pr,i) => { const out = p.sets.reduce((s, x) => s + x.tickets.filter(t => t.taken && t.pi === i).length, 0); return `<tr><td>${uploader('prize', 'pz'+i)}</td>
       <td>${p.src==='s' ? `<select class="input" data-act="x-prg" data-k="${i}" style="height:32px;width:auto;padding:0 32px 0 12px">${Object.entries(GRADE).map(([g,v]) => `<option value="${g}" ${pr.g===g?'selected':''}>${v.label}</option>`).join('')}</select>` : tagOf(pr)}</td>
       <td><input class="input" value="${pr.name}" data-act="x-prn" data-k="${i}" style="height:32px;min-width:200px" aria-label="獎品名稱"></td>
       <td class="r">${pr.qty}</td><td class="r">${out}</td>
@@ -169,10 +170,11 @@ Object.assign(ADM_VIEWS, {
 
 /* ---------- pool editor ---------- */
 function poolEditor(id){
-  const p = poolById(id) || {title:'', ip:S.ips[0].n, src:'s', play:'std', price:300, ship:{home:200, cvs:100}, sets:[1]};
+  const dr = String(id || '').startsWith('draft:') ? S.poolDrafts[+id.slice(6)] : null;
+  const p = dr ? {title:dr.title, ip:dr.ip, src:dr.src, play:dr.play, price:dr.price, ship:{home:dr.home, cvs:dr.cvs}, sets:Array(dr.sets).fill(0)} : poolById(id) || {title:'', ip:S.ips[0].n, src:'s', play:'std', price:300, ship:{home:200, cvs:100}, sets:[1]};
   const c = S.cfg;
   openModal(`<h3 id="mdlT">${id ? '編輯賞池' : '建立賞池'}</h3>
-    <form data-act="x-poolsave" class="cfg" style="gap:16px">
+    <form data-act="x-poolsave" data-k="${id || ''}" class="cfg" style="gap:16px" novalidate>
       <div class="field"><label for="pe_t">賞池名稱</label><input class="input" id="pe_t" value="${p.title}" required></div>
       <div class="cfg-g"><div class="field"><label for="pe_ip">IP</label><select class="input" id="pe_ip" style="width:100%">${S.ips.map(x => `<option ${x.n===p.ip?'selected':''}>${x.n}</option>`).join('')}</select></div>
         <div class="field"><label for="pe_src">商品來源</label><select class="input" id="pe_src" style="width:100%">${Object.entries(SRC).map(([k,v]) => `<option value="${k}" ${k===p.src?'selected':''}>${v.t}</option>`).join('')}</select></div>
@@ -183,9 +185,35 @@ function poolEditor(id){
         <div class="field"><label for="pe_cvs">超商交貨便運費（${c.cvsMin}–${c.cvsMax}）</label><input class="input num" type="number" id="pe_cvs" min="${c.cvsMin}" max="${c.cvsMax}" value="${p.ship.cvs}" required></div></div>
       <div class="field"><span style="font-size:13px;color:var(--tx-2)">封面圖片（${IMG_SPEC.cover.w}×${IMG_SPEC.cover.h}，1:1，≤${IMG_SPEC.cover.kb}KB）</span>${uploader('cover','pe_cover')}</div>
       <div class="field"><span style="font-size:13px;color:var(--tx-2)">籤紙設計（封面、內卡各一張，${IMG_SPEC.ticket.w}×${IMG_SPEC.ticket.h}）</span>${uploader('ticket','pe_tk')}</div>
-      <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn gold" type="submit">${id ? '儲存變更' : '建立草稿'}</button><button class="btn" type="button" data-act="x-poolsubmit">送審</button></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn gold" type="submit">${id ? '儲存變更' : '建立草稿'}</button><button class="btn" type="button" data-act="x-poolsubmit" data-k="${id || ''}">送審</button></div>
       <p class="dim" style="font-size:12px;margin:0">已發布之規則與籤表不可修改，修改將產生新版本並公告；送審後需第二位管理員覆核才會上架。</p>
     </form>`, {wide:true});
+}
+
+/* read + validate the editor; live pools are versioned, new ones become drafts */
+function poolSave(id, st){
+  const c = S.cfg, v = x => $('#pe_' + x).value.trim(), n = x => Number(v(x));
+  const f = {title:v('t'), ip:v('ip'), src:v('src'), play:v('play'), price:n('price'), sets:n('sets'), home:n('home'), cvs:n('cvs')};
+  const bad = (msg, el) => { toast(msg); $('#pe_' + el).focus(); return false; };
+  if (f.title.length < 2) return bad('請填寫賞池名稱（至少 2 字）', 't');
+  if (!Number.isInteger(f.price) || f.price < 1) return bad('單抽價格需為正整數', 'price');
+  if (!Number.isInteger(f.sets) || f.sets < 1) return bad('套數需為正整數', 'sets');
+  if (!(f.home >= c.homeMin && f.home <= c.homeMax)) return bad(`宅配運費需介於 ${c.homeMin}–${c.homeMax}`, 'home');
+  if (!(f.cvs >= c.cvsMin && f.cvs <= c.cvsMax)) return bad(`超商運費需介於 ${c.cvsMin}–${c.cvsMax}`, 'cvs');
+  S.poolDrafts = S.poolDrafts || [];
+  const live = poolById(id);
+  if (live){
+    const sold = soldAll(live) > 0, changed = live.price !== f.price;
+    if (sold && changed && st === '草稿') return bad('已開抽的賞池不可直接改價；請改為「送審」建立新版本，覆核後套用於下一套', 'price');
+    if (st === '待覆核'){ S.poolDrafts.unshift({...f, st, of:live.id}); S.audit.unshift({t:'剛剛', who:'輝', a:`送審：${f.title}（新版本）`}); closeModal(); render(true); toast('已送審新版本，待第二位管理員覆核'); return true; }
+    Object.assign(live, {title:f.title, ip:f.ip, play:f.play}); live.ship = {home:f.home, cvs:f.cvs};
+    S.audit.unshift({t:'剛剛', who:'輝', a:`更新賞池資訊：${f.title}`}); closeModal(); render(true); toast('已儲存（名稱、IP、運費等非規則欄位）'); return true;
+  }
+  const di = String(id || '').startsWith('draft:') ? +id.slice(6) : -1;
+  if (di >= 0) S.poolDrafts[di] = {...S.poolDrafts[di], ...f, st}; else S.poolDrafts.unshift({...f, st});
+  S.audit.unshift({t:'剛剛', who:'輝', a:`${st === '待覆核' ? '送審' : '儲存草稿'}：${f.title}`});
+  closeModal(); render(true); toast(st === '待覆核' ? '已送審，待第二位管理員覆核' : '賞池草稿已儲存');
+  return true;
 }
 
 /* ---------- events ---------- */
@@ -203,21 +231,21 @@ document.addEventListener('change', async e => {
   if (el.matches('[data-act="x-prn"]')){ p.prizes[+k].name = el.value; toast('已更新獎品名稱'); }
   if (el.matches('[data-act="x-prv"]')){ p.prizes[+k].rv = Math.max(0, +el.value || 0); toast('已更新回收值'); }
   if (el.matches('[data-act="x-prg"]')){ const pr = p.prizes[+k]; pr.g = el.value; pr.tier = GRADE[pr.g].tier; toast('已更新等級'); }
-  if (el.matches('[data-act="x-vipmin"]')){ S.vipT[+k].min = +el.value || 0; toast('已更新門檻'); }
+  if (el.matches('[data-act="x-vipmin"]')){ const v = Math.max(0, Math.floor(+el.value || 0)); el.value = v; S.vipT[+k].min = v; toast('已更新門檻'); }
   if (el.matches('[data-act="x-vipperk"]')){ S.vipT[+k].perk = el.value; toast('已更新權益'); }
 });
 document.addEventListener('input', e => { if (e.target.matches('[data-act="x-drq"]')){ S.drawQ = e.target.value; clearTimeout(window.__dq); window.__dq = setTimeout(() => { const pos = e.target.selectionStart; render(true); const n = $('#drQ'); if (n){ n.focus(); n.setSelectionRange(pos, pos); } }, 250); } });
 document.addEventListener('submit', e => {
   if (e.target.matches('[data-act="x-cfgsave"]')){ e.preventDefault(); $$('[data-cfg]', e.target).forEach(i => { S.cfg[i.dataset.cfg] = i.type === 'number' ? +i.value : i.value; });
     S.audit.unshift({t:'剛剛', who:'輝', a:'更新系統設定'}); toast('設定已儲存，並寫入操作日誌'); }
-  if (e.target.matches('[data-act="x-poolsave"]')){ e.preventDefault(); closeModal(); toast('賞池草稿已儲存'); }
+  if (e.target.matches('[data-act="x-poolsave"]')){ e.preventDefault(); poolSave(e.target.dataset.k, '草稿'); }
 });
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act^="x-"]'); if (!el || el.tagName === 'FORM' || el.tagName === 'SELECT' || el.tagName === 'INPUT') return;
   const a = el.dataset.act, k = el.dataset.k;
   const A = {
     'x-pooled': () => poolEditor(k),
-    'x-poolsubmit': () => { closeModal(); toast('已送審，待第二位管理員覆核'); },
+    'x-poolsubmit': () => poolSave(k, '待覆核'),
     'x-adm-go': () => { S.admin = k; if (el.dataset.p) S.admPool = el.dataset.p; render(true); scrollTo(0,0); },
     'x-csv': () => { const rows = drawRows(), csv = '﻿時間,交易編號,會員,賞池,套,籤號,結果\n' + rows.map(r => [r.at,r.tx,r.user,r.pool,r.set,r.no,r.res].map(x => `"${String(x).replace(/"/g,'""')}"`).join(',')).join('\n');
       const u = URL.createObjectURL(new Blob([csv], {type:'text/csv'})), l = document.createElement('a'); l.href = u; l.download = 'chiaki-draws.csv'; l.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); toast('已匯出 CSV'); },
