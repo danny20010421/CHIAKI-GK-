@@ -5,7 +5,8 @@
    plus member-side notification settings and full rules page.
    ========================================================= */
 const ADMIN_HASH = '4be1a191ec62fa1deb76d7c64fc6eaa259207c898a1ea1a621069a3ca4fc99ab'; // front-end test gate only
-const shipRefundRatio = () => ((S.cfg && S.cfg.refundPct != null) ? S.cfg.refundPct : 50) / 100;
+/* 每回收 1 件小獎，退還「該份運費 ÷ N」代幣（N 預設 20，即每份運費涵蓋的小獎件數） */
+const shipRefundDiv = () => Math.max(1, +((S.cfg && S.cfg.refundDiv) || 20));
 const CARRIERS = {
   tcat:{n:'黑貓宅急便', url:'https://www.t-cat.com.tw/inquire/trace.aspx'},
   hct:{n:'新竹物流', url:'https://www.hct.com.tw/search/searchgoods_n.aspx'},
@@ -29,7 +30,7 @@ Object.assign(S, {
   tickets: [
     {id:'CS-1026', cat:'出貨/物流', user:'k***a', subj:'想更改 7-11 取貨門市', st:'待處理', due:+2, link:'出貨單 SH-0012', msgs:[{f:'u', t:'您好，我剛申請出貨，想把取貨門市改成台北車站門市，可以嗎？', d:'10/23 05:10'}]},
     {id:'CS-1025', cat:'抽賞爭議', user:'Chiaki 玩家', subj:'動畫卡住但代幣已扣除', st:'處理中', due:+6, link:'抽賞 CK20261022-391502', msgs:[{f:'u', t:'剛剛抽的時候畫面卡住，代幣有扣但沒看到結果。', d:'10/22 23:41'},{f:'s', t:'已查詢伺服器紀錄，結果已成立並存入您的中獎倉庫，請重新整理查看。', d:'10/23 00:02'}]},
-    {id:'CS-1023', cat:'退款', user:'t***2', subj:'預收運費改台幣退款', st:'待用戶回覆', due:-1, link:'退款 RF-0003', msgs:[{f:'u', t:'回收了小獎，運費想退回銀行帳戶。', d:'10/21 18:20'},{f:'s', t:'已收到申請，請提供銀行代碼與帳號末五碼以便核對。', d:'10/21 19:02'}]}
+    {id:'CS-1023', cat:'退款', user:'t***2', subj:'回收小獎的運費怎麼退', st:'待用戶回覆', due:-1, link:'退款 RF-0003', msgs:[{f:'u', t:'回收了 3 件小獎，運費退了多少？', d:'10/21 18:20'},{f:'s', t:'已收到申請，請提供銀行代碼與帳號末五碼以便核對。', d:'10/21 19:02'}]}
   ],
   csSel: 'CS-1026', csTab: '全部',
   shipments: [
@@ -38,8 +39,8 @@ Object.assign(S, {
     {id:'SH-0009', user:'y***i', items:5, m:'home', st:'已送達', carrier:'tcat', no:'9012 3456 7788'}
   ],
   refunds: [
-    {id:'RF-0003', user:'t***2', kind:'twd', via:'銀行轉帳', amt:100, st:'待審核', note:'回收小獎後多出 1 份運費'},
-    {id:'RF-0002', user:'s***o', kind:'coin', via:'自動', amt:60, st:'已入帳', note:'部分退還 50%'}
+    {id:'RF-0003', user:'t***2', kind:'twd', via:'原付款方式退回', amt:1000, st:'待審核', note:'未使用儲值代幣退款'},
+    {id:'RF-0002', user:'s***o', kind:'coin', via:'自動', amt:30, st:'已入帳', note:'回收小獎 3 件・運費 200 ÷ 20 × 3'}
   ],
   blocked: [{ip:'203.0.113.24', why:'1 分鐘內 180 次鎖籤請求', at:'10:42'}],
   ips: null
@@ -121,9 +122,9 @@ ADM_VIEWS.ship = () => `<div class="flow">${SHIP_FLOW.map(st => `<div class="flo
     </tbody></table></div>
     <p class="dim" style="font-size:12px;margin-top:12px">標記「已出貨」時必須填寫物流單號，系統會自動以簡訊／站內通知告知會員，會員可於中獎倉庫查看並查詢物流。</p>`;
 ADM_VIEWS.refund = () => `<div class="panel" style="margin-bottom:24px"><h3>運費退款設定</h3>
-      <div class="kv"><span>代幣部分退還比例（優先）</span><b>${shipRefundRatio()*100}%・不可退款代幣</b></div>
-      <div class="kv"><span>台幣退款管道</span><b>銀行轉帳／綠界刷卡退刷</b></div>
-      <div class="kv"><span>台幣退款撥款</span><b>需第二位管理員覆核</b></div></div>
+      <div class="kv"><span>回收小獎運費退還</span><b>每件退還 運費 ÷ ${shipRefundDiv()}・平台代幣（不可退款）</b></div>
+      <div class="kv"><span>範例</span><b>運費 200 幣，回收 1 件退 ${fmt(Math.floor(200 / shipRefundDiv()))} 幣、回收 3 件退 ${fmt(Math.floor(600 / shipRefundDiv()))} 幣</b></div>
+      <div class="kv"><span>台幣退款（未使用儲值代幣）</span><b>原付款方式退回・需第二位管理員覆核</b></div></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>編號</th><th>會員</th><th>類型</th><th>管道</th><th class="r">金額</th><th>說明</th><th>狀態</th><th></th></tr></thead><tbody>
     ${S.refunds.map(f => `<tr><td class="num">${f.id}</td><td>${f.user}</td><td>${f.kind==='coin'?'代幣（部分）':'台幣'}</td><td>${f.via}</td><td class="r">${f.kind==='coin'?fmt(f.amt)+' 幣':'NT$ '+fmt(f.amt)}</td><td class="dim">${f.note}</td>
       <td><span class="tag ${f.st==='待審核'?'warn':f.st==='已駁回'?'bad':'ok'}">${f.st}</span></td>

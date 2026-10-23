@@ -176,7 +176,7 @@ const prizeOfItem = w => { const p = poolById(w.pool); return p ? p.prizes.find(
 function shipQuote(p, n, pick){
   const key = p.id + ':' + p.setIdx, rec = S.shipPaid[key] || {n:0, m:null};
   const m = rec.m || pick || 'home', fee = m === 'home' ? p.ship.home : p.ship.cvs;
-  const small = S.wh.filter(w => w.pool === p.id && w.set === p.setIdx && w.g === 'S' && w.st !== 'recycled').length;
+  const small = S.wh.filter(w => w.pool === p.id && w.set === p.setIdx && w.g === 'S').length;   // 已回收的小獎已按件退還運費，仍計入件數
   const need = Math.floor((small + n) / 20) + 1;   // 滿 20 件小獎即再收一份
   const add = Math.max(0, need - rec.n);
   return {key, m, fee, add, cost:add*fee, paid:rec.n, locked:!!rec.m, small, cap:rec.n*20};
@@ -192,7 +192,7 @@ function cfgFill(h){
   const hold = typeof holdSec === 'function' ? holdSec() : 180, holdTxt = hold % 60 ? `${hold} 秒` : `${hold/60} 分鐘`;
   return String(h).replace(/保管 30 天/g, `保管 ${storeDays()} 天`).replace(/前 7 天/g, `前 ${warn} 天`).replace(/（7 天前／當天）/g, `（${warn} 天前／當天）`)
     .replace(/保留 3 分鐘/g, `保留 ${holdTxt}`).replace(/(年滿|未滿) 18 歲/g, `$1 ${age} 歲`)
-    .replace(/累計達 <strong>20 位<\/strong>/g, `累計達 <strong>${c.inviteGoal || 20} 位</strong>`).replace(/1,000 平台代幣/g, `${fmt(c.inviteReward != null ? c.inviteReward : 1000)} 平台代幣`);
+    .replace(/1\/20/g, `1/${(typeof shipRefundDiv === 'function') ? shipRefundDiv() : 20}`).replace(/累計達 <strong>20 位<\/strong>/g, `累計達 <strong>${c.inviteGoal || 20} 位</strong>`).replace(/1,000 平台代幣/g, `${fmt(c.inviteReward != null ? c.inviteReward : 1000)} 平台代幣`);
 }
 /* copy that reports failure honestly (clipboard is often blocked in in-app browsers) */
 async function copyText(v, okMsg){

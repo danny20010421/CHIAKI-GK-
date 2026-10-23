@@ -69,8 +69,8 @@ Object.assign(S, {
   coupons: [{code:'WELCOME90', d:'新會員首抽 9 折', used:128, exp:'2026-11-30', on:true}, {code:'FREESHIP', d:'超商交貨便免運', used:41, exp:'2026-12-31', on:true}],
   banners: [{t:'CHIAKI GK 雕像一番賞 第一彈', from:'2026-10-20', to:'2026-11-20', ok:true}],
   staff: [{n:'輝（擁有者）', role:'超級管理員', mfa:true, last:'剛剛'}, {n:'營運 A', role:'營運', mfa:true, last:'10/22 21:40'}, {n:'客服 B', role:'客服', mfa:false, last:'10/22 18:05'}],
-  audit: [{t:'10/23 05:58', who:'輝', a:'更新運費退還比例 50%'}, {t:'10/22 21:40', who:'營運 A', a:'送審：CHIAKI GK 第一彈 第 3 套'}, {t:'10/22 18:05', who:'客服 B', a:'結案 CS-1019'}],
-  cfg: {storeDays:30, warnDays:7, homeMin:150, homeMax:300, cvsMin:60, cvsMax:150, refundPct:50, inviteGoal:20, inviteReward:1000, ageMin:18, holdSec:180, notice:'CHIAKI GK 雕像一番賞 第一彈 熱賣中！'},
+  audit: [{t:'10/23 08:30', who:'輝', a:'運費退還改為每件 運費÷20'}, {t:'10/22 21:40', who:'營運 A', a:'送審：CHIAKI GK 第一彈 第 3 套'}, {t:'10/22 18:05', who:'客服 B', a:'結案 CS-1019'}],
+  cfg: {storeDays:30, warnDays:7, homeMin:150, homeMax:300, cvsMin:60, cvsMax:150, refundDiv:20, inviteGoal:20, inviteReward:1000, ageMin:18, holdSec:180, notice:'CHIAKI GK 雕像一番賞 第一彈 熱賣中！'},
   apiKeys: [{k:'ck_live_••••3f9a', n:'官網 LINE Bot', at:'2026-10-01', on:true}],
   merchants: [{n:'範例工作室', at:'2026-10-18', st:'待審核（第四階段開放）'}],
   admPool: 'gk', drawQ: ''
@@ -154,7 +154,7 @@ Object.assign(ADM_VIEWS, {
     return `<form data-act="x-cfgsave" class="cfg">
       <div class="panel"><h3>公告</h3><div class="field"><label for="cf_notice">首頁公告文字</label><input class="input" id="cf_notice" data-cfg="notice" value="${c.notice}"></div></div>
       <div class="panel"><h3>保管與抽賞</h3><div class="cfg-g">${f('storeDays','免費保管天數','天','min="1"')}${f('warnDays','到期前提醒','天','min="1"')}${f('holdSec','鎖籤保留時間','秒','min="60"')}${f('ageMin','付費抽賞年齡門檻','歲','min="18"')}</div></div>
-      <div class="panel"><h3>運費與退還</h3><div class="cfg-g">${f('homeMin','宅配運費下限','代幣')}${f('homeMax','宅配運費上限','代幣')}${f('cvsMin','超商交貨便下限','代幣')}${f('cvsMax','超商交貨便上限','代幣')}${f('refundPct','回收後運費代幣退還比例','%','min="0" max="100"')}</div></div>
+      <div class="panel"><h3>運費與退還</h3><div class="cfg-g">${f('homeMin','宅配運費下限','代幣')}${f('homeMax','宅配運費上限','代幣')}${f('cvsMin','超商交貨便下限','代幣')}${f('cvsMax','超商交貨便上限','代幣')}${f('refundDiv','回收小獎：每件退還 運費 ÷','件','min="1" max="100"')}</div></div>
       <div class="panel"><h3>邀請好友</h3><div class="cfg-g">${f('inviteGoal','達標人數','人','min="1"')}${f('inviteReward','贈送平台代幣','代幣','min="0"')}</div></div>
       <div class="panel"><h3>金流與物流</h3><div class="kv"><span>綠界商店代號</span><b class="num">30•••07</b></div><div class="kv"><span>綠界環境</span><span class="tag warn">測試環境</span></div><div class="kv"><span>物流商</span><b>黑貓、新竹、郵局、7-ELEVEN 交貨便、全家店到店</b></div></div>
       <button class="btn gold" type="submit">儲存設定</button></form>`; },

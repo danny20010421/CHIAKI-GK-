@@ -124,7 +124,7 @@ routes.pool = (r) => {
           <summary><span class="row">${ic('truck','width:18px;height:18px;color:var(--gold-2)')}出貨與保管</span>${ic('down','width:16px;height:16px')}</summary>
           <div class="in"><dl>
             <dt>運費</dt><dd>於首次抽賞時按套預收：宅配到府 ${fmt(p.ship.home)} 幣／7-ELEVEN 交貨便、全家店到店 ${fmt(p.ship.cvs)} 幣</dd>
-            <dt>運費涵蓋</dt><dd>首次抽賞預收一份；本套持有之小獎（含本次購買數量）每累計滿 20 件再預收一份。大獎、中獎不計入，回收之小獎不計入且可退還多收之運費</dd>
+            <dt>運費涵蓋</dt><dd>首次抽賞預收一份；本套抽中之小獎（含本次購買數量）每累計滿 20 件再預收一份，大獎、中獎不計入。回收小獎每件退還該份運費的 1/20（宅配 ${fmt(Math.floor(p.ship.home/shipRefundDiv()))} 幣／超商 ${fmt(Math.floor(p.ship.cvs/shipRefundDiv()))} 幣），以平台代幣入帳</dd>
             <dt>出貨時程</dt><dd>${p.src==='o'?'依官方出貨時程':p.src==='m'?'官方商品依官方出貨時程；平台商品依平台公告時程':'依平台公告之出貨時程'}</dd>
             <dt>保管期限</dt><dd>入庫後免費保管 ${storeDays()} 天，到期前 7 天及到期當天提醒；逾期未申請出貨者，可回收之獎品依回收值自動轉為代幣，不可回收之獎品由客服通知後續處理</dd>
           </dl></div>
@@ -201,12 +201,12 @@ function buyDialog(){
     <div class="sumrow"><span class="muted">單價 × 數量</span><b>${fmt(p.price)} × ${n}</b></div>
     ${hasLast ? `<div class="sumrow"><span class="muted">最後賞</span><b style="color:var(--gold-2)">${p.last}</b></div>` : ''}
     <div class="field" style="margin:16px 0 8px"><span style="font-size:13px;color:var(--tx-2)">配送方式${sq.locked?'（本套已設定）':''}</span>
-      ${sq.locked ? `<div class="sumrow" style="border-bottom:0"><b>${SHIP_M[sq.m]}</b><span class="dim" style="font-size:12px">已預收 ${sq.paid} 份・持有小獎 ${sq.small} 件</span></div>`
+      ${sq.locked ? `<div class="sumrow" style="border-bottom:0"><b>${SHIP_M[sq.m]}</b><span class="dim" style="font-size:12px">已預收 ${sq.paid} 份・已抽中小獎 ${sq.small} 件</span></div>`
         : `<div class="pays" role="radiogroup" aria-label="配送方式" style="grid-template-columns:repeat(3,minmax(0,1fr))">${Object.entries(SHIP_M).map(([k,t]) =>
           `<button class="pay" role="radio" data-act="shipsel" data-k="${k}" aria-checked="${sq.m===k}" aria-pressed="${sq.m===k}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span style="white-space:nowrap">${{home:'宅配到府',c711:'7-11 交貨便',fami:'全家店到店'}[k]}</span><span class="dim" style="font-size:12px">${fmt(k==='home'?p.ship.home:p.ship.cvs)} 幣</span></button>`).join('')}</div>`}
     </div>
     <div class="sumrow"><span class="muted">運費預收</span><b>${sq.add ? `${fmt(sq.cost)} 幣` : '<span class="dim">已預收・本次免收</span>'}</b></div>
-    <p class="dim" style="font-size:12px;margin:8px 0 0;line-height:1.6">${sq.add ? (sq.paid ? `持有小獎 ${sq.small} 件加本次 ${n} 抽，累計將達 ${(sq.paid)*20} 件以上，本次預收 ${sq.add} 份運費。` : (sq.add > 1 ? `本套首次抽賞，本次 ${n} 抽已達 20 件以上，預收 ${sq.add} 份運費。` : '本套首次抽賞，預收一份運費。')) : ''}小獎每累計滿 20 件再預收一份，大獎、中獎不計入；回收小獎後多收的運費會退還。</p>
+    <p class="dim" style="font-size:12px;margin:8px 0 0;line-height:1.6">${sq.add ? (sq.paid ? `本套已抽中小獎 ${sq.small} 件加本次 ${n} 抽，累計將達 ${(sq.paid)*20} 件以上，本次預收 ${sq.add} 份運費。` : (sq.add > 1 ? `本套首次抽賞，本次 ${n} 抽已達 20 件以上，預收 ${sq.add} 份運費。` : '本套首次抽賞，預收一份運費。')) : ''}小獎每累計滿 20 件再預收一份，大獎、中獎不計入；之後回收小獎，每件退還運費的 1/20（平台代幣）。</p>
     <div class="sumrow"><span class="muted">優惠券</span><b class="dim">未使用</b></div>
     <div class="sumrow" style="border-bottom:0;min-height:56px"><span>應付</span><b style="font-size:22px;color:var(--gold-2)">${fmt(total)} 幣</b></div>
     <div class="sumrow" style="border-bottom:0"><span class="muted">扣款後餘額</span><b class="${after<0?'':'muted'}" style="${after<0?'color:var(--bad)':''}">${fmt(after)} 幣</b></div>

@@ -47,24 +47,20 @@ function recycleDialog(){
   openModal(`<h3 id="mdlT">回收換平台點數</h3>
     ${items.map(w => `<div class="sumrow"><span style="display:flex;gap:8px;align-items:center;min-width:0">${tagOf(w,true)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.name}</span></span><b>${w.rv ? '+'+fmt(w.rv)+' 點' : '不可回收'}</b></div>`).join('')}
     <div class="sumrow" style="border-bottom:0;min-height:56px"><span>合計</span><b style="font-size:20px;color:var(--gold-2)">+${fmt(pts)} 點</b></div>
-    <p class="dim" style="font-size:12px;margin:0 0 16px">回收值依各套公開之設定計算。平台點數僅可於站內折抵，不得提領或兌換現金；確認回收後無法撤回。回收小獎可釋出該套運費名額。${blocked.length?`<br>其中 ${blocked.length} 件不提供回收。`:''}</p>
-    ${frAmt ? `<div class="panel" style="padding:16px;margin:0 0 16px;border-color:rgba(201,164,92,.4)"><b style="font-size:14px">預收運費退還</b>
-      <p class="dim" style="font-size:12px;margin:4px 0 12px">回收後本套小獎減少，多預收的 ${fr.reduce((s,x)=>s+x.surplus,0)} 份運費可退還：</p>
-      <div class="pays" role="radiogroup" aria-label="運費退還方式" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-        <button class="pay" role="radio" data-act="frway" data-k="coin" aria-pressed="${S.frWay!=='bank'&&S.frWay!=='ecpay'}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span>代幣（推薦）</span><span class="dim" style="font-size:12px">+${fmt(frAmt)} 幣・即時</span></button>
-        <button class="pay" role="radio" data-act="frway" data-k="bank" aria-pressed="${S.frWay==='bank'}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span>銀行轉帳</span><span class="dim" style="font-size:12px">NT$ ${fmt(frAmt)}・審核</span></button>
-        <button class="pay" role="radio" data-act="frway" data-k="ecpay" aria-pressed="${S.frWay==='ecpay'}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span>綠界退刷</span><span class="dim" style="font-size:12px">NT$ ${fmt(frAmt)}・審核</span></button>
-      </div><p class="dim" style="font-size:12px;margin:8px 0 0">代幣退還為預收運費的 ${shipRefundRatio()*100}%，屬不可退款代幣。</p></div>` : ''}
+    <p class="dim" style="font-size:12px;margin:0 0 16px">回收值依各套公開之設定計算。平台點數僅可於站內折抵，不得提領或兌換現金；確認回收後無法撤回。${blocked.length?`<br>其中 ${blocked.length} 件不提供回收。`:''}</p>
+    ${frAmt ? `<div class="panel" style="padding:16px;margin:0 0 16px;border-color:rgba(201,164,92,.4)"><div class="row between"><b style="font-size:14px">預收運費退還</b><b style="color:var(--gold-2)">+${fmt(frAmt)} 幣</b></div>
+      ${fr.map(x => `<p class="dim" style="font-size:12px;margin:8px 0 0">${(poolById(x.key.split(':')[0])||{}).title.split(' ～')[0]}：運費 ${fmt(x.fee)} ÷ ${x.div} × 回收 ${x.n} 件</p>`).join('')}
+      <p class="dim" style="font-size:12px;margin:8px 0 0">每回收 1 件小獎退還該份運費的 1/${shipRefundDiv()}，以平台代幣即時入帳（不可退款）；不足 1 幣的零頭會累計到下次回收。</p></div>` : ''}
     <button class="btn gold block" data-act="recycle-ok" ${pts?'':'disabled'}>確認回收</button>`);
 }
 function shipRefundCalc(items){
-  const keys = [...new Set(items.filter(w => w.g === 'S' && w.rv).map(w => w.pool + ':' + (w.set||0)))];
-  return keys.map(key => { const rec = S.shipPaid[key]; if (!rec) return {key, surplus:0, amt:0};
-    const [pid, set] = key.split(':'), p = poolById(pid);
-    const left = S.wh.filter(w => w.pool === pid && (w.set||0) === +set && w.g === 'S' && w.st !== 'recycled' && !(items.includes(w) && w.rv)).length;
-    const need = Math.floor(left / 20) + 1, surplus = Math.max(0, rec.n - need);
-    const fee = rec.m === 'home' ? p.ship.home : p.ship.cvs;
-    return {key, surplus, need, fee, amt: Math.round(surplus * fee * shipRefundRatio())}; }).filter(x => x.surplus);
+  /* 每回收 1 件小獎退還「該份運費 ÷ N」；按套累計後無條件捨去，零頭留到下次回收補足 */
+  const div = shipRefundDiv(), by = {};
+  items.filter(w => w.g === 'S' && w.rv && w.st === 'stored').forEach(w => { const key = w.pool + ':' + (w.set||0); (by[key] = by[key] || []).push(w); });
+  return Object.entries(by).map(([key, ws]) => { const rec = S.shipPaid[key]; if (!rec || !rec.m) return null;
+    const p = poolById(key.split(':')[0]), fee = rec.m === 'home' ? p.ship.home : p.ship.cvs;
+    const units = (rec.rUnits || 0) + ws.length, total = Math.floor(fee * units / div);
+    return {key, n:ws.length, fee, div, units, total, amt: total - (rec.rAmt || 0)}; }).filter(x => x && x.amt > 0);
 }
 
 /* =========================================================
@@ -223,7 +219,7 @@ const DOCS = {
     ['未使用代幣退款','未使用之儲值代幣可於客服中心或錢包頁提出退款申請，經審核後退還至原付款方式或指定帳戶；活動贈送之點數不予退還。'],
     ['抽賞商品之退換貨','抽賞屬隨機取得商品之服務，結果確定後恕不接受退換或更換賞級。'],
     ['瑕疵品處理','收到商品如有非人為之瑕疵或運送破損，請於簽收後 7 日內拍照並透過工單聯繫，本平台將協助補寄或換貨。'],
-    ['配送方式與運費','提供宅配到府（每份 150–300 代幣）與 7-ELEVEN 交貨便、全家店到店（每份 60–150 代幣），實際金額依各套設定。運費於該套首次抽賞時按套預收一份；同一套持有之小獎（含當次購買數量）每累計滿 20 件再預收一份，大獎、中獎不計入；回收之小獎不計入，多收之運費依規定退還。'],
+    ['配送方式與運費','提供宅配到府（每份 150–300 代幣）與 7-ELEVEN 交貨便、全家店到店（每份 60–150 代幣），實際金額依各套設定。運費於該套首次抽賞時按套預收一份；同一套抽中之小獎（含當次購買數量）每累計滿 20 件再預收一份，大獎、中獎不計入。之後回收小獎，每件退還該份運費的 1/20（例如運費 200 代幣，回收 1 件退 10 代幣），以平台代幣入帳。'],
     ['出貨時效','官方商品依官方出貨時程辦理，平台商品依平台公告之出貨時程辦理；材積超過超商限制之商品將改以宅配寄送。'],
     ['保管期限','獎品入庫後免費保管 30 天，到期前 7 天及到期當天以站內通知提醒；逾期未申請出貨者，可回收之獎品依回收值自動轉為代幣；不可回收之獎品（如大獎）不會自動轉換，將由客服另行通知處理。'],
     ['獎品回收','各獎品之回收值依各套設定公開於賞池頁；回收所得為平台點數，僅可站內折抵，確認回收後無法撤回。']]],
@@ -247,7 +243,7 @@ routes.support = () => `<div class="wrap">
            ['機率如何計算？','採固定清單、無放回抽取。每個賞級的機率 = 該賞剩餘數 ÷ 總剩餘數，每抽一次即時更新於賞池頁。'],
            ['保底挑戰怎麼運作？','於賞池頁事前公開保底條件與保底專用庫存數量；保底庫存用罄即停止並公告。實際條款以法務審定版本為準。'],
            ['中獎後多久出貨？','官方商品依官方出貨時程，平台商品依平台公告之出貨時程辦理；獎品入庫後可隨時申請出貨，並可合併多件。'],
-           ['運費怎麼計算？','運費於該套首次抽賞時按套預收一份（宅配或超商交貨便，金額依各套設定）。同一套小獎（含當次購買數量）每累計滿 20 件會再預收一份，所以一次抽 20 抽以上會預收兩份；大獎、中獎不計入，回收小獎後多收的運費會退還。'],
+           ['運費怎麼計算？','運費於該套首次抽賞時按套預收一份（宅配或超商交貨便，金額依各套設定）。同一套小獎（含當次購買數量）每累計滿 20 件會再預收一份，所以一次抽 20 抽以上會預收兩份；大獎、中獎不計入。回收小獎時，每件退還該份運費的 1/20 作為平台代幣，例如運費 200 代幣、回收 1 件就退 10 代幣。'],
            ['獎品可以放多久？','入庫後免費保管 30 天，到期前 7 天及到期當天會提醒；逾期未申請出貨的可回收獎品，將依回收值自動轉為代幣；大獎等不可回收的獎品則由客服另行通知。'],
            ['儲值代幣可以退款嗎？','未使用之儲值代幣可依《退款與配送規範》提出申請，經審核後辦理退款；已用於抽賞之代幣恕不退還。'],
            ['回收點數可以換現金嗎？','不行。平台點數僅可在站內折抵使用，不得提領或兌換現金。']].map(([q,a],i) =>
@@ -491,13 +487,11 @@ document.addEventListener('click', e => {
       S.wh.forEach(w => { if (S.whSel.includes(w.id)){ w.st = 'ship'; w.track = sh.id; w.ship = sh; } });
       S.whSel = []; closeModal(); render(true); toast(`已申請出貨 ${n} 件，出貨單 ${sh.id}`); },
     'recycle': () => recycleDialog(),
-    'frway': () => { S.frWay = el.dataset.k; recycleDialog(); },
     'recycle-ok': () => { const items = S.wh.filter(w => S.whSel.includes(w.id)), fr = shipRefundCalc(items), frAmt = fr.reduce((s,x)=>s+x.amt,0);
-      fr.forEach(x => { S.shipPaid[x.key].n = x.need; });
-      if (frAmt){ if (S.frWay === 'bank' || S.frWay === 'ecpay') S.refunds.unshift({id:'RF-00' + (S.refunds.length + 4), user:'Chiaki 玩家', kind:'twd', via:S.frWay==='bank'?'銀行轉帳':'綠界退刷', amt:frAmt, st:'待審核', note:'回收小獎後多出運費'});
-        else { S.coins += frAmt; S.coinsNR += frAmt; syncBal(); S.tx.unshift({t:'預收運費部分退還（回收小獎）', d:twNow(), a:frAmt, ic:'truck', nr:true}); } }
+      fr.forEach(x => { const rec = S.shipPaid[x.key]; rec.rUnits = x.units; rec.rAmt = x.total; });
+      if (frAmt){ S.coins += frAmt; S.coinsNR += frAmt; syncBal(); S.tx.unshift({t:`預收運費退還（回收小獎 ${fr.reduce((s,x)=>s+x.n,0)} 件）`, d:twNow(), a:frAmt, ic:'truck', nr:true}); }
       let pts = 0; S.wh.forEach(w => { if (S.whSel.includes(w.id) && w.rv){ w.st = 'recycled'; pts += w.rv; } }); S.points += pts;
-      S.tx.unshift({t:'回收獎品 → 平台點數', d:twNow(), a:pts, ic:'recycle', pt:true}); S.whSel = []; closeModal(); render(true); toast(`已回收，獲得 ${pts} 點`); },
+      S.tx.unshift({t:'回收獎品 → 平台點數', d:twNow(), a:pts, ic:'recycle', pt:true}); S.whSel = []; closeModal(); render(true); toast(`已回收，獲得 ${pts} 點${frAmt ? `，運費退還 ${frAmt} 幣` : ''}`); },
     'pack': () => { S.pick.pack = +el.dataset.v; render(true); },
     'paym': () => { S.pick.pay = el.dataset.k; render(true); },
     'txall': () => { S.txAll = !S.txAll; render(true); },
