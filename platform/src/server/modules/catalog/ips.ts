@@ -6,15 +6,15 @@ import { requirePermission, type Principal } from '../auth/rbac';
 
 /**
  * IP（作品）目錄（業主規則，2026-10 第三批）：
- *  - 固定分類：少年漫畫、動畫・輕小說、遊戲、特攝・機甲、經典・兒童、角色・療癒、歐美、原創（取代先前可編輯的分類表）。
+ *  - 固定分類（日系動漫為主，5 類）：經典少年、新世代人氣、機甲・特攝、遊戲・角色、原創。
  *  - 別名 aliases（例：「原神」的 Genshin、げんしん）供搜尋；GET /api/ips?category=&q= 以名稱或別名、不分大小寫的「包含」比對。
  *  - 排序模式（app_settings ip.sort_mode）：
  *      AUTO（預設）＝依名稱字數（以 Array.from 計算字元數，中英文與 emoji 皆算 1）由少到多，再依繁體中文排序（Intl.Collator zh-TW）；
  *      MANUAL＝後台手動排序（POST /api/admin/ips/reorder 一次送出全部 IP 的順序，單一交易原子更新）。
  */
-export const IP_CATEGORIES = ['少年漫畫', '動畫・輕小說', '遊戲', '特攝・機甲', '經典・兒童', '角色・療癒', '歐美', '原創'] as const;
+export const IP_CATEGORIES = ['經典少年', '新世代人氣', '機甲・特攝', '遊戲・角色', '原創'] as const;
 export type IpCategory = (typeof IP_CATEGORIES)[number];
-export const IpCategorySchema = z.enum(IP_CATEGORIES);
+export const IpCategorySchema = z.enum(IP_CATEGORIES, { errorMap: () => ({ message: `IP 分類須為：${IP_CATEGORIES.join('、')}` }) });
 export const SORT_MODES = ['AUTO', 'MANUAL'] as const;
 export type SortMode = (typeof SORT_MODES)[number];
 

@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 
 /**
  * GET /api/ips?category=&q= — IP 目錄（大廳篩選與搜尋）。
- * category：少年漫畫 / 動畫・輕小說 / 遊戲 / 特攝・機甲 / 經典・兒童 / 角色・療癒 / 歐美 / 原創；
+ * category：經典少年 / 新世代人氣 / 機甲・特攝 / 遊戲・角色 / 原創；
  * q：名稱或別名（不分大小寫、部分比對）。排序：預設依名稱字數再依中文排序，後台可改為手動順序。
  */
 export const GET = route(async (req: Request) => {

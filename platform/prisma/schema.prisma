@@ -10,7 +10,8 @@
 //   `npx prisma migrate resolve --applied 20261024000000_grades_storage_prepaid_shipping` 與
 //   `npx prisma migrate resolve --applied 20261025000000_owner_rules_ops_security` 與
 //   `npx prisma migrate resolve --applied 20261026000000_image_assets` 與
-//   `npx prisma migrate resolve --applied 20261027000000_item_refunds_categories_ip_catalog` 標記既有 migration。
+//   `npx prisma migrate resolve --applied 20261027000000_item_refunds_categories_ip_catalog` 與
+//   `npx prisma migrate resolve --applied 20261028000000_ip_categories_five` 標記既有 migration。
 // 檢視 member_draw_history（會員可見的近 90 天抽賞紀錄）未列於此（Prisma 視圖需 previewFeatures = ["views"]）。
 // 關聯欄位（relation fields）刻意省略：外鍵已在 SQL migration 中定義。
 
