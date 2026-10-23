@@ -314,7 +314,7 @@ routes.admin = () => {
     <div class="agrid">
       <div><div class="row between" style="margin-bottom:12px"><b>賞池管理</b><button class="btn s gold" data-act="x-pooled">${ic('plus','width:16px;height:16px')}建立賞池</button></div>${poolTable}</div>
       <div class="panel"><h3>風控警示 <span class="tag bad">1</span></h3>
-        <div class="risk"><span class="dot" style="background:var(--bad)"></span><div><b>同裝置 4 帳號連續搶籤</b><div class="dim">星屑學園 ・ 10:42 ・ 已暫停鎖籤權限</div></div></div>
+        <div class="risk"><span class="dot" style="background:var(--bad)"></span><div><b>同裝置 4 帳號連續搶籤</b><div class="dim">航海王 ・ 10:42 ・ 已暫停鎖籤權限</div></div></div>
         <h3 style="margin-top:24px">待辦覆核</h3>
         <div class="risk"><span class="dot" style="background:var(--info)"></span><div><b>賞池發布：CHIAKI GK 第一彈 第 3 套</b><div class="dim">建立者：營運 A ・ 需第二人覆核</div></div></div>
       </div>

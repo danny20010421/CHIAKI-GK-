@@ -111,25 +111,25 @@ const POOLS = [
    prizes:[{name:'CHIAKI GK 原創雕像 全彩完成品',g:'G',qty:1,keep:1,rv:0},{name:'CHIAKI GK 原創雕像 白模版',g:'M',qty:1,keep:1,rv:1500},{name:'原創角色 胸像',g:'M',qty:1,keep:1,rv:900},
            {name:'壓克力立牌（全 6 種）',g:'S',qty:6,rv:80},{name:'設定原畫 收藏卡組',g:'S',qty:6,rv:60},{name:'金屬徽章（全 5 種）',g:'S',qty:15,rv:40},
            {name:'燙金貼紙組',g:'S',qty:20,rv:20},{name:'明信片（全 10 種）',g:'S',qty:50,rv:10}], last:null},
-  {id:'p1', title:'星屑學園 一番賞 ～放學後的星空～', ip:'星屑學園', src:'o', play:'std', price:350, hue:222, seed:11, drawn:38, hot:true,
+  {id:'p1', title:'一番賞 航海王 ～新四皇～', ip:'航海王', src:'o', play:'std', price:350, hue:222, seed:11, drawn:38, hot:true,
    ship:{home:250, cvs:120},
-   prizes:[{rk:'A',name:'星野雫 1/7 比例模型',qty:1,keep:1,rv:0},{rk:'B',name:'夜空觀測 場景模型',qty:2,keep:1,rv:0},{rk:'C',name:'角色壓克力立牌（全 3 種）',qty:3,rv:150},
+   prizes:[{rk:'A',name:'蒙其·D·魯夫 五檔 公仔',qty:1,keep:1,rv:0},{rk:'B',name:'羅羅亞·索隆 公仔',qty:2,keep:1,rv:0},{rk:'C',name:'角色壓克力立牌（全 3 種）',qty:3,rv:150},
            {rk:'D',name:'印花毛巾（全 5 種）',qty:10,rv:60},{rk:'E',name:'鏡面徽章（全 10 種）',qty:20,rv:20},{rk:'F',name:'透明資料夾（全 6 種）',qty:24,rv:10}],
-   last:'星野雫 特別配色 Ver.'},
-  {id:'p3', title:'CHIAKI ORIGINAL 保底挑戰 ～黑金典藏～', ip:'CHIAKI ORIGINAL', src:'s', play:'guar', price:280, hue:42, seed:33, drawn:22, img:GUAR_IMG,
-   guar:{every:10, minTier:2, g:'M', reserve:3, name:'黑金色 胸像（保底專用庫存）', rv:800}, ship:{home:180, cvs:80},
-   prizes:[{name:'黑金典藏 1/6 雕像',g:'G',qty:1,keep:1,rv:0},{name:'黑金色 胸像',g:'M',qty:4,keep:2,rv:800},{name:'金箔簽名色紙',g:'S',qty:10,rv:120},
-           {name:'限定版畫（全 4 種）',g:'S',qty:25,rv:50},{name:'燙金貼紙組',g:'S',qty:40,rv:20}], last:'黑金典藏 全身雕像 金箔 Ver.'},
-  {id:'p4', title:'妖狐夜行抄 混合賞 ～百鬼燈籠～', ip:'妖狐夜行抄', src:'m', play:'std', price:300, hue:12, seed:44, drawn:10, isNew:true,
+   last:'魯夫 五檔 特別配色 Ver.'},
+  {id:'p3', title:'死神 保底挑戰 ～千年血戰篇～', ip:'死神', src:'s', play:'guar', price:280, hue:42, seed:33, drawn:22, img:GUAR_IMG,
+   guar:{every:10, minTier:2, g:'M', reserve:3, name:'朽木白哉 胸像（保底專用庫存）', rv:800}, ship:{home:180, cvs:80},
+   prizes:[{name:'黑崎一護 卍解 1/6 雕像',g:'G',qty:1,keep:1,rv:0},{name:'朽木白哉 胸像',g:'M',qty:4,keep:2,rv:800},{name:'護廷十三隊 金箔色紙',g:'S',qty:10,rv:120},
+           {name:'限定版畫（全 4 種）',g:'S',qty:25,rv:50},{name:'燙金貼紙組',g:'S',qty:40,rv:20}], last:'黑崎一護 全身雕像 金箔 Ver.'},
+  {id:'p4', title:'火影忍者 混合賞 ～曉之雲～', ip:'火影忍者', src:'m', play:'std', price:300, hue:12, seed:44, drawn:10, isNew:true,
    ship:{home:220, cvs:100},
-   prizes:[{rk:'A',name:'九尾 1/8 比例模型（官方正版）',qty:1,keep:1,rv:0},{rk:'B',name:'燈籠 LED 擺飾（CHIAKI 自製）',qty:3,rv:300},{rk:'C',name:'和紙扇子（合作工坊）',qty:6,rv:120},
-           {rk:'D',name:'御守吊飾（全 5 種）',qty:20,rv:40},{rk:'E',name:'明信片組',qty:30,rv:15}], last:'九尾 燈籠夜 Ver.'},
-  {id:'p5', title:'深海偶像 MARINE 單挑賞 ～珊瑚舞台～', ip:'深海偶像 MARINE', src:'s', play:'solo', price:150, hue:186, seed:55, drawn:30,
+   prizes:[{rk:'A',name:'宇智波鼬 1/8 比例模型（官方正版）',qty:1,keep:1,rv:0},{rk:'B',name:'曉 雲紋 LED 夜燈（CHIAKI 自製）',qty:3,rv:300},{rk:'C',name:'木葉護額（合作工坊）',qty:6,rv:120},
+           {rk:'D',name:'曉組織 吊飾（全 5 種）',qty:20,rv:40},{rk:'E',name:'明信片組',qty:30,rv:15}], last:'宇智波鼬 月讀 Ver.'},
+  {id:'p5', title:'鬼滅之刃 單挑賞 ～無限城決戰～', ip:'鬼滅之刃', src:'s', play:'solo', price:150, hue:186, seed:55, drawn:30,
    ship:{home:150, cvs:60},
-   prizes:[{name:'MARINE 1/6 舞台雕像',g:'G',qty:1,keep:1,rv:0},{name:'角色貼紙（全 5 種）',g:'S',qty:49,rv:10}], last:null},
-  {id:'p7', title:'魔導書庫 一番賞 ～禁書目錄～', ip:'魔導書庫', src:'o', play:'std', price:380, hue:268, seed:77, soon:NOW+ 2*864e5 + 5*36e5,
+   prizes:[{name:'竈門炭治郎 1/6 雕像',g:'G',qty:1,keep:1,rv:0},{name:'角色貼紙（全 5 種）',g:'S',qty:49,rv:10}], last:null},
+  {id:'p7', title:'一番賞 七龍珠 ～孫悟空修行篇～', ip:'七龍珠', src:'o', play:'std', price:380, hue:268, seed:77, soon:NOW+ 2*864e5 + 5*36e5,
    ship:{home:250, cvs:120},
-   prizes:[{rk:'A',name:'大魔導師 1/7 比例模型',qty:1},{rk:'B',name:'魔導書 收納盒',qty:2},{rk:'C',name:'金屬書籤',qty:6},{rk:'D',name:'掛軸',qty:15},{rk:'E',name:'徽章',qty:36}], last:'大魔導師 禁咒 Ver.'},
+   prizes:[{rk:'A',name:'孫悟空 公仔',qty:1},{rk:'B',name:'筋斗雲 擺飾',qty:2},{rk:'C',name:'金屬書籤',qty:6},{rk:'D',name:'掛軸',qty:15},{rk:'E',name:'徽章',qty:36}], last:'孫悟空 龜派氣功 Ver.'},
 ];
 const PRODUCTS = [
   {id:'s2', name:'CHIAKI 黑金 收藏展示盒', ip:'CHIAKI ORIGINAL', price:1280, hue:42, stock:12},
@@ -216,11 +216,11 @@ const S = {
   sel: [], holdUntil: 0, holdTimer: null,
   guar: {p3: 7},
   cart: [],
-  follow: ['星屑學園','CHIAKI ORIGINAL'],
+  follow: ['航海王','CHIAKI ORIGINAL'],
   wh: [
-    {id:'w2', pool:'p1', set:0, rk:'E', g:'S', rv:20, pname:'鏡面徽章（全 10 種）', name:'星屑學園 鏡面徽章（雫）', hue:222, at:'2026-09-29', st:'stored'},
-    {id:'w4', pool:'p3', set:0, custom:true, g:'M', rv:800, pname:'黑金色 胸像', name:'黑金色 胸像', hue:42, at:'2026-10-02', st:'ship', track:'7-ELEVEN 交貨便 ・ 已到店'},
-    {id:'w5', pool:'p4', set:0, rk:'E', g:'S', rv:15, pname:'明信片組', name:'妖狐夜行抄 明信片組', hue:12, at:'2026-09-20', st:'done'},
+    {id:'w2', pool:'p1', set:0, rk:'E', g:'S', rv:20, pname:'鏡面徽章（全 10 種）', name:'航海王 鏡面徽章（魯夫）', hue:222, at:'2026-09-29', st:'stored'},
+    {id:'w4', pool:'p3', set:0, custom:true, g:'M', rv:800, pname:'朽木白哉 胸像', name:'朽木白哉 胸像', hue:42, at:'2026-10-02', st:'ship', track:'7-ELEVEN 交貨便 ・ 已到店'},
+    {id:'w5', pool:'p4', set:0, rk:'E', g:'S', rv:15, pname:'明信片組', name:'火影忍者 明信片組', hue:12, at:'2026-09-20', st:'done'},
     {id:'w6', pool:'p1', set:0, rk:'F', g:'S', rv:10, pname:'透明資料夾（全 6 種）', name:'透明資料夾（全員）', hue:222, at:'2026-09-14', st:'recycled'},
   ],
   shipPaid: {'p1:0':{n:1, m:'home'}, 'p3:0':{n:1, m:'c711'}, 'p4:0':{n:1, m:'home'}},
@@ -228,7 +228,7 @@ const S = {
   whSel: [], whTab:'stored',
   tx: [
     {t:'儲值 ・ 信用卡（綠界）', d:'2026-10-20 21:14', a:+3000, ic:'card'},
-    {t:'抽賞 ・ 星屑學園 一番賞 ×3', d:'2026-10-18 22:40', a:-1050, ic:'ticket'},
+    {t:'抽賞 ・ 一番賞 航海王 ×3', d:'2026-10-18 22:40', a:-1050, ic:'ticket'},
     {t:'回收獎品 ・ 透明資料夾 → 平台點數', d:'2026-09-14 13:02', a:+20, ic:'recycle', pt:true},
   ],
   pick: {pack:1000, pay:'card'},
@@ -241,8 +241,8 @@ const totalAll = p => p.sets.reduce((s, x) => s + (x.total || p.total), 0);
 /* sample items carry a fixed ticket number like real draws do */
 S.wh.forEach((w, i) => { if (!w.no){ const p = poolById(w.pool); w.no = p ? (i * 7 + 3) % p.total + 1 : i + 1; } });
 let drawLog = [
-  {u:'k***a', pool:'CHIAKI GK', txt:'原創角色 胸像'},{u:'r***n', pool:'星屑學園', txt:'A賞'},{u:'y***i', pool:'妖狐夜行抄', txt:'C賞'},
-  {u:'t***2', pool:'CHIAKI ORIGINAL', txt:'黑金色 胸像'},{u:'s***o', pool:'深海偶像 MARINE', txt:'MARINE 1/6 舞台雕像'}
+  {u:'k***a', pool:'CHIAKI GK', txt:'原創角色 胸像'},{u:'r***n', pool:'航海王', txt:'A賞'},{u:'y***i', pool:'火影忍者', txt:'C賞'},
+  {u:'t***2', pool:'死神', txt:'朽木白哉 胸像'},{u:'s***o', pool:'鬼滅之刃', txt:'竈門炭治郎 1/6 雕像'}
 ];
 
 /* ---------- Generic UI helpers ---------- */
