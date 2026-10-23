@@ -7,7 +7,7 @@
    4. 物流：狀態篩選、等待時間、大件提醒、批次推進、匯出揀貨單
    ========================================================= */
 const TONES = [
-  ['bad',  /逾時|待處理|駁回|異常|凍結|失敗|不可超商/],
+  ['bad',  /逾時|待處理|駁回|異常|凍結|失敗|不可超商|退件|遺失|破損|退回/],
   ['warn', /申請|揀貨|包裝|待審|待覆核|草稿|未啟用|待填入/],
   ['info', /處理中|已出貨|待用戶回覆|已核准|排程/],
   ['ok',   /已送達|已結案|已入帳|上架中|正常|啟用|已驗證|相符/]
@@ -60,7 +60,7 @@ function lookupIndex(){
   (S.members || []).forEach(m => R.push({type:'會員', id:m.uid, label:`${m.n}・${m.ph}`, sub:`${m.vip}・${m.st}`, go:'member', hay:[m.uid, m.n, m.ph, m.ph.slice(-3)].join(' ')}));
   S.shipments.forEach(s => R.push({type:'出貨單', id:s.id, label:`${s.user}・${s.items} 件・${SHIP_M[s.m]}`, sub:s.st + (s.no ? '・' + s.no : ''), go:'ship', hay:[s.id, s.user, s.no, ...(s.names||[])].join(' ')}));
   S.tickets.forEach(t => R.push({type:'工單', id:t.id, label:t.subj, sub:`${t.user}・${t.st}`, go:'cs', hay:[t.id, t.subj, t.user, t.link].join(' ')}));
-  S.refunds.forEach(f => R.push({type:'退款', id:f.id, label:`${f.user}・${f.kind==='coin' ? fmt(f.amt) + ' 幣' : 'NT$ ' + fmt(f.amt)}`, sub:f.st, go:'refund', hay:[f.id, f.user, f.note].join(' ')}));
+  S.refunds.forEach(f => R.push({type:'退款', id:f.id, label:`${f.user}・${f.kind==='coin' ? fmt(f.amt) + ' CC幣' : 'NT$ ' + fmt(f.amt)}`, sub:f.st, go:'refund', hay:[f.id, f.user, f.note].join(' ')}));
   POOLS.forEach(p => R.push({type:'賞池', id:p.id, label:p.title.split(' ～')[0], sub:p.ip, go:'pool', hay:[p.id, p.title, p.ip].join(' ')}));
   if (typeof drawRows === 'function') drawRows().slice(0, 300).forEach(r => R.push({type:'抽賞', id:r.tx, label:`${r.user}・${r.pool}`, sub:`No.${r.no}・${r.res}`, go:'draw', q:r.tx, hay:[r.tx, r.user, r.pool].join(' ')}));
   return R;
@@ -95,12 +95,12 @@ ADM_VIEWS.ship = () => {
       <td>${stTagT(s.st)}</td>
       <td class="r"><span class="${late ? 'bad-t' : h >= 24 && shipOpen(s) ? 'warn-t' : 'dim'}">${shipOpen(s) ? (late ? '逾時 ' : '') + ageTxt(h) : '—'}</span></td>
       <td class="num">${s.no ? `${CARRIERS[s.carrier].n} ${s.no}` : '<span class="dim">—</span>'}</td>
-      <td>${s.st === '已送達' ? '' : `<button class="btn s ${s.st==='包裝'?'gold':''}" data-act="x-shipnext" data-k="${s.id}">${s.st==='包裝' ? '輸入單號並出貨' : '下一步：' + SHIP_FLOW[SHIP_FLOW.indexOf(s.st)+1]}</button>`}</td></tr>`; }).join('') || '<tr><td colspan="8" class="dim">此篩選沒有出貨單</td></tr>'}
+      <td><span class="row" style="gap:8px;flex-wrap:nowrap">${s.st === '已送達' || !SHIP_FLOW.includes(s.st) ? '' : `<button class="btn s ${s.st==='包裝'?'gold':''}" data-act="x-shipnext" data-k="${s.id}">${s.st==='包裝' ? '輸入單號並出貨' : '下一步：' + SHIP_FLOW[SHIP_FLOW.indexOf(s.st)+1]}</button>`}<button class="btn s ghost" data-act="y-shipfix" data-k="${s.id}">更正</button></span></td></tr>`; }).join('') || '<tr><td colspan="8" class="dim">此篩選沒有出貨單</td></tr>'}
     </tbody></table></div>
     <div class="ship-cards">${list.map(s => { const h = ageH(s), late = shipLate(s), clash = s.bulky && s.m !== 'home'; return `<div class="shc ${late || clash ? 'bad' : ''} ${S.hl === s.id ? 'hl' : ''}">
       <div class="shc-h"><label class="sr" for="shm_${s.id}">選取 ${s.id}</label><input type="checkbox" id="shm_${s.id}" data-act="x-shipsel" data-id="${s.id}" ${S.shipSel.includes(s.id) ? 'checked' : ''}><b class="num">${s.id}</b>${stTagT(s.st)}<span class="${late ? 'bad-t' : h >= 24 && shipOpen(s) ? 'warn-t' : 'dim'}">${shipOpen(s) ? (late ? '逾時 ' : '') + ageShort(h) : (s.no ? s.no : '')}</span></div>
       <div class="shc-b"><span>${s.user}・${s.items} 件・${SHIP_M[s.m]}</span>${s.bulky ? '<span class="tag warn">大件</span>' : ''}${clash ? '<span class="tag bad">大件不可超商・改宅配</span>' : ''}<div class="dim cell-ell" style="max-width:none">${(s.names||[]).join('、')}</div></div>
-      ${s.st === '已送達' ? '' : `<button class="btn s block ${s.st==='包裝'?'gold':''}" data-act="x-shipnext" data-k="${s.id}">${s.st==='包裝' ? '輸入單號並出貨' : '下一步：' + SHIP_FLOW[SHIP_FLOW.indexOf(s.st)+1]}</button>`}</div>`; }).join('') || '<div class="empty">此篩選沒有出貨單</div>'}</div>
+      <div class="row" style="gap:8px">${s.st === '已送達' || !SHIP_FLOW.includes(s.st) ? '' : `<button class="btn s ${s.st==='包裝'?'gold':''}" style="flex:1" data-act="x-shipnext" data-k="${s.id}">${s.st==='包裝' ? '輸入單號並出貨' : '下一步：' + SHIP_FLOW[SHIP_FLOW.indexOf(s.st)+1]}</button>`}<button class="btn s ghost" style="flex:1" data-act="y-shipfix" data-k="${s.id}">更正</button></div></div>`; }).join('') || '<div class="empty">此篩選沒有出貨單</div>'}</div>
     <p class="dim" style="font-size:12px;margin-top:12px">排序：未出貨在前，其中「大件選超商」與等待最久的排最前面。超過 48 小時未出貨標為逾時（紅色），超過 24 小時為橘色。標記「已出貨」必須填寫物流單號，系統會通知會員。</p>`;
 };
 
@@ -111,7 +111,7 @@ ADM_VIEWS.refund = () => { const f = S.rfF || '待審核';
   let h = _refundView();
   const tbl = h.indexOf('<div class="tbl-wrap">');
   const tabs = `<div class="adm-bar">${['待審核','已處理','全部'].map(k => `<button class="chip ${f === k ? 'on' : ''}" data-act="x-rff" data-k="${k}">${k}<span class="cn">${S.refunds.filter(x => k === '全部' || (k === '待審核' ? x.st === '待審核' : x.st !== '待審核')).length}</span></button>`).join('')}</div>`;
-  const rows = list.map(x => `<tr class="${S.hl === x.id ? 'hl' : ''}"><td class="num">${x.id}</td><td>${x.user}</td><td>${x.kind==='coin'?'代幣':'台幣'}</td><td>${x.via}</td><td class="r num">${x.kind==='coin'?fmt(x.amt)+' 幣':'NT$ '+fmt(x.amt)}</td><td class="dim">${x.note}</td><td>${stTagT(x.st)}</td>
+  const rows = list.map(x => `<tr class="${S.hl === x.id ? 'hl' : ''}"><td class="num">${x.id}</td><td>${x.user}</td><td>${x.kind==='coin'?'CC幣':'台幣'}</td><td>${x.via}</td><td class="r num">${x.kind==='coin'?fmt(x.amt)+' CC幣':'NT$ '+fmt(x.amt)}</td><td class="dim">${x.note}</td><td>${stTagT(x.st)}</td>
       <td>${x.st==='待審核' ? `<span class="row" style="gap:8px"><button class="btn s gold" data-act="x-rfok" data-k="${x.id}">核准</button><button class="btn s" data-act="x-rfno" data-k="${x.id}">駁回</button></span>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="dim">沒有資料</td></tr>';
   return h.slice(0, tbl) + tabs + `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>編號</th><th>會員</th><th>類型</th><th>管道</th><th class="r">金額</th><th>說明</th><th>狀態</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 };
@@ -144,7 +144,7 @@ document.addEventListener('click', e => {
       render(true); const row = $('tr.hl'); if (row) row.scrollIntoView({block:'center'}); },
     'x-shipf': () => { S.shipF = k; S.shipSel = []; render(true); },
     'x-shipclr': () => { S.shipSel = []; render(true); },
-    'x-shipbatch': () => { let n = 0; S.shipSel.forEach(id => { const s = S.shipments.find(x => x.id === id); if (s && ['申請','揀貨'].includes(s.st)){ s.st = SHIP_FLOW[SHIP_FLOW.indexOf(s.st) + 1]; n++; } });
+    'x-shipbatch': () => { let n = 0; S.shipSel.forEach(id => { const s = S.shipments.find(x => x.id === id); if (s && ['申請','揀貨'].includes(s.st)){ s.st = SHIP_FLOW[SHIP_FLOW.indexOf(s.st) + 1]; shipLog(s, s.st, '批次推進'); n++; } });
       S.audit.unshift({t:'剛剛', who:'輝', a:`批次推進出貨單 ${n} 張`}); S.shipSel = []; render(true); toast(`已推進 ${n} 張出貨單`); },
     'x-pick': () => { const rows = S.shipments.filter(shipOpen), csv = '﻿出貨單,會員,配送方式,狀態,大件,件數,內容,已等待(小時)\n' + rows.map(s => [s.id, s.user, SHIP_M[s.m], s.st, s.bulky ? '是' : '', s.items, (s.names||[]).join('、'), ageH(s)].map(x => `"${String(x).replace(/"/g,'""')}"`).join(',')).join('\n');
       const u = URL.createObjectURL(new Blob([csv], {type:'text/csv'})), l = document.createElement('a'); l.href = u; l.download = 'chiaki-picking-' + twDate() + '.csv'; l.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); toast(`已匯出揀貨單 ${rows.length} 張`); },

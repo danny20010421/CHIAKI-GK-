@@ -29,7 +29,7 @@ function buybarHTML(p){
     <div class="sel">
       ${n ? `<b><span class="coin" style="width:20px;height:20px;font-size:11px">C</span><span class="num">${fmt(total)}</span><span class="dim" style="font-size:13px;font-weight:400">（${n} 抽）</span></b>
              <span>已選：${S.sel.slice().sort((a,b)=>a-b).slice(0,8).map(pad).join('、')}${n>8?' …':''}</span>`
-          : `<b style="font-size:14px">請點選籤號，或使用隨機選籤</b><span>可選 ${left} 籤 ・ 單抽 ${fmt(p.price)} 幣</span>`}
+          : `<b style="font-size:14px">請點選籤號，或使用隨機選籤</b><span>可選 ${left} 籤 ・ 單抽 ${fmt(p.price)} CC幣</span>`}
     </div>
     ${n ? `<span class="hold" id="holdT" role="timer" aria-label="鎖籤保留時間">${ic('lock','width:14px;height:14px')}<span>${pad(Math.floor(holdLeft/60))}:${pad(holdLeft%60)}</span></span>` : ''}
     <div class="qty" role="group" aria-label="隨機選籤">
@@ -77,12 +77,12 @@ routes.pool = (r) => {
           <span class="tag ${SRC[p.src].c}">${SRC[p.src].t}</span><span class="tag play">${PLAY[p.play]}</span>
           ${live ? (left ? '<span class="tag ok">進行中</span>' : '<span class="tag">已完售</span>') : '<span class="tag info">即將登場</span>'}
         </div>
-        <h1>${p.title}</h1>
+        <h1>${p.title}</h1>${p.desc ? `<p class="pdesc">${p.desc}</p>` : ''}
         ${p.sets.length > 1 ? `<div class="sets" role="group" aria-label="選擇套數">${p.sets.map((s,k) => { const l = s.tickets.filter(t=>!t.taken).length; return s.off ? `<button class="setb out" disabled><b>${s.name || `第 ${k+1} 套`}</b><span>已下架</span></button>` : `<button class="setb ${l?'':'out'}" data-act="set" data-k="${k}" aria-pressed="${p.setIdx===k}"><b>${s.name || `第 ${k+1} 套`}</b><span>${l ? (l===s.total?'未開抽':'剩 '+l) : '已完售'}</span></button>`; }).join('')}</div>
           <p class="dim" style="font-size:12px;margin:8px 0 16px">共 ${p.sets.length} 套，每套 ${p.total} 抽獨立計算；各套籤表與承諾雜湊分別公開。</p>` : ''}
         <div class="row" style="gap:8px;align-items:baseline">
           <span class="coin" style="width:28px;height:28px;font-size:14px;align-self:center">C</span>
-          <b class="num" style="font-size:32px;line-height:1">${fmt(p.price)}</b><span class="muted">幣 / 抽</span>
+          <b class="num" style="font-size:32px;line-height:1">${fmt(p.price)}</b><span class="muted">CC幣 / 抽</span>
         </div>
         ${live ? `
         <div class="stats" style="margin-top:24px">
@@ -106,9 +106,9 @@ routes.pool = (r) => {
         <details class="disclose" open>
           <summary><span class="row">${ic('shield','width:18px;height:18px;color:var(--gold-2)')}來源與授權揭露</span>${ic('down','width:16px;height:16px')}</summary>
           <div class="in"><dl>
-            <dt>商品來源</dt><dd>${p.src==='o'?'日本官方正版套組，均附正式進貨憑證':p.src==='s'?'CHIAKI 自行規劃之獎品、數量與價格，大獎／中獎／小獎由平台設定並公開':'官方正版、CHIAKI 自製與合作工坊商品組合，來源逐項標示於獎項表'}</dd>
+            <dt>商品來源</dt><dd>${p.srcNote || (p.src==='o'?'日本官方正版套組，均附正式進貨憑證':p.src==='s'?'CHIAKI 自行規劃之獎品、數量與價格，大獎／中獎／小獎由平台設定並公開':'官方正版、CHIAKI 自製與合作工坊商品組合，來源逐項標示於獎項表')}</dd>
             <dt>平台授權</dt><dd>${p.src==='o'?'本賞池為正版商品之線上抽賞服務，非品牌官方舉辦之活動':'CHIAKI 自有企劃'}</dd>
-            <dt>商品狀況</dt><dd>全新未拆，外盒可能有運輸輕微壓痕</dd>
+            <dt>商品狀況</dt><dd>${p.cond || '全新未拆，外盒可能有運輸輕微壓痕'}</dd>
           </dl></div>
         </details>
         <details class="disclose">
@@ -123,28 +123,28 @@ routes.pool = (r) => {
         <details class="disclose">
           <summary><span class="row">${ic('truck','width:18px;height:18px;color:var(--gold-2)')}出貨與保管</span>${ic('down','width:16px;height:16px')}</summary>
           <div class="in"><dl>
-            <dt>運費</dt><dd>於首次抽賞時按套預收：宅配到府 ${fmt(p.ship.home)} 幣／7-ELEVEN 交貨便、全家店到店 ${fmt(p.ship.cvs)} 幣</dd>
-            <dt>運費涵蓋</dt><dd>首次抽賞預收一份；本套抽中之小獎（含本次購買數量）每累計滿 20 件再預收一份，大獎、中獎不計入。回收小獎每件退還該份運費的 1/20（宅配 ${fmt(Math.floor(p.ship.home/shipRefundDiv()))} 幣／超商 ${fmt(Math.floor(p.ship.cvs/shipRefundDiv()))} 幣），以平台代幣入帳</dd>
-            <dt>出貨時程</dt><dd>${p.src==='o'?'依官方出貨時程':p.src==='m'?'官方商品依官方出貨時程；平台商品依平台公告時程':'依平台公告之出貨時程'}</dd>
-            <dt>保管期限</dt><dd>入庫後免費保管 ${storeDays()} 天，到期前 7 天及到期當天提醒；逾期未申請出貨者，可回收之獎品依回收值自動轉為代幣，不可回收之獎品由客服通知後續處理</dd>
+            <dt>寄送方式</dt><dd>每件獎品的寄送方式由平台預先設定並標示於獎項表，無法自行變更</dd>
+            <dt>運費</dt><dd><b>運費到付</b>：抽賞時不收運費，由物流業者於收件或取件時向收件人收取</dd>
+            <dt>出貨時程</dt><dd>${p.shipNote || (p.src==='o'?'依官方出貨時程':p.src==='m'?'官方商品依官方出貨時程；平台商品依平台公告時程':'依平台公告之出貨時程')}</dd>
+            <dt>保管期限</dt><dd>入庫後免費保管 ${storeDays()} 天，到期前 7 天及到期當天提醒；逾期未申請出貨者，可回收之獎品依回收值自動轉為不可退款 CC幣，不可回收之獎品由客服通知後續處理</dd>
           </dl></div>
         </details>
       </div>
     </div>
 
     <section class="prizes" aria-labelledby="h-pz">
-      <div class="sec-h"><h2 id="h-pz"><small>PRIZE LIST</small>獎項與即時機率</h2><span class="dim" style="font-size:12px">機率 = 該賞剩餘數 ÷ 總剩餘數，每抽即時更新</span></div>
+      <div class="sec-h"><h2 id="h-pz"><small>PRIZE LIST</small>獎項與即時機率</h2><span class="dim" style="font-size:12px">${p.play === 'prob' ? '固定機率等級依設定；其餘依剩餘數量隨機' : '機率 = 該賞剩餘數 ÷ 總剩餘數，每抽即時更新'}</span></div>
       <table class="ptable">
         <thead><tr><th>等級</th><th>獎品</th><th class="r">剩餘 / 總數</th><th class="r">目前機率</th><th class="r hide-s">回收值</th></tr></thead>
         <tbody>
           ${[...new Set(p.prizes.map(x => x.lv))].map(lv => { const its = p.prizes.map((pr,i) => ({pr,i})).filter(x => x.pr.lv === lv), ln = its.reduce((s,x) => s + remainOf(p,x.i), 0), lq = its.reduce((s,x) => s + x.pr.qty, 0);
             return its.map(({pr,i}, k) => { const n = remainOf(p,i); return `
           <tr class="${n?'':'soldout'} ${k === its.length - 1 ? 'lv-end' : ''}">
-            ${k === 0 ? `<td rowspan="${its.length}" class="lv-cell"><span class="lv-no">${lv}</span>${tagOf(pr)}${its.length > 1 ? `<small>${its.length} 種・剩 ${ln}/${lq}</small>` : ''}</td>` : ''}
-            <td><div class="row" style="gap:12px">${art(p.hue, glyphOf(pr), 'pthumb', '', pr.img)}<div class="pname">${pr.name}<small>${p.src==='m'?(pr.name.includes('官方')?'來源：官方正版':pr.name.includes('自製')?'來源：CHIAKI 自製':'來源：合作工坊'):(p.src==='o'?'全新未拆封・正版商品':'CHIAKI 原創設計')}</small></div></div></td>
+            ${k === 0 ? `<td rowspan="${its.length}" class="lv-cell">${pr.lvName === lv + ' 等' ? `<span class="lv-no">${lv}</span>` : ''}${tagOf(pr)}${its.length > 1 ? `<small>${its.length} 種・剩 ${ln}/${lq}</small>` : ''}</td>` : ''}
+            <td><div class="row" style="gap:12px">${art(p.hue, glyphOf(pr), 'pthumb', '', pr.img)}<div class="pname">${pr.name}<small>${p.src==='m'?(pr.name.includes('官方')?'來源：官方正版':pr.name.includes('自製')?'來源：CHIAKI 自製':'來源：合作工坊'):(p.src==='o'?'全新未拆封・正版商品':'CHIAKI 原創設計')}</small><small class="shipm">${ic(pr.ship === 'home' ? 'truck' : 'store', 'width:14px;height:14px')}${SHIP_M[pr.ship]}<span class="hide-s">・運費到付</span></small></div></div></td>
             <td class="r"><b>${n}</b> / ${pr.qty}</td>
             <td class="r">${live && left ? probPct(p, i) : '—'}</td>
-            <td class="r hide-s">${pr.rv ? fmt(pr.rv) + ' 點' : '<span class="dim">不可回收</span>'}</td>
+            <td class="r hide-s">${pr.rv ? fmt(pr.rv)  + ' CC幣' : '<span class="dim">不可回收</span>'}</td>
           </tr>`; }).join(''); }).join('')}
           ${p.last ? `<tr><td class="lv-cell">${rankTag('LAST')}</td><td><div class="row" style="gap:12px">${art(p.hue,'L','pthumb')}<div class="pname">${p.last}<small>抽出本賞池最後一籤者獲得</small></div></div></td><td class="r"><b>${left?1:0}</b> / 1</td><td class="r dim">最後一籤</td><td class="r hide-s dim">不可回收</td></tr>` : ''}
         </tbody>
@@ -178,7 +178,7 @@ function quickPick(n){
 }
 function buyDialog(){
   const p = curPool(); if (!p || !S.sel.length) return;
-  const n = S.sel.length, sq = shipQuote(p, n, S.shipPick), total = n * p.price + sq.cost, after = S.coins - total;
+  const n = S.sel.length, total = n * p.price, after = S.coins - total;
   if (!S.verified){
     openModal(`<h3 id="mdlT">首次付費抽賞：年齡與身分驗證</h3>
       <p class="muted" style="margin:0 0 16px;font-size:14px">依本平台《未成年保護》規範，付費抽賞服務限年滿 18 歲之會員使用。首次抽賞前請完成以下驗證。</p>
@@ -194,16 +194,10 @@ function buyDialog(){
     <div class="sumrow"><span class="muted">籤號</span><b style="text-align:right;max-width:65%">系統隨機配籤・付款後揭曉</b></div>
     <div class="sumrow"><span class="muted">單價 × 數量</span><b>${fmt(p.price)} × ${n}</b></div>
     ${hasLast ? `<div class="sumrow"><span class="muted">最後賞</span><b style="color:var(--gold-2)">${p.last}</b></div>` : ''}
-    <div class="field" style="margin:16px 0 8px"><span style="font-size:13px;color:var(--tx-2)">配送方式${sq.locked?'（本套已設定）':''}</span>
-      ${sq.locked ? `<div class="sumrow" style="border-bottom:0"><b>${SHIP_M[sq.m]}</b><span class="dim" style="font-size:12px">已預收 ${sq.paid} 份・已抽中小獎 ${sq.small} 件</span></div>`
-        : `<div class="pays" role="radiogroup" aria-label="配送方式" style="grid-template-columns:repeat(3,minmax(0,1fr))">${Object.entries(SHIP_M).map(([k,t]) =>
-          `<button class="pay" role="radio" data-act="shipsel" data-k="${k}" aria-checked="${sq.m===k}" aria-pressed="${sq.m===k}" style="flex-direction:column;height:64px;gap:4px;font-size:13px"><span style="white-space:nowrap">${{home:'宅配到府',c711:'7-11 交貨便',fami:'全家店到店'}[k]}</span><span class="dim" style="font-size:12px">${fmt(k==='home'?p.ship.home:p.ship.cvs)} 幣</span></button>`).join('')}</div>`}
-    </div>
-    <div class="sumrow"><span class="muted">運費預收</span><b>${sq.add ? `${fmt(sq.cost)} 幣` : '<span class="dim">已預收・本次免收</span>'}</b></div>
-    <p class="dim" style="font-size:12px;margin:8px 0 0;line-height:1.6">${sq.add ? (sq.paid ? `本套已抽中小獎 ${sq.small} 件加本次 ${n} 抽，累計將達 ${(sq.paid)*20} 件以上，本次預收 ${sq.add} 份運費。` : (sq.add > 1 ? `本套首次抽賞，本次 ${n} 抽已達 20 件以上，預收 ${sq.add} 份運費。` : '本套首次抽賞，預收一份運費。')) : ''}小獎每累計滿 20 件再預收一份，大獎、中獎不計入；之後回收小獎，每件退還運費的 1/20（平台代幣）。</p>
+    <div class="sumrow"><span class="muted">運費</span><b class="dim" style="font-weight:500">到付・寄送方式依各獎品預設</b></div>
     <div class="sumrow"><span class="muted">優惠券</span><b class="dim">未使用</b></div>
-    <div class="sumrow" style="border-bottom:0;min-height:56px"><span>應付</span><b style="font-size:22px;color:var(--gold-2)">${fmt(total)} 幣</b></div>
-    <div class="sumrow" style="border-bottom:0"><span class="muted">扣款後餘額</span><b class="${after<0?'':'muted'}" style="${after<0?'color:var(--bad)':''}">${fmt(after)} 幣</b></div>
+    <div class="sumrow" style="border-bottom:0;min-height:56px"><span>應付</span><b style="font-size:22px;color:var(--gold-2)">${fmt(total)} CC幣</b></div>
+    <div class="sumrow" style="border-bottom:0"><span class="muted">扣款後餘額</span><b class="${after<0?'':'muted'}" style="${after<0?'color:var(--bad)':''}">${fmt(after)} CC幣</b></div>
     <label class="check"><input type="checkbox" id="ruleOk" ${S.rulesOk?'checked':''}><span>我已閱讀並同意本賞池之<a href="#/rules" data-act="close-modal">遊戲規則與注意事項</a>及<a href="#/support" data-doc="rules">抽賞規則與機率揭露（v1.0.3）</a>，了解結果於付款後由伺服器確定，動畫僅為呈現。</span></label>
     ${after < 0
       ? `<a class="btn gold block" href="#/wallet" data-act="close-modal">餘額不足，前往儲值</a>`
@@ -226,7 +220,7 @@ function settle(p, nos){
     if (t.taken) return;            // race lost — in production the API rejects & refunds
     t.taken = true; t.by = 'me';
     const pr = p.prizes[t.pi];
-    results.push({no, rk:pr.rk, g:pr.g, lv:pr.lv, lvName:pr.lvName, small:pr.small, tag:pr.tag, img:pr.img, custom:pr.custom, tier:pr.tier, rv:pr.rv, name:pr.name, pname:pr.name, hue:p.hue});
+    results.push({no, rk:pr.rk, g:pr.g, lv:pr.lv, lvName:pr.lvName, small:pr.small, tag:pr.tag, img:pr.img, ship:pr.ship, custom:pr.custom, tier:pr.tier, rv:pr.rv, name:pr.name, pname:pr.name, hue:p.hue});
     if (p.guar){
       if (pr.tier >= p.guar.minTier) S.guar[p.id] = 0;
       else {
@@ -246,19 +240,17 @@ function confirmBuy(){
   if (!S.sel.length || p.tickets.some(t => S.sel.includes(t.no) && (t.taken || t.held))){ clearHold(); closeModal(); refreshPick(p); toast('鎖籤已失效，本次未扣款，請重新選籤'); return; }
   if (!$('#ruleOk').checked){ toast('請先勾選同意抽賞規則'); $('#ruleOk').focus(); return; }
   S.rulesOk = true;
-  const nos = S.sel.slice(), sq = shipQuote(p, nos.length, S.shipPick), total = nos.length * p.price + sq.cost;
+  const nos = S.sel.slice(), total = nos.length * p.price;
   if (total > S.coins){ closeModal(); location.hash = '#/wallet'; return; }
-  S.coins -= total; S.coinsNR = Math.max(0, S.coinsNR - total); syncBal();   // 不可退款代幣優先扣抵
-  if (sq.add){ S.shipPaid[sq.key] = {n:sq.paid + sq.add, m:sq.m};
-    S.tx.unshift({t:`運費預收 ・ ${SHIP_M[sq.m]} ×${sq.add}（${p.title.split(' ～')[0]}${p.sets.length>1?' 第 '+(p.setIdx+1)+' 套':''}）`, d:twNow(), a:-sq.cost, ic:'truck'}); }
+  S.coins -= total; S.coinsNR = Math.max(0, S.coinsNR - total); syncBal();   // 先扣不可退款 CC幣
   const results = settle(p, nos);
   const today = twDate();
-  results.forEach((x,i) => S.wh.unshift({id:'n'+Date.now()+i, no:x.no, txn:null, pool:p.id, set:p.setIdx, rk:x.rk, g:x.g, lv:x.lv, lvName:x.lvName, small:x.small, img:x.img, custom:x.custom, rv:x.rv, pname:x.pname, name:x.custom ? x.name : `${p.ip} ${x.name}`, hue:p.hue, at:today, st:'stored'}));
+  results.forEach((x,i) => S.wh.unshift({id:'n'+Date.now()+i, no:x.no, txn:null, pool:p.id, set:p.setIdx, rk:x.rk, g:x.g, lv:x.lv, lvName:x.lvName, small:x.small, img:x.img, custom:x.custom, rv:x.rv, pname:x.pname, sm:x.ship, name:x.custom ? x.name : `${p.ip} ${x.name}`, hue:p.hue, at:today, st:'stored'}));
   S.tx.unshift({t:`抽賞 ・ ${p.title} ×${nos.length}`, d:twNow(), a:-(nos.length * p.price), ic:'ticket'});
   results.filter(x => x.tier >= 2).forEach(x => drawLog.unshift({u:'c***i', pool:p.ip, txt:labelOf(x)}));
   clearHold(); closeModal();
   runDraw(p, results);
-  if (D){ D.paid = nos.length * p.price; D.shipCost = sq.cost; }
+  if (D){ D.paid = nos.length * p.price; }
 }
 
 /* =========================================================
@@ -494,7 +486,7 @@ function showSummary(){
   const sorted = D.results.slice().sort((a,b) => b.tier - a.tier);
   const hi = sorted.filter(x => x.tier >= 2).length;
   const s = $('#sum');
-  if (D.demo){ s.innerHTML = `<h2>體驗結果</h2><div class="sub">共 ${D.results.length} 件${hi?`，其中 <b style="color:var(--gold-2)">${hi}</b> 件為中獎以上`:''} ・ 免費體驗，獎品不會發放、也不扣代幣</div>
+  if (D.demo){ s.innerHTML = `<h2>體驗結果</h2><div class="sub">共 ${D.results.length} 件${hi?`，其中 <b style="color:var(--gold-2)">${hi}</b> 件為中獎以上`:''} ・ 免費體驗，獎品不會發放、也不扣CC幣</div>
     <div class="sgrid">${sorted.map((x,i) => `<div class="sitem ${x.tier>=3?'hi':''}" style="animation-delay:${i*60}ms"><div class="mini">${kujiInner(x, {sub:'體驗 No.'+pad(x.no), foot:x.name})}</div>
       ${tagOf(x, true)}<b>${x.name}</b><span>體驗模式</span></div>`).join('')}</div>
     <div class="acts"><button class="btn" data-act="close-stage">再玩一次</button><a class="btn gold" href="${p.demoOnly ? '#/lobby' : '#/quick/' + p.id}" data-act="close-stage">${ic('ticket')}${p.demoOnly ? '去抽賞大廳' : '真的去抽'}</a></div>`; }
@@ -503,7 +495,7 @@ function showSummary(){
     <div class="stub">
       <div class="hd"><b>客戶留存用</b><span class="brand" style="font-size:16px;color:#e9eeef">CHIAKI</span></div>
       <dl><dt>交易編號</dt><dd class="num">${D.txn}</dd><dt>賞池</dt><dd>${p.title}${p.sets && p.sets.length>1?` ・ <span style="white-space:nowrap">第 ${pad(p.setIdx+1)} 套</span>`:''}</dd>
-        <dt>籤號</dt><dd class="num">${[...new Set(D.results.map(x=>x.no))].sort((a,b)=>a-b).map(pad).join('、')}</dd>${D.paid != null ? `<dt>扣款</dt><dd class="num">${fmt(D.paid + (D.shipCost||0))} 幣${D.shipCost ? `（含運費預收 ${fmt(D.shipCost)}）` : ''}</dd>` : ''}<dt>時間</dt><dd class="num">${twNow()}</dd></dl>
+        <dt>籤號</dt><dd class="num">${[...new Set(D.results.map(x=>x.no))].sort((a,b)=>a-b).map(pad).join('、')}</dd>${D.paid != null ? `<dt>扣款</dt><dd class="num">${fmt(D.paid)} CC幣</dd>` : ''}<dt>時間</dt><dd class="num">${twNow()}</dd></dl>
       <div class="links"><a href="${LINKS.line}" target="_blank" rel="noopener">${ic('users','width:16px;height:16px')}LINE 社群</a><a href="${LINKS.ig}" target="_blank" rel="noopener">${ic('ig','width:16px;height:16px')}Instagram</a><a href="${LINKS.fb}" target="_blank" rel="noopener">${ic('fb','width:16px;height:16px')}Facebook</a></div>
     </div>
     <div class="sgrid">${sorted.map((x,i) => `<div class="sitem ${x.tier>=3?'hi':''}" style="animation-delay:${i*60}ms"><div class="mini">${kujiInner(x, {sub:'No.'+pad(x.no), foot:x.name})}</div>

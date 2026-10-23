@@ -165,7 +165,7 @@ const LV_RK = 'ABCDEFGH';
 function flattenLevels(p){
   p.prizes = [];
   p.levels.forEach((L, i) => { const lv = i + 1, small = L.small != null ? !!L.small : lv >= 4;
-    L.items.forEach(it => p.prizes.push({name:it.n, qty:it.q, keep:it.keep || 0, rv:it.rv || 0, tag:it.tag || null, img:it.img || null,
+    L.items.forEach(it => p.prizes.push({name:it.n, qty:it.q, keep:it.keep || 0, rv:it.rv || 0, tag:it.tag || null, img:it.img || null, ship:it.ship || (lv === 1 || it.tag === 'GK' ? 'home' : 'c711'),
       lv, lvName:L.name || `${lv} 等`, small, rk:LV_RK[i], g: small ? 'S' : lv === 1 ? 'G' : 'M', tier: small ? 0 : lv === 1 ? 3 : lv === 2 ? 2 : 1})); });
 }
 const PRODUCTS = [
@@ -230,7 +230,7 @@ function cfgFill(h){
   const hold = typeof holdSec === 'function' ? holdSec() : 180, holdTxt = hold % 60 ? `${hold} 秒` : `${hold/60} 分鐘`;
   return String(h).replace(/保管 30 天/g, `保管 ${storeDays()} 天`).replace(/前 7 天/g, `前 ${warn} 天`).replace(/（7 天前／當天）/g, `（${warn} 天前／當天）`)
     .replace(/保留 3 分鐘/g, `保留 ${holdTxt}`).replace(/(年滿|未滿) 18 歲/g, `$1 ${age} 歲`)
-    .replace(/1\/20/g, `1/${(typeof shipRefundDiv === 'function') ? shipRefundDiv() : 20}`).replace(/累計達 <strong>20 位<\/strong>/g, `累計達 <strong>${c.inviteGoal || 20} 位</strong>`).replace(/1,000 平台代幣/g, `${fmt(c.inviteReward != null ? c.inviteReward : 1000)} 平台代幣`);
+    .replace(/1\/20/g, `1/${(typeof shipRefundDiv === 'function') ? shipRefundDiv() : 20}`).replace(/累計達 <strong>20 位<\/strong>/g, `累計達 <strong>${c.inviteGoal || 20} 位</strong>`).replace(/1,000 不可退款 CC幣/g, `${fmt(c.inviteReward != null ? c.inviteReward : 1000)} 不可退款 CC幣`);
 }
 /* copy that reports failure honestly (clipboard is often blocked in in-app browsers) */
 async function copyText(v, okMsg){
@@ -250,7 +250,7 @@ function focusKey(el){
 
 /* ---------- App state (demo user) ---------- */
 const S = {
-  coins: 5000, points: 320, verified: false, rulesOk: false,
+  coins: 5320, verified: false, rulesOk: false,
   sel: [], holdUntil: 0, holdTimer: null,
   guar: {p3: 7},
   cart: [],
@@ -267,7 +267,7 @@ const S = {
   tx: [
     {t:'儲值 ・ 信用卡（綠界）', d:'2026-10-20 21:14', a:+3000, ic:'card'},
     {t:'抽賞 ・ 一番賞 航海王 ×3', d:'2026-10-18 22:40', a:-1050, ic:'ticket'},
-    {t:'回收獎品 ・ 透明資料夾 → 平台點數', d:'2026-09-14 13:02', a:+20, ic:'recycle', pt:true},
+    {t:'回收獎品 ・ 透明資料夾 → 不可退款 CC幣', d:'2026-09-14 13:02', a:+20, ic:'recycle', pt:true},
   ],
   pick: {pack:1000, pay:'card'},
   admin: 'dash',

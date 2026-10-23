@@ -5,7 +5,7 @@
    標籤 ＝ 這是什麼東西（GK、PVC、一番賞、景品盲盒、卡牌、娃娃、其他）
    ========================================================= */
 /* ---------- 免費體驗測試池：100% 中獎，只在免費體驗區出現 ---------- */
-const DEMO_IMG = k => ({gbcover:'__DEMO_gbcover__', gbcalc:'__DEMO_gbcalc__', gbbox:'__DEMO_gbbox__', gbrug:'__DEMO_gbrug__', gbsticker:'__DEMO_gbsticker__', duo:'__DEMO_duo__', pro:'__DEMO_pro__', pods:'__DEMO_pods__', watch:'__DEMO_watch__', case:'__DEMO_case__', strap:'__DEMO_strap__', beats:'__DEMO_beats__', cable:'__DEMO_cable__', cover:'__DEMO_cover__'}[k] || '').replace(/^__DEMO_.*__$/, '');
+const DEMO_IMG = k => ({gbcover:'__DEMO_gbcover__', gbcalc:'__DEMO_gbcalc__', gbbox:'__DEMO_gbbox__', gbrug:'__DEMO_gbrug__', gbsticker:'__DEMO_gbsticker__', duo:'__DEMO_duo__', pro:'__DEMO_pro__', pods:'__DEMO_pods__', watch:'__DEMO_watch__', case:'__DEMO_case__', strap:'__DEMO_strap__', beats:'__DEMO_beats__', cable:'__DEMO_cable__', cover:'__DEMO_cover__', nrcover:'__DEMO_nrcover__', nrnaruto:'__DEMO_nrnaruto__', nrsasuke:'__DEMO_nrsasuke__', nrbadge:'__DEMO_nrbadge__', nrsticker:'__DEMO_nrsticker__', nrmystery:'__DEMO_nrmystery__'}[k] || '').replace(/^__DEMO_.*__$/, '');
 (() => { const P = {id:'demo', title:'100% 中獎 免費體驗測試池', ip:'CHIAKI ORIGINAL', src:'s', play:'std', price:0, hue:300, seed:909, demoOnly:true, img:DEMO_IMG('cover'),
     ship:{home:0, cvs:0}, packs:[1,5,10],
     levels:[
@@ -24,6 +24,17 @@ const DEMO_IMG = k => ({gbcover:'__DEMO_gbcover__', gbcalc:'__DEMO_gbcalc__', gb
       {name:'3 獎', items:[{n:'宮崎駿盲盒', q:30, rv:100, tag:'景品盲盒', img:DEMO_IMG('gbbox')}]},
       {name:'4 獎', items:[{n:'宮崎駿同人貼紙', q:1960, rv:10, tag:'其他', img:DEMO_IMG('gbsticker')}]}], last:null};
   buildPool(G); POOLS.splice(1, 0, G); })();
+/* 自製一番賞：雲頂終結谷（機率賞：70% 直接中 4 獎，其餘依剩餘數量隨機；寄送方式逐件預設） */
+(() => { const N = {id:'nr', title:'雲頂終結谷', ip:'火影忍者', src:'s', play:'prob', price:200, hue:22, seed:707, drawn:0, hot:true, isNew:true, img:DEMO_IMG('nrcover'),
+    desc:'鳴人 vs 佐助 終結谷決戰雙雕像。70% 機率直接獲得 4 獎「火影墨影霓亂徽章」（回收值 250），大獎佐助回收值高達 40,000。',
+    ship:{home:0, cvs:0}, packs:[1,5,10],
+    levels:[
+      {name:'大獎', items:[{n:'雲頂終結谷 佐助', q:1, rv:40000, tag:'GK', ship:'home', img:DEMO_IMG('nrsasuke')}]},
+      {name:'2 獎', items:[{n:'雲頂終結谷 鳴人', q:1, rv:18000, tag:'GK', ship:'home', img:DEMO_IMG('nrnaruto')}]},
+      {name:'4 獎', small:false, odds:0.7, items:[{n:'火影墨影霓亂徽章（一枚）', q:500, rv:250, tag:'其他', ship:'c711', img:DEMO_IMG('nrbadge')}]},
+      {name:'5 獎', items:[{n:'火影同人貼紙', q:9498, rv:10, tag:'其他', ship:'c711', img:DEMO_IMG('nrsticker')},
+                         {n:'隨機一番賞小獎', q:10000, rv:100, tag:'一番賞', ship:'c711', img:DEMO_IMG('nrmystery')}]}], last:null};
+  buildPool(N); POOLS.splice(1, 0, N); })();
 /* 機率賞：先依公布機率決定等級（該級有剩才算），其餘依剩餘數量隨機 */
 function probPick(p, used){
   const free = p.tickets.filter(t => !t.taken && !(used && used.has(t.no))), r = Math.random(); let acc = 0;
@@ -33,15 +44,16 @@ function probPick(p, used){
   const fixed = new Set(p.levels.map((L, i) => L.odds ? i + 1 : 0)), rest = free.filter(t => !fixed.has(lvOf(t)));
   const pool = rest.length ? rest : free; return pool[Math.floor(Math.random() * pool.length)];
 }
+const pctF = x => !x ? '0%' : x < 0.01 ? '≈' + x.toPrecision(2) + '%' : x.toFixed(2) + '%';
 function probPct(p, i){
   const free = p.tickets.filter(t => !t.taken), n = free.filter(t => t.pi === i).length; if (!free.length) return '—';
-  if (p.play !== 'prob') return (n / free.length * 100).toFixed(2) + '%';
+  if (p.play !== 'prob') return pctF(n / free.length * 100);
   const lv = p.prizes[i].lv, lvLeft = l => free.filter(t => p.prizes[t.pi].lv === l).length;
   const active = p.levels.map((L, k) => L.odds && lvLeft(k + 1) ? L.odds : 0), fixedSum = active.reduce((a, b) => a + b, 0);
-  if (active[lv - 1]) return (active[lv - 1] * n / lvLeft(lv) * 100).toFixed(2) + '%';
+  if (active[lv - 1]) return pctF(active[lv - 1] * n / lvLeft(lv) * 100);
   if (p.levels[lv - 1].odds) return '0.00%';
   const restN = free.filter(t => !active[p.prizes[t.pi].lv - 1] && !p.levels[p.prizes[t.pi].lv - 1].odds).length;
-  return restN ? ((1 - fixedSum) * n / restN * 100).toFixed(2) + '%' : '—';
+  return restN ? pctF((1 - fixedSum) * n / restN * 100) : '—';
 }
 /* IP: name + search aliases only; default order = name length, then zh-TW */
 const IP_SEED = [
@@ -111,7 +123,6 @@ routes.lobby = (r) => {
   const hits = ipHits(kwl).slice(0, 6);
   return `<div class="wrap">
     <div class="page-h"><h1>抽賞大廳</h1><p>用「標籤」看是什麼東西、用「IP」看來自哪部作品，或直接搜尋。</p></div>
-    <a class="playbar" href="#/play">${ic('ticket','width:20px;height:20px')}<span><b>免費體驗區</b>先撕撕看，不扣代幣、不發獎品</span>${ic('right','width:16px;height:16px')}</a>
     <div class="lobby">
       <aside class="filters ${S.filterOpen ? 'open' : ''}" id="filters" aria-label="篩選">
         ${fg('tag', '標籤', tg, chip('tag','','全部') + TAGS.map(t => chip('tag', t.k, t.k, tagN(t.k))).join(''))}
@@ -173,12 +184,12 @@ function quickDraw(n){
   clearHold(); S.sel = shuffle(free.slice(), Math.random).slice(0, k); startHold(p); buyDialog();
 }
 
-/* ---------- 免費體驗：抽了不扣代幣、不發獎品 ---------- */
+/* ---------- 免費體驗：抽了不扣CC幣、不發獎品 ---------- */
 routes.play = r => {
   const live = POOLS.filter(p => !p.soon && !p.off && !p.sets[p.setIdx].off && remaining(p)).sort((a, b) => (b.demoOnly ? 1 : 0) - (a.demoOnly ? 1 : 0)), p = poolById(S.playPool) && live.includes(poolById(S.playPool)) ? poolById(S.playPool) : live[0];
   S.playPool = p.id;
   return `<div class="wrap">
-    <div class="page-h"><h1>免費體驗區</h1><p>先感受撕籤紙的手感與中獎演出。<b style="color:var(--gold-2)">不扣代幣、獎品不會發放</b>，結果也不影響正式賞池。</p></div>
+    <div class="page-h"><h1>免費體驗區</h1><p>先感受撕籤紙的手感與中獎演出。<b style="color:var(--gold-2)">不扣CC幣、獎品不會發放</b>，結果也不影響正式賞池。</p></div>
     <div class="play-pick" role="group" aria-label="選擇體驗賞池">${live.map(x => `<button class="chip ${x.id === p.id ? 'on' : ''}" data-act="x-playpool" data-k="${x.id}" aria-pressed="${x.id === p.id}">${x.demoOnly ? '★ ' : ''}${x.title.split(' ～')[0]}</button>`).join('')}</div>
     <div class="qd">
       <div class="qd-art">${art(p.hue, 'A', 'main', p.title + ' 主視覺', p.img)}</div>
@@ -233,7 +244,7 @@ ADM_VIEWS.prize = () => {
     <div class="lvedit">${p.levels.map((L, li) => { const its = L.items.map(it => ({it, i: pi++})); const small = L.small != null ? !!L.small : li >= 3;
       return `<section class="lvbox"><div class="lvhd"><span class="lv-no">${li + 1}</span>
         <label class="sr" for="lvn${li}">等級名稱</label><input class="input" id="lvn${li}" data-act="x-lvname" data-l="${li}" value="${(L.name||'').replace(/"/g,'&quot;')}" placeholder="例如 A賞、大獎" style="max-width:200px">
-        <label class="chk-chip"><input type="checkbox" data-act="x-lvsmall" data-l="${li}" ${small ? 'checked' : ''}><span>小獎（計入運費 20 件規則）</span></label>
+        <label class="chk-chip"><input type="checkbox" data-act="x-lvsmall" data-l="${li}" ${small ? 'checked' : ''}><span>小獎（可回收）</span></label>
         ${p.play === 'prob' ? `<label class="odds" for="lvo${li}"><span>固定機率</span><input class="input num" type="number" min="0" max="100" step="0.01" id="lvo${li}" data-act="x-lvodds" data-l="${li}" value="${L.odds ? +(L.odds * 100).toFixed(4) : ''}" placeholder="隨機"><span>%</span></label>` : ''}
         <span class="dim" style="margin-left:auto;font-size:12px">${its.length} 種・${its.reduce((s,x) => s + x.it.q, 0)} 件</span>
         ${edit && p.levels.length > 1 ? `<button class="btn s ghost" data-act="x-lvdel" data-l="${li}">刪除等級</button>` : ''}</div>

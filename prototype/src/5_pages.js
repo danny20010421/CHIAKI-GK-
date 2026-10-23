@@ -9,58 +9,53 @@ routes.warehouse = () => {
   const list = S.wh.filter(w => w.st === S.whTab);
   const n = S.whSel.length;
   return `<div class="wrap">
-    <div class="page-h"><h1>中獎倉庫</h1><p>中獎獎品自動入庫。可勾選多件合併出貨，或依各獎品回收值換成平台點數。</p></div>
+    <div class="page-h"><h1>中獎倉庫</h1><p>中獎獎品自動入庫。可勾選多件合併出貨，或依各獎品回收值換成不可退款 CC幣。</p></div>
     <div class="tabs" role="tablist" aria-label="倉庫狀態">${WH_TABS.map(([k,t]) => `<button role="tab" aria-selected="${S.whTab===k}" data-act="whtab" data-k="${k}">${t}<span class="n">${S.wh.filter(w=>w.st===k).length}</span></button>`).join('')}</div>
-    ${S.whTab==='stored' && list.length ? `<div class="row between" style="margin-bottom:16px;flex-wrap:wrap"><span class="muted" style="font-size:13px">${ic('clock','width:16px;height:16px;vertical-align:-3px')} 免費保管 ${storeDays()} 天・到期前 7 天及當天提醒・逾期依回收值自動轉為代幣</span><button class="btn s ghost" data-act="whall">${n===list.length?'取消全選':'全選'}</button></div>` : ''}
+    ${S.whTab==='stored' && list.length ? `<div class="row between" style="margin-bottom:16px;flex-wrap:wrap"><span class="muted" style="font-size:13px">${ic('clock','width:16px;height:16px;vertical-align:-3px')} 免費保管 ${storeDays()} 天・到期前 7 天及當天提醒・逾期依回收值自動轉為不可退款 CC幣</span><button class="btn s ghost" data-act="whall">${n===list.length?'取消全選':'全選'}</button></div>` : ''}
     ${list.length ? `<div class="wlist">${list.map(w => `
       <label class="witem ${S.whSel.includes(w.id)?'sel':''}">
         ${S.whTab==='stored' ? `<input type="checkbox" data-act="whsel" data-id="${w.id}" ${S.whSel.includes(w.id)?'checked':''} aria-label="選取 ${w.name}">` : ''}
         ${art(w.hue, glyphOf(w), '', '', w.img)}
-        <div class="i"><b>${w.name}</b><span>${w.st==='stored' ? (() => { const x = daysLeft(w.at); return `保管至 ${x.end} ・ 回收值 ${w.rv ? fmt(w.rv)+' 點' : '不可回收'}`; })() : w.at + ' 入庫' + (w.track ? ' ・ ' + w.track : '')}</span>${w.st==='ship' && w.ship ? trackHTML(w.ship) : ''}
-          <div class="row" style="gap:8px">${tagOf(w)}${w.st==='stored' ? (() => { const x = daysLeft(w.at); return x.d <= 0 ? '<span class="tag bad">今日到期</span>' : x.d <= 7 ? `<span class="tag warn">${x.d} 天後到期</span>` : ''; })() : w.st==='ship'?(w.ship && ['已出貨','已送達'].includes(w.ship.st) ? '<span class="tag info">運送中</span>' : '<span class="tag warn">揀貨中</span>'):w.st==='done'?'<span class="tag ok">已簽收</span>':w.st==='recycled'?'<span class="tag">已轉點數</span>':''}</div></div>
+        <div class="i"><b>${w.name}</b><span>${w.st==='stored' ? (() => { const x = daysLeft(w.at); return `保管至 ${x.end} ・ ${SHIP_M[whShip(w)]} ・ 回收 ${w.rv ? fmt(w.rv)+' CC幣' : '不可回收'}`; })() : w.at + ' 入庫' + (w.track ? ' ・ ' + w.track : '')}</span>${w.st==='ship' && w.ship ? trackHTML(w.ship) : ''}
+          <div class="row" style="gap:8px">${tagOf(w)}${w.st==='stored' ? (() => { const x = daysLeft(w.at); return x.d <= 0 ? '<span class="tag bad">今日到期</span>' : x.d <= 7 ? `<span class="tag warn">${x.d} 天後到期</span>` : ''; })() : w.st==='ship'?(w.ship && ['已出貨','已送達'].includes(w.ship.st) ? '<span class="tag info">運送中</span>' : '<span class="tag warn">揀貨中</span>'):w.st==='done'?'<span class="tag ok">已簽收</span>':w.st==='recycled'?'<span class="tag">已轉 CC幣</span>':''}</div></div>
       </label>`).join('')}</div>` : `<div class="empty">${S.whTab==='stored'?'倉庫目前是空的，去抽一抽吧！<br><br><a class="btn gold" href="#/lobby">前往抽賞大廳</a>':'沒有紀錄'}</div>`}
     ${S.whTab==='stored' && list.length ? `<div class="actbar"><span class="t">已選 <b class="num">${n}</b> 件</span>
-      <button class="btn" data-act="recycle" ${n?'':'disabled'}>${ic('recycle','width:18px;height:18px')}回收換點數</button>
+      <button class="btn" data-act="recycle" ${n?'':'disabled'}>${ic('recycle','width:18px;height:18px')}回收換 CC幣</button>
       <button class="btn gold" data-act="ship" ${n?'':'disabled'}>${ic('truck','width:18px;height:18px')}申請出貨</button></div>` : ''}
   </div>`;
 };
+/* 寄送方式由後台於上架時依獎品預設，會員不可選；不同方式分開出貨，運費到付 */
+function whShip(w){ if (w.sm) return w.sm; const p = poolById(w.pool), pr = p && p.prizes.find(x => x.name === w.pname);
+  return (pr && pr.ship) || (typeof isBulky === 'function' && isBulky(w) ? 'home' : 'c711'); }
+function shipGroups(ids){ const g = {}; S.wh.filter(w => ids.includes(w.id)).forEach(w => { const m = whShip(w); (g[m] = g[m] || []).push(w); });
+  const ord = Object.keys(SHIP_M); return Object.entries(g).sort((a, b) => ord.indexOf(a[0]) - ord.indexOf(b[0])); }
 function shipDialog(){
   const n = S.whSel.length; if (!n) return;
-  openModal(`<h3 id="mdlT">申請出貨（合併 ${n} 件）</h3>
-    <div class="field" style="margin-bottom:16px"><span style="font-size:13px;color:var(--tx-2)">配送方式</span>
-      <div class="pays" role="radiogroup" aria-label="配送方式" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-        ${[['home','宅配到府','truck'],['c711','7-11 交貨便','store'],['fami','全家店到店','store']].map(([k,t,i],x) =>
-          `<button class="pay" role="radio" data-act="shipm" data-k="${k}" aria-pressed="${k===(S.shipM||'home')}" aria-checked="${k===(S.shipM||'home')}">${ic(i,'width:18px;height:18px')}<span class="pl">${t}</span></button>`).join('')}
-      </div></div>
-    <div class="field" style="margin-bottom:16px"><label for="rcvP">收件人手機</label><input class="input" id="rcvP" inputmode="tel" autocomplete="tel" placeholder="09xx-xxx-xxx"></div>
-    <div class="field" style="margin-bottom:16px"><label for="rcv">收件人</label><input class="input" id="rcv" autocomplete="name" placeholder="真實姓名（取件需核對證件）"></div>
-    <div class="field" style="margin-bottom:16px"><label for="addr" id="addrL">${(S.shipM||'home')==='home'?'收件地址':'取貨門市'}</label><input class="input" id="addr" placeholder="${(S.shipM||'home')==='home'?'縣市／區／路段門牌':'門市名稱或店號'}" autocomplete="street-address"></div>
-    <div class="sumrow" style="border-bottom:0"><span class="muted">運費</span><b>已於抽賞時預收・本次免付</b></div>
-    <p class="dim" style="font-size:12px">配送方式以抽賞時預收運費之方式為準，如需變更請聯繫客服。材積超過超商限制之商品將改以宅配寄送；出貨後可於「出貨中」查看物流追蹤。</p>
-    <button class="btn gold block" data-act="ship-ok">確認出貨</button>`);
+  const G = shipGroups(S.whSel), A = (S.profile && S.profile.addrs) || [], def = A.find(a => a.def) || A[0] || {}, esc = typeof hx === 'function' ? hx : (x => x);
+  openModal(`<h3 id="mdlT">申請出貨（${n} 件）</h3>
+    <p class="dim" style="font-size:12px;margin:0 0 16px">每件獎品的寄送方式已由平台預先設定，無法變更；不同寄送方式將分成 ${G.length} 張出貨單寄出。</p>
+    <div class="field" style="margin-bottom:16px"><label for="rcv">收件人</label><input class="input" id="rcv" autocomplete="name" value="${esc(def.name || '')}" placeholder="真實姓名（取件需核對證件）"></div>
+    <div class="field" style="margin-bottom:16px"><label for="rcvP">收件人手機</label><input class="input" id="rcvP" inputmode="tel" autocomplete="tel" value="${def.phone ? phoneFmt(def.phone) : ''}" placeholder="09xx-xxx-xxx"></div>
+    ${G.map(([m, ws]) => { const opts = A.filter(a => a.m === m), d = opts.find(a => a.def) || opts[0];
+      return `<div class="shgrp">
+        <div class="shgrp-h"><span class="tag ${m === 'home' ? 'info' : ''}">${SHIP_M[m]}</span><b class="num">${ws.length} 件</b></div>
+        <p class="shgrp-n">${ws.map(w => esc(w.pname || w.name)).join('、')}</p>
+        ${opts.length ? `<div class="field" style="margin-bottom:8px"><label for="shAd_${m}">常用${m === 'home' ? '地址' : '門市'}</label><select class="input" id="shAd_${m}" data-act="y-shad" data-m="${m}">${opts.map(a => `<option value="${a.id}" ${a === d ? 'selected' : ''}>${esc(a.addr)}</option>`).join('')}<option value="">手動填寫</option></select></div>` : ''}
+        <div class="field"><label for="addr_${m}">${m === 'home' ? '收件地址' : '取貨門市'}</label><input class="input" id="addr_${m}" value="${d ? esc(d.addr) : ''}" placeholder="${m === 'home' ? '縣市／區／路段門牌' : '門市名稱或店號'}" autocomplete="street-address"></div>
+      </div>`; }).join('')}
+    <div class="sumrow" style="border-bottom:0"><span class="muted">運費</span><b>運費到付</b></div>
+    <p class="dim" style="font-size:12px;margin:0 0 16px">申請出貨不需先付運費，由物流業者於送達（宅配）或取件（超商）時向收件人收取，金額依物流業者公告。出貨後可於「出貨中」查看物流追蹤。</p>
+    <button class="btn gold block" data-act="ship-ok">確認出貨（${G.length} 張出貨單）</button>`);
 }
 function recycleDialog(){
   const items = S.wh.filter(w => S.whSel.includes(w.id));
   const pts = items.reduce((s,w) => s + (w.rv||0), 0);
   const blocked = items.filter(w => !w.rv);
-  const fr = shipRefundCalc(items), frAmt = fr.reduce((s,x) => s + x.amt, 0);
-  openModal(`<h3 id="mdlT">回收換平台點數</h3>
-    ${items.map(w => `<div class="sumrow"><span style="display:flex;gap:8px;align-items:center;min-width:0">${tagOf(w,true)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.name}</span></span><b>${w.rv ? '+'+fmt(w.rv)+' 點' : '不可回收'}</b></div>`).join('')}
-    <div class="sumrow" style="border-bottom:0;min-height:56px"><span>合計</span><b style="font-size:20px;color:var(--gold-2)">+${fmt(pts)} 點</b></div>
-    <p class="dim" style="font-size:12px;margin:0 0 16px">回收值依各套公開之設定計算。平台點數僅可於站內折抵，不得提領或兌換現金；確認回收後無法撤回。${blocked.length?`<br>其中 ${blocked.length} 件不提供回收。`:''}</p>
-    ${frAmt ? `<div class="panel" style="padding:16px;margin:0 0 16px;border-color:rgba(201,164,92,.4)"><div class="row between"><b style="font-size:14px">預收運費退還</b><b style="color:var(--gold-2)">+${fmt(frAmt)} 幣</b></div>
-      ${fr.map(x => `<p class="dim" style="font-size:12px;margin:8px 0 0">${(poolById(x.key.split(':')[0])||{}).title.split(' ～')[0]}：運費 ${fmt(x.fee)} ÷ ${x.div} × 回收 ${x.n} 件</p>`).join('')}
-      <p class="dim" style="font-size:12px;margin:8px 0 0">每回收 1 件小獎退還該份運費的 1/${shipRefundDiv()}，以平台代幣即時入帳（不可退款）；不足 1 幣的零頭會累計到下次回收。</p></div>` : ''}
+  openModal(`<h3 id="mdlT">回收換 CC幣</h3>
+    ${items.map(w => `<div class="sumrow"><span style="display:flex;gap:8px;align-items:center;min-width:0">${tagOf(w,true)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.name}</span></span><b>${w.rv ? '+'+fmt(w.rv) : '不可回收'}</b></div>`).join('')}
+    <div class="sumrow" style="border-bottom:0;min-height:56px"><span>合計（不可退款 CC幣）</span><b style="font-size:20px;color:var(--gold-2)">+${fmt(pts)}</b></div>
+    <p class="dim" style="font-size:12px;margin:0 0 16px">回收值依各套公開之設定計算，回收所得一律為<b>不可退款 CC幣</b>：抽賞時與一般 CC幣等值使用，但不得申請退款或兌換現金；確認回收後無法撤回。${blocked.length?`<br>其中 ${blocked.length} 件不提供回收。`:''}</p>
     <button class="btn gold block" data-act="recycle-ok" ${pts?'':'disabled'}>確認回收</button>`);
-}
-function shipRefundCalc(items){
-  /* 每回收 1 件小獎退還「該份運費 ÷ N」；按套累計後無條件捨去，零頭留到下次回收補足 */
-  const div = shipRefundDiv(), by = {};
-  items.filter(w => w.g === 'S' && w.rv && w.st === 'stored').forEach(w => { const key = w.pool + ':' + (w.set||0); (by[key] = by[key] || []).push(w); });
-  return Object.entries(by).map(([key, ws]) => { const rec = S.shipPaid[key]; if (!rec || !rec.m) return null;
-    const p = poolById(key.split(':')[0]), fee = rec.m === 'home' ? p.ship.home : p.ship.cvs;
-    const units = (rec.rUnits || 0) + ws.length, total = Math.floor(fee * units / div);
-    return {key, n:ws.length, fee, div, units, total, amt: total - (rec.rAmt || 0)}; }).filter(x => x && x.amt > 0);
 }
 
 /* =========================================================
@@ -69,17 +64,17 @@ function shipRefundCalc(items){
 const PACKS = [[500,0],[1000,0],[3000,30],[5000,80],[10000,200],[30000,800]];
 const PAYS = [['card','信用卡','card','綠界'],['atm','ATM 虛擬帳號','bank','綠界'],['cvs','超商代碼','store','綠界'],['bank','銀行轉帳','bank','人工對帳']];
 routes.wallet = () => `<div class="wrap">
-  <div class="page-h"><h1>錢包與儲值</h1><p>儲值代幣與平台點數分開記帳；所有異動皆可查詢。</p></div>
+  <div class="page-h"><h1>錢包與儲值</h1><p>站內統一使用 CC幣；抽賞時每 1 CC幣價值相同，差別只在是否可申請退款。</p></div>
   <div class="wal-top">
-    <div class="balance main"><span>儲值代幣</span><b><span class="coin" style="width:32px;height:32px;font-size:16px">C</span><span class="num">${fmt(S.coins)}</span></b><small>可退款 ${fmt(S.coins - S.coinsNR)} ・ 不可退款 ${fmt(S.coinsNR)}${S.coinsNR ? ' ' + nrTag : ''}</small></div>
-    <div class="balance"><span>平台點數</span><b class="num">${fmt(S.points)}</b><small>活動與回收取得 ・ 站內折抵，不可提領</small></div>
+    <div class="balance main"><span>CC幣餘額</span><b><span class="coin" style="width:32px;height:32px;font-size:16px">C</span><span class="num">${fmt(S.coins)}</span></b><small>可退款 ${fmt(S.coins - S.coinsNR)} ・ 不可退款 ${fmt(S.coinsNR)}</small></div>
+    <div class="balance"><span>扣款順序</span><b style="font-size:18px">先扣不可退款</b><small>不可退款 CC幣用完後才扣可退款 CC幣</small></div>
     <div class="balance"><span>可用優惠券</span><b class="num">${myCoupons().length}</b><small><a href="#/me">查看優惠券</a></small></div>
   </div>
   <div class="layout2" style="margin-top:32px">
     <div class="panel">
       <h3>選擇儲值金額</h3>
       <div class="packs" role="radiogroup" aria-label="儲值金額">${PACKS.map(([v,b]) => `<button class="pack" role="radio" data-act="pack" data-v="${v}" aria-checked="${S.pick.pack===v}" aria-pressed="${S.pick.pack===v}">
-        ${b?`<em>+${b} 點</em>`:''}<b><span class="coin" style="width:20px;height:20px;font-size:11px">C</span>${fmt(v)}</b><span>NT$ ${fmt(v)}</span></button>`).join('')}</div>
+        ${b?`<em>+${b} CC幣</em>`:''}<b><span class="coin" style="width:20px;height:20px;font-size:11px">C</span>${fmt(v)}</b><span>NT$ ${fmt(v)}</span></button>`).join('')}</div>
       <h3 style="margin-top:32px">付款方式</h3>
       <div class="pays" role="radiogroup" aria-label="付款方式">${PAYS.map(([k,t,i,s]) => `<button class="pay" role="radio" data-act="paym" data-k="${k}" aria-checked="${S.pick.pay===k}" aria-pressed="${S.pick.pay===k}" style="flex-direction:column;height:72px;gap:4px">${ic(i,'width:20px;height:20px')}<span>${t}</span><span class="dim" style="font-size:11px">${s}</span></button>`).join('')}</div>
       <div class="field" style="margin-top:24px"><label for="promo">邀請碼／優惠碼（選填）</label><div class="invite"><input class="input" id="promo" placeholder="輸入代碼"><button class="btn" data-act="promo">套用</button></div></div>
@@ -90,8 +85,8 @@ routes.wallet = () => `<div class="wrap">
     </div>
     <div class="panel">
       <h3 class="row between">交易紀錄 ${S.tx.length > 8 ? `<button class="btn s ghost" data-act="txall" aria-expanded="${!!S.txAll}">${S.txAll ? '收合' : `全部 ${S.tx.length} 筆`}</button>` : ''}</h3>
-      <div class="txl">${S.tx.slice(0, S.txAll ? S.tx.length : 8).map(x => `<div class="tx"><span class="ic">${ic(x.ic)}</span><div class="d"><b>${x.t}</b><span>${x.d}</span></div><span class="a ${x.a>0?'p':''}">${x.a>0?'+':''}${fmt(x.a)}${x.pt?' 點':''}${x.nr?'<br><span class="tag warn" style="height:20px;font-size:11px">不可退款</span>':''}</span></div>`).join('')}</div>
-      <button class="btn block ghost" style="margin-top:16px" data-act="refund">${ic('doc','width:18px;height:18px')}申請未使用代幣退款</button>
+      <div class="txl">${S.tx.slice(0, S.txAll ? S.tx.length : 8).map(x => `<div class="tx"><span class="ic">${ic(x.ic)}</span><div class="d"><b>${x.t}</b><span>${x.d}</span></div><span class="a ${x.a>0?'p':''}">${x.a>0?'+':''}${fmt(x.a)}${x.pt?' CC幣':''}${x.nr?'<br><span class="tag warn" style="height:20px;font-size:11px">不可退款</span>':''}</span></div>`).join('')}</div>
+      <button class="btn block ghost" style="margin-top:16px" data-act="refund">${ic('doc','width:18px;height:18px')}申請未使用 CC幣退款</button>
     </div>
   </div></div>`;
 
@@ -138,9 +133,9 @@ routes.me = () => {
         <p class="dim" style="font-size:12px;margin:12px 0 0">LINE 官方帳號綁定完成後自動發放；IG／FB 追蹤獎勵經客服確認後於 3 個工作天內發放。</p></div>
       <div class="panel" id="me-invite"><h3>邀請好友</h3>
         <div class="invite"><code>${S.invite.code}</code><button class="btn" data-act="x-invite">${ic('copy','width:18px;height:18px')}複製連結</button></div>
-        <div class="row between" style="margin:16px 0 8px;font-size:13px"><span>已成功邀請 <b class="num">${S.invite.ok}</b> / ${S.cfg.inviteGoal || S.invite.goal} 人</span><b style="color:var(--gold-2)">贈 ${fmt(S.cfg.inviteReward != null ? S.cfg.inviteReward : S.invite.reward)} 平台代幣</b></div>
+        <div class="row between" style="margin:16px 0 8px;font-size:13px"><span>已成功邀請 <b class="num">${S.invite.ok}</b> / ${S.cfg.inviteGoal || S.invite.goal} 人</span><b style="color:var(--gold-2)">贈 ${fmt(S.cfg.inviteReward != null ? S.cfg.inviteReward : S.invite.reward)} 不可退款 CC幣</b></div>
         <div class="meter"><i style="width:${Math.min(100, S.invite.ok/(S.cfg.inviteGoal || S.invite.goal)*100)}%"></i></div>
-        <p class="dim" style="font-size:12px;margin:12px 0 0">好友需完成註冊與手機驗證才計入；贈送之平台代幣為不可退款代幣，如有疑問請聯絡官方小編。</p></div>
+        <p class="dim" style="font-size:12px;margin:12px 0 0">好友需完成註冊與手機驗證才計入；贈送之不可退款 CC幣為不可退款CC幣，如有疑問請聯絡官方小編。</p></div>
       <div class="panel" id="me-coupon"><h3>優惠券</h3>
         ${myCoupons().map(c => `<div class="coupon"><div class="l"><b>${(c.d.match(/(\d)\s*折/) || [])[1] ? c.d.match(/(\d)\s*折/)[1] + ' 折' : /免運/.test(c.d) ? '免運' : '優惠'}</b><span>${/免運/.test(c.d) ? '出貨' : '抽賞'}</span></div><div class="r"><b>${c.d}</b><span>${c.exp} 到期 ・ 代碼 ${c.code}</span></div></div>`).join('') || '<p class="muted" style="margin:0">目前沒有可用的優惠券</p>'}</div>
       <div class="panel" id="me-sec"><h3>登入與安全</h3>
@@ -155,10 +150,10 @@ routes.me = () => {
 
 const BIND_TASKS = [
   {k:'line', t:'綁定 LINE 官方帳號', reward:'抽賞 9 折券 ×1', cta:'綁定', ic:'chat', c:'#06c755', url:null},
-  {k:'group', t:'加入 LINE 社群（GK 雕像討論／分享群）', reward:'平台點數 +50', cta:'加入', ic:'users', c:'#06c755', url:LINKS.line, pts:50},
-  {k:'ig', t:'追蹤 Instagram @chiaki_gk.studies', reward:'平台點數 +30（人工審核）', cta:'前往', ic:'ig', url:LINKS.ig, review:true},
-  {k:'fb', t:'追蹤 Facebook 粉絲專頁', reward:'平台點數 +30（人工審核）', cta:'前往', ic:'fb', url:LINKS.fb, review:true},
-  {k:'phone', t:'綁定手機・簡訊開賞通知', reward:'超商免運券 ×1', cta:'綁定', ic:'phone'}
+  {k:'group', t:'加入 LINE 社群（GK 雕像討論／分享群）', reward:'不可退款 CC幣 +50', cta:'加入', ic:'users', c:'#06c755', url:LINKS.line, pts:50},
+  {k:'ig', t:'追蹤 Instagram @chiaki_gk.studies', reward:'不可退款 CC幣 +30（人工審核）', cta:'前往', ic:'ig', url:LINKS.ig, review:true},
+  {k:'fb', t:'追蹤 Facebook 粉絲專頁', reward:'不可退款 CC幣 +30（人工審核）', cta:'前往', ic:'fb', url:LINKS.fb, review:true},
+  {k:'phone', t:'綁定手機・簡訊開賞通知', reward:'抽賞 95 折券 ×1', cta:'綁定', ic:'phone'}
 ];
 function bindPopup(){
   openModal(`<div class="bind-hero" aria-hidden="true"><div class="fan">${kujiInner({rk:'C'},{sub:'No.12'})}${kujiInner({rk:'A'},{sub:'No.01'})}${kujiCover()}</div>
@@ -193,8 +188,8 @@ const DOCS = {
   terms:['使用者條款',[
     ['服務內容與帳號','CHIAKI 提供線上一番賞抽賞、直購商城、中獎倉庫保管與出貨等服務。會員應以真實資料註冊，每人限持有一個帳號，並妥善保管登入資訊。'],
     ['付費抽賞服務之性質','抽賞為支付固定費用、自公開獎池中隨機取得實體商品之服務。各賞池之獎項組成、數量、機率與規則均於賞池頁完整揭露，付款前請詳閱。'],
-    ['代幣、點數與優惠券','儲值代幣用於抽賞與購物；平台點數取自活動或獎品回收，僅限站內折抵，不得提領或兌換現金。優惠券依各券面說明之條件與期限使用。'],
-    ['獎品所有權與保管','抽賞完成後，獎品所有權即移轉予會員並存入中獎倉庫，自入庫日起免費保管 30 天，會員可隨時申請出貨；逾期未申請者，可回收之獎品依回收值自動轉為代幣，不可回收之獎品由客服另行通知處理。'],
+    ['CC幣與優惠券','站內統一使用 CC幣，抽賞時每 1 CC幣價值相同。CC幣分為可退款（儲值取得、未使用）與不可退款（活動贈送、獎品回收取得），扣款時先扣不可退款 CC幣；不可退款 CC幣不得申請退款或兌換現金。優惠券依各券面說明之條件與期限使用。'],
+    ['獎品所有權與保管','抽賞完成後，獎品所有權即移轉予會員並存入中獎倉庫，自入庫日起免費保管 30 天，會員可隨時申請出貨；逾期未申請者，可回收之獎品依回收值自動轉為不可退款 CC幣，不可回收之獎品由客服另行通知處理。'],
     ['禁止行為','禁止以程式自動化操作、多重帳號、盜用他人支付工具或其他不正當方式使用本服務。違者本平台得暫停或終止帳號，並保留法律追訴權利。'],
     ['責任限制與爭議處理','因不可抗力或第三方系統異常致服務中斷時，本平台將盡速修復並依交易紀錄處理。對抽賞結果有疑義者，可於客服中心提出工單，本平台將調閱稽核紀錄回覆。'],
     ['條款修訂','本平台得修訂本條款，修訂內容將於網站公告並自公告日起生效；已發布賞池之規則不因條款修訂而變更。']]],
@@ -216,13 +211,13 @@ const DOCS = {
     ['結果鎖定與驗證','賞池發布時即固定全部籤號與獎項對應，並公開 SHA-256 承諾雜湊；完售後公開完整籤表，任何人皆可自行驗證。'],
     ['斷線與重複付款','抽賞結果於付款完成時由伺服器確定，斷線、重新整理或略過動畫均不影響結果；重複送出之同筆交易僅扣款一次。']]],
   refund:['退款與配送規範',[
-    ['未使用代幣退款','未使用之儲值代幣可於客服中心或錢包頁提出退款申請，經審核後退還至原付款方式或指定帳戶；活動贈送之點數不予退還。'],
+    ['未使用 CC幣退款','未使用之 CC幣可於客服中心或錢包頁提出退款申請，經審核後退還至原付款方式或指定帳戶；活動贈送及回收取得之不可退款 CC幣不予退還。'],
     ['抽賞商品之退換貨','抽賞屬隨機取得商品之服務，結果確定後恕不接受退換或更換賞級。'],
     ['瑕疵品處理','收到商品如有非人為之瑕疵或運送破損，請於簽收後 7 日內拍照並透過工單聯繫，本平台將協助補寄或換貨。'],
-    ['配送方式與運費','提供宅配到府（每份 150–300 代幣）與 7-ELEVEN 交貨便、全家店到店（每份 60–150 代幣），實際金額依各套設定。運費於該套首次抽賞時按套預收一份；同一套抽中之小獎（含當次購買數量）每累計滿 20 件再預收一份，大獎、中獎不計入。之後回收小獎，每件退還該份運費的 1/20（例如運費 200 代幣，回收 1 件退 10 代幣），以平台代幣入帳。'],
+    ['配送方式與運費','每件獎品的寄送方式（宅配到府、7-ELEVEN 交貨便或全家店到店）由平台於上架時預先設定，並標示於賞池頁獎項表，會員無法自行變更；大型獎品依材積限制以宅配寄送。申請出貨時，不同寄送方式的獎品會分成不同出貨單。運費一律到付：抽賞與申請出貨時均不收取運費，由物流業者於送達或取件時向收件人收取，金額依物流業者公告。'],
     ['出貨時效','官方商品依官方出貨時程辦理，平台商品依平台公告之出貨時程辦理；材積超過超商限制之商品將改以宅配寄送。'],
-    ['保管期限','獎品入庫後免費保管 30 天，到期前 7 天及到期當天以站內通知提醒；逾期未申請出貨者，可回收之獎品依回收值自動轉為代幣；不可回收之獎品（如大獎）不會自動轉換，將由客服另行通知處理。'],
-    ['獎品回收','各獎品之回收值依各套設定公開於賞池頁；回收所得為平台點數，僅可站內折抵，確認回收後無法撤回。']]],
+    ['保管期限','獎品入庫後免費保管 30 天，到期前 7 天及到期當天以站內通知提醒；逾期未申請出貨者，可回收之獎品依回收值自動轉為不可退款 CC幣；不可回收之獎品（如大獎）不會自動轉換，將由客服另行通知處理。'],
+    ['獎品回收','各獎品之回收值依各套設定公開於賞池頁；回收所得一律為不可退款 CC幣，抽賞時與一般 CC幣等值使用，但不得申請退款或兌換現金；確認回收後無法撤回。']]],
   minor:['未成年保護',[
     ['年齡限制','本平台付費抽賞服務限年滿 18 歲之會員使用。'],
     ['年齡驗證','首次付費抽賞前須完成手機驗證與出生日期確認，必要時本平台得要求提供進一步證明。'],
@@ -243,10 +238,10 @@ routes.support = () => `<div class="wrap">
            ['機率如何計算？','採固定清單、無放回抽取。每個賞級的機率 = 該賞剩餘數 ÷ 總剩餘數，每抽一次即時更新於賞池頁。'],
            ['保底挑戰怎麼運作？','於賞池頁事前公開保底條件與保底專用庫存數量；保底庫存用罄即停止並公告。實際條款以法務審定版本為準。'],
            ['中獎後多久出貨？','官方商品依官方出貨時程，平台商品依平台公告之出貨時程辦理；獎品入庫後可隨時申請出貨，並可合併多件。'],
-           ['運費怎麼計算？','運費於該套首次抽賞時按套預收一份（宅配或超商交貨便，金額依各套設定）。同一套小獎（含當次購買數量）每累計滿 20 件會再預收一份，所以一次抽 20 抽以上會預收兩份；大獎、中獎不計入。回收小獎時，每件退還該份運費的 1/20 作為平台代幣，例如運費 200 代幣、回收 1 件就退 10 代幣。'],
-           ['獎品可以放多久？','入庫後免費保管 30 天，到期前 7 天及到期當天會提醒；逾期未申請出貨的可回收獎品，將依回收值自動轉為代幣；大獎等不可回收的獎品則由客服另行通知。'],
-           ['儲值代幣可以退款嗎？','未使用之儲值代幣可依《退款與配送規範》提出申請，經審核後辦理退款；已用於抽賞之代幣恕不退還。'],
-           ['回收點數可以換現金嗎？','不行。平台點數僅可在站內折抵使用，不得提領或兌換現金。']].map(([q,a],i) =>
+           ['運費怎麼計算？','運費一律到付。抽賞時和申請出貨時都不用先付運費，由物流業者在送達（宅配）或取件（超商）時向收件人收取。每件獎品的寄送方式是上架時就設定好的，可在賞池頁的獎項表看到。'],
+           ['獎品可以放多久？','入庫後免費保管 30 天，到期前 7 天及到期當天會提醒；逾期未申請出貨的可回收獎品，將依回收值自動轉為不可退款 CC幣；大獎等不可回收的獎品則由客服另行通知。'],
+           ['CC幣可以退款嗎？','未使用之 CC幣可依《退款與配送規範》提出申請，經審核後辦理退款；已用於抽賞之 CC幣恕不退還；活動贈送與獎品回收取得的不可退款 CC幣不得退款。扣款時會先扣不可退款 CC幣。'],
+           ['回收 CC幣可以換現金嗎？','不行。不可退款 CC幣僅可在站內折抵使用，不得提領或兌換現金。']].map(([q,a],i) =>
           `<details ${i===0?'open':''}><summary>${q}${ic('down','width:16px;height:16px')}</summary><p>${a}</p></details>`).join('')}
       </div>
       <div class="panel"><h3>問題回報／工單</h3>
@@ -281,23 +276,23 @@ const ADM = [
   ['會員','member','會員管理','users',['搜尋與標籤','身分／年齡驗證狀態','帳號狀態（停權／凍結）','交易歷史']],
   ['會員','vip','VIP 系統','crown',['等級門檻','等級優惠','權益發放紀錄']],
   ['會員','cs','客服中心','help',['問題回報','爭議處理','工單紀錄與 SLA']],
-  ['金流','wallet','錢包管理','wallet',['儲值紀錄','扣款／退款','代幣與點數分帳','對帳（綠界回調）']],
+  ['金流','wallet','錢包管理','wallet',['儲值紀錄','扣款／退款','可退款／不可退款分帳','對帳（綠界回調）']],
   ['金流','order','訂單管理','doc',['付款訂單','異常訂單','取消與退款','發票開立']],
-  ['金流','refund','運費退款','recycle'],
+  ['金流','refund','退款審核','recycle'],
   ['金流','report','報表中心','chart',['營運 GMV','毛利（成本 vs 收益）','轉換漏斗','用戶留存分析','未履約責任']],
   ['物流','ship','物流管理','truck',['出貨申請','揀貨單','物流狀態（超商／宅配）','退件處理','進貨與庫存盤點']],
   ['行銷','mkt','行銷管理','mega',['優惠券','Banner 排程','活動頁','分眾推播','邀請碼成效']],
   ['系統','notify','通知中心','bell'],
   ['系統','risk','防火牆與風控','alert',['異常抽賞偵測','刷單與多帳號','支付風險','IP／裝置指紋','風險名單']],
   ['系統','role','權限管理','lock',['角色','操作授權','高風險操作雙人覆核','操作日誌']],
-  ['系統','set','系統設定','gear',['公告','費率與運費','金流設定（綠界）','物流設定','保管期限']],
+  ['系統','set','系統設定','gear',['公告','費率與寄送','金流設定（綠界）','物流設定','保管期限']],
   ['系統','ext','擴充服務','api',['合作商家入駐','寄售與平台抽成','分潤結算','開放 API','外部連結 IG／LINE／FB']]
 ];
 routes.admin = () => {
   const cur = ADM.find(a => a[1] === S.admin) || ADM[0];
   let grp = '';
   const side = ADM.map(a => { const g = a[0] !== grp ? `<div class="grp">${a[0]}</div>` : ''; grp = a[0];
-    return g + `<button data-act="adm" data-k="${a[1]}" aria-current="${S.admin===a[1]}">${ic(a[3],'width:18px;height:18px')}${a[2]}${a[1]==='risk'?(S.blocked.length?`<span class="bd">${S.blocked.length}</span>`:''):a[1]==='ship'?`<span class="bd" style="background:var(--warn)">${S.shipments.filter(x=>!['已出貨','已送達'].includes(x.st)).length}</span>`:a[1]==='cs'?`<span class="bd">${S.tickets.filter(t=>t.st==='待處理').length}</span>`:a[1]==='refund'?(S.refunds.some(f=>f.st==='待審核')?`<span class="bd" style="background:var(--warn)">${S.refunds.filter(f=>f.st==='待審核').length}</span>`:''):a[1]==='pool'?((S.poolDrafts||[]).some(d=>d.st==='待覆核')?`<span class="bd" style="background:var(--warn)">${S.poolDrafts.filter(d=>d.st==='待覆核').length}</span>`:''):''}</button>`; }).join('');
+    return g + `<button data-act="adm" data-k="${a[1]}" aria-current="${S.admin===a[1]}">${ic(a[3],'width:18px;height:18px')}${a[2]}${a[1]==='risk'?(S.blocked.length?`<span class="bd">${S.blocked.length}</span>`:''):a[1]==='ship'?`<span class="bd" style="background:var(--warn)">${S.shipments.filter(x=>!['已出貨','已送達'].includes(x.st)).length}</span>`:a[1]==='cs'?`<span class="bd">${S.tickets.filter(t=>t.st==='待處理').length}</span>`:a[1]==='refund'?(S.refunds.some(f=>f.st==='待審核')?`<span class="bd" style="background:var(--warn)">${S.refunds.filter(f=>f.st==='待審核').length}</span>`:''):a[1]==='forum'?(forumPending()?`<span class="bd" style="background:var(--warn)">${forumPending()}</span>`:''):a[1]==='pool'?((S.poolDrafts||[]).some(d=>d.st==='待覆核')?`<span class="bd" style="background:var(--warn)">${S.poolDrafts.filter(d=>d.st==='待覆核').length}</span>`:''):''}</button>`; }).join('');
   const live = POOLS.filter(p => !p.soon);
   const poolTable = `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>賞池</th><th>來源／玩法</th><th class="r">單價</th><th class="r">已抽 / 總數</th><th class="r">實際收益</th><th>狀態</th><th></th></tr></thead><tbody>
     ${POOLS.map(p => { const d = soldAll(p); return `<tr><td>${p.title.split(' ～')[0]}</td><td><span class="tag ${SRC[p.src].c}">${SRC[p.src].t.slice(0,2)}</span> <span class="dim" style="font-size:12px">${PLAY[p.play]}</span></td>
@@ -333,7 +328,7 @@ routes.admin = () => {
 };
 function featDesc(f){
   const m = {'建立賞池':'設定來源、玩法、單價、獎項與籤數，自動產生籤表','編輯與規則版本':'發布後鎖定，修改即產生新版本並公告','送審／雙人覆核':'高風險操作需第二位管理員核准',
-    '已創造實際收益':'已抽數 × 單價，扣除優惠與點數折抵','稽核軌跡（不可竄改）':'所有操作紀錄僅可新增，任何竄改皆可偵測','對帳（綠界回調）':'付款通知驗證、重複通知防護、每日自動對帳',
+    '已創造實際收益':'已抽數 × 單價，扣除優惠折抵','稽核軌跡（不可竄改）':'所有操作紀錄僅可新增，任何竄改皆可偵測','對帳（綠界回調）':'付款通知驗證、重複通知防護、每日自動對帳',
     '合作商家入駐':'商家申請、審核、商家後台與權限','寄售與平台抽成':'寄售品管理與抽成規則','異常抽賞偵測':'搶籤頻率、重試、多帳號同裝置'};
   return m[f] || '';
 }
@@ -466,11 +461,11 @@ document.addEventListener('click', e => {
     'open-search': () => { openModal(`<h3 id="mdlT">搜尋</h3><form data-act="search" class="invite" role="search"><label class="sr" for="mq">關鍵字</label><input class="input" id="mq" name="q" type="search" placeholder="作品、角色、英文名或標籤" autocomplete="off"><button class="btn gold" type="submit">搜尋</button></form>
         <p class="dim" style="font-size:12px;margin:16px 0 8px">標籤</p><div class="ipf">${TAGS.map(c=>`<a class="chip" href="#/lobby?tag=${encodeURIComponent(c.k)}">${c.k}</a>`).join('')}</div><p class="dim" style="font-size:12px;margin:16px 0 8px">熱門 IP</p><div class="ipf">${[...new Set(POOLS.map(p=>p.ip))].map(x=>`<a class="chip" href="#/lobby?ip=${encodeURIComponent(x)}">${x}</a>`).join('')}</div>`); setTimeout(() => { const m = $('#mq'); m && m.focus(); }, 60); },
     'set': () => { const p = curPool(); if (!p || (p.sets[+el.dataset.k] || {}).off) return; clearHold(); p.setIdx = +el.dataset.k; render(true); },
-    'bind-line': () => { S.binds.group = 'done'; S.points += 50; closeModal(); toast('歡迎加入 LINE 社群，已獲得 50 點'); if (parseHash().name === 'me') render(true); },
+    'bind-line': () => { S.binds.group = 'done'; S.coins += 50; S.coinsNR += 50; syncBal(); closeModal(); toast('歡迎加入 LINE 社群，已獲得 50 不可退款 CC幣'); if (parseHash().name === 'me') render(true); },
     'bind-sms': () => { const v = ($('#bPhone')||{}).value || ''; if (!/^0?9\d{8}$/.test(v.replace(/[-\s]/g,''))){ toast('請輸入正確的手機號碼'); $('#bPhone').focus(); return; } closeModal(); toast('訂閱成功，開賞消息將以簡訊通知'); },
     'bind-task': () => { const k = el.dataset.k, t = BIND_TASKS.find(x => x.k === k); if (!t) return;
       if (t.url) window.open(t.url, '_blank', 'noopener');
-      S.binds[k] = t.review ? 'review' : 'done'; if (!t.review && t.pts) S.points += t.pts;
+      S.binds[k] = t.review ? 'review' : 'done'; if (!t.review && t.pts){ S.coins += t.pts; S.coinsNR += t.pts; syncBal(); }
       toast(t.review ? '已送出，將由客服人工審核發放' : `已完成：${t.reward}`); render(true); },
     'scroll': () => { const t = document.getElementById(el.dataset.to); if (t){ t.scrollIntoView({behavior: RM() ? 'auto' : 'smooth', block:'start'}); if (t.tabIndex < 0 && !/^(A|BUTTON|INPUT)$/.test(t.tagName)) t.setAttribute('tabindex','-1'); t.focus({preventScroll:true}); } },
     'whtab': () => { S.whTab = el.dataset.k; S.whSel = []; render(true); },
@@ -478,20 +473,18 @@ document.addEventListener('click', e => {
     'ship': () => shipDialog(),
     'shipm': () => { S.shipM = el.dataset.k; $$('[data-act="shipm"]').forEach(b => { b.setAttribute('aria-pressed', b === el); b.setAttribute('aria-checked', b === el); });
       const home = el.dataset.k === 'home'; $('#addrL').textContent = home ? '收件地址' : '取貨門市'; $('#addr').placeholder = home ? '縣市／區／路段門牌' : '選擇門市（串接超商電子地圖）'; },
-    'ship-ok': () => { const rcv = $('#rcv').value.trim(), ph = $('#rcvP').value.replace(/[-\s]/g,''), ad = $('#addr').value.trim(), m = S.shipM || 'home';
+    'ship-ok': () => { const rcv = $('#rcv').value.trim(), ph = $('#rcvP').value.replace(/[-\s]/g,''), G = shipGroups(S.whSel);
       if (!rcv){ toast('請填寫收件人姓名'); $('#rcv').focus(); return; }
       if (!/^09\d{8}$/.test(ph)){ toast('請輸入正確的收件人手機'); $('#rcvP').focus(); return; }
-      if (ad.length < (m === 'home' ? 6 : 2)){ toast(m === 'home' ? '請填寫完整收件地址' : '請填寫取貨門市'); $('#addr').focus(); return; }
-      const its = S.wh.filter(w => S.whSel.includes(w.id)), n = its.length, sh = {id:'SH-' + String(14 + S.shipments.length).padStart(4,'0'), user:'Chiaki 玩家', items:n, m, st:'申請', carrier:'', no:'', to:ad, at:twNow(), t:Date.now(), names:its.map(w => w.pname || w.name), bulky:typeof isBulky === 'function' && its.some(isBulky)};
-      S.shipments.unshift(sh);
-      S.wh.forEach(w => { if (S.whSel.includes(w.id)){ w.st = 'ship'; w.track = sh.id; w.ship = sh; } });
-      S.whSel = []; closeModal(); render(true); toast(`已申請出貨 ${n} 件，出貨單 ${sh.id}`); },
+      for (const [m] of G){ const f = $('#addr_' + m); if (f.value.trim().length < (m === 'home' ? 6 : 2)){ toast(m === 'home' ? '請填寫完整收件地址' : `請填寫${SHIP_M[m]}取貨門市`); f.focus(); return; } }
+      const ids = [];
+      G.forEach(([m, its]) => { const sh = {id:'SH-' + String(14 + S.shipments.length).padStart(4,'0'), user:'Chiaki 玩家', items:its.length, m, st:'申請', carrier:'', no:'', to:$('#addr_' + m).value.trim(), at:twNow(), t:Date.now(), rcv, phone:ph, cod:true, log:[{st:'申請', at:twNow(), by:'會員', note:'運費到付'}], names:its.map(w => w.pname || w.name), bulky:typeof isBulky === 'function' && its.some(isBulky)};
+        S.shipments.unshift(sh); ids.push(sh.id); its.forEach(w => { w.st = 'ship'; w.track = sh.id; w.ship = sh; w.sm = w.sm || m; }); });
+      S.whSel = []; closeModal(); render(true); toast(`已申請出貨，出貨單 ${ids.join('、')}（運費到付）`); },
     'recycle': () => recycleDialog(),
-    'recycle-ok': () => { const items = S.wh.filter(w => S.whSel.includes(w.id)), fr = shipRefundCalc(items), frAmt = fr.reduce((s,x)=>s+x.amt,0);
-      fr.forEach(x => { const rec = S.shipPaid[x.key]; rec.rUnits = x.units; rec.rAmt = x.total; });
-      if (frAmt){ S.coins += frAmt; S.coinsNR += frAmt; syncBal(); S.tx.unshift({t:`預收運費退還（回收小獎 ${fr.reduce((s,x)=>s+x.n,0)} 件）`, d:twNow(), a:frAmt, ic:'truck', nr:true}); }
-      let pts = 0; S.wh.forEach(w => { if (S.whSel.includes(w.id) && w.rv){ w.st = 'recycled'; pts += w.rv; } }); S.points += pts;
-      S.tx.unshift({t:'回收獎品 → 平台點數', d:twNow(), a:pts, ic:'recycle', pt:true}); S.whSel = []; closeModal(); render(true); toast(`已回收，獲得 ${pts} 點${frAmt ? `，運費退還 ${frAmt} 幣` : ''}`); },
+    'recycle-ok': () => { let v = 0; S.wh.forEach(w => { if (S.whSel.includes(w.id) && w.rv){ w.st = 'recycled'; v += w.rv; } });
+      S.coins += v; S.coinsNR += v; syncBal();
+      S.tx.unshift({t:'回收獎品 → 不可退款 CC幣', d:twNow(), a:v, ic:'recycle', nr:true}); S.whSel = []; closeModal(); render(true); toast(`已回收，獲得 ${fmt(v)} 不可退款 CC幣`); },
     'pack': () => { S.pick.pack = +el.dataset.v; render(true); },
     'paym': () => { S.pick.pay = el.dataset.k; render(true); },
     'txall': () => { S.txAll = !S.txAll; render(true); },
@@ -501,22 +494,22 @@ document.addEventListener('click', e => {
       else if (/^CHK[0-9A-Z]{3}$/.test(v)) toast('邀請碼已綁定，完成首次儲值後雙方各得獎勵');
       else toast('查無此代碼或已過期，請確認大小寫與有效期限'); },
     'topup': () => { const v = S.pick.pack, b = (PACKS.find(p => p[0] === v)||[0,0])[1]; const pay = PAYS.find(p => p[0] === S.pick.pay);
-      openModal(`<h3 id="mdlT">確認付款</h3><p class="muted" style="font-size:14px">即將前往綠界科技 ECPay 安全付款頁面，付款完成後代幣將自動入帳。</p>
-        <div class="sumrow"><span class="muted">付款方式</span><b>${pay[1]}</b></div><div class="sumrow"><span class="muted">金額</span><b>NT$ ${fmt(v)}</b></div>${b?`<div class="sumrow"><span class="muted">活動贈點</span><b>+${b} 點</b></div>`:''}
+      openModal(`<h3 id="mdlT">確認付款</h3><p class="muted" style="font-size:14px">即將前往綠界科技 ECPay 安全付款頁面，付款完成後CC幣將自動入帳。</p>
+        <div class="sumrow"><span class="muted">付款方式</span><b>${pay[1]}</b></div><div class="sumrow"><span class="muted">金額</span><b>NT$ ${fmt(v)}</b></div>${b?`<div class="sumrow"><span class="muted">活動贈點</span><b>+${b} CC幣</b></div>`:''}
         <button class="btn gold block" style="margin-top:24px" data-act="paid">前往付款</button>`); },
-    'paid': () => { const v = S.pick.pack, b = (PACKS.find(p => p[0] === v)||[0,0])[1]; S.coins += v; S.points += b; syncBal();
-      S.tx.unshift({t:'儲值 ・ ' + PAYS.find(p => p[0] === S.pick.pay)[1], d:twNow(), a:v, ic:'card'}); closeModal(); render(true); toast(`儲值成功 +${fmt(v)} 幣`); },
-    'refund': () => { const can = Math.max(0, S.coins - S.coinsNR); openModal(`<h3 id="mdlT">申請未使用代幣退款</h3><p class="muted" style="font-size:14px">未使用之儲值代幣可依《退款與配送規範》申請退款，客服將以 Email 通知審核結果。不可退款代幣（活動、運費退還、逾期轉換）不在此列。</p>
-        <div class="sumrow"><span class="muted">可申請退款</span><b>${fmt(can)} 幣</b></div>${S.coinsNR ? `<div class="sumrow"><span class="muted">不可退款代幣</span><b class="dim">${fmt(S.coinsNR)} 幣</b></div>` : ''}
-        <div class="field" style="margin:16px 0"><label for="rfAmt">申請金額（代幣）</label><input class="input num" id="rfAmt" inputmode="numeric" value="${can}" data-max="${can}"></div><button class="btn gold block" data-act="refund-ok" ${can ? '' : 'disabled'}>送出申請</button>`); },
+    'paid': () => { const v = S.pick.pack, b = (PACKS.find(p => p[0] === v)||[0,0])[1]; S.coins += v + b; S.coinsNR += b; syncBal();
+      S.tx.unshift({t:'儲值 ・ ' + PAYS.find(p => p[0] === S.pick.pay)[1], d:twNow(), a:v, ic:'card'}); closeModal(); render(true); toast(`儲值成功 +${fmt(v)} CC幣`); },
+    'refund': () => { const can = Math.max(0, S.coins - S.coinsNR); openModal(`<h3 id="mdlT">申請未使用 CC幣退款</h3><p class="muted" style="font-size:14px">未使用之 CC幣可依《退款與配送規範》申請退款，客服將以 Email 通知審核結果。不可退款CC幣（活動、運費退還、逾期轉換）不在此列。</p>
+        <div class="sumrow"><span class="muted">可申請退款</span><b>${fmt(can)} CC幣</b></div>${S.coinsNR ? `<div class="sumrow"><span class="muted">不可退款CC幣</span><b class="dim">${fmt(S.coinsNR)} CC幣</b></div>` : ''}
+        <div class="field" style="margin:16px 0"><label for="rfAmt">申請金額（CC幣）</label><input class="input num" id="rfAmt" inputmode="numeric" value="${can}" data-max="${can}"></div><button class="btn gold block" data-act="refund-ok" ${can ? '' : 'disabled'}>送出申請</button>`); },
     'copy': () => copyText('CHK8A2', '邀請碼已複製'),
     'shipsel': () => { S.shipPick = el.dataset.k; const ok = $('#ruleOk') && $('#ruleOk').checked; if (ok) S.rulesOk = true; buyDialog(); },
     'refund-ok': () => { const inp = $('#rfAmt'), raw = inp.value.trim(), v = Number(raw), max = +inp.dataset.max;
       if (!/^\d+$/.test(raw) || v < 1){ toast('請輸入正整數金額'); inp.focus(); return; }
-      if (v > max){ toast(`最多可申請 ${fmt(max)} 幣`); inp.focus(); return; }
+      if (v > max){ toast(`最多可申請 ${fmt(max)} CC幣`); inp.focus(); return; }
       const id = 'RF-' + twDate().replace(/-/g,'') + '-' + String(S.refunds.length + 1).padStart(4,'0');
       S.coins -= v; syncBal();
-      S.refunds.unshift({id, user:'Chiaki 玩家', kind:'twd', via:'原付款方式退回', amt:v, st:'待審核', note:'未使用儲值代幣退款', back:true});
+      S.refunds.unshift({id, user:'Chiaki 玩家', kind:'twd', via:'原付款方式退回', amt:v, st:'待審核', note:'未使用 CC幣退款', back:true});
       S.tx.unshift({t:`退款申請 ${id}（審核中，駁回時退回）`, d:twNow(), a:-v, ic:'card'});
       closeModal(); toast(`退款申請已送出，案件編號 ${id}`); render(true); },
     'mfa': () => toast('已寄送兩步驟驗證設定說明至您的信箱'),
