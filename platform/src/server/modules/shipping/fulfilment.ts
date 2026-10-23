@@ -4,6 +4,7 @@ import { db, transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { requirePermission, type Principal } from '../auth/rbac';
 import { notifyEvent } from '../notifications/outbox';
+import { SHIPPING_TO_SHIP } from './methods';
 
 /**
  * 出貨流程（資料庫 trigger 同步強制狀態轉換）：
@@ -229,13 +230,18 @@ export async function pickList(actor: Principal, filter: { status?: 'REQUESTED' 
 /** 會員：我的出貨單（含狀態中文、物流商、追蹤編號與查詢網址） */
 export async function listMemberShipments(d: Db, userId: string) {
   const rows = await d<
-    { id: string; method: string; status: ShipmentStatus; feeCoins: number; itemCount: number; prepaidItemCount: number; carrier: string | null; carrierLabel: string | null; trackingUrlTemplate: string | null; trackingNo: string | null; createdAt: Date; shippedAt: Date | null; deliveredAt: Date | null }[]
+    { id: string; method: string; status: ShipmentStatus; feeCoins: number; freightCollect: boolean; requestId: string | null; itemCount: number; carrier: string | null; carrierLabel: string | null; trackingUrlTemplate: string | null; trackingNo: string | null; createdAt: Date; shippedAt: Date | null; deliveredAt: Date | null }[]
   >`
-    SELECT s.id, s.method, s.status, s.fee_coins, s.item_count, s.prepaid_item_count, s.carrier, c.label AS carrier_label, c.tracking_url_template,
+    SELECT s.id, s.method, s.status, s.fee_coins, s.freight_collect, s.request_id, s.item_count, s.carrier, c.label AS carrier_label, c.tracking_url_template,
            s.tracking_no, s.created_at, s.shipped_at, s.delivered_at
     FROM shipments s LEFT JOIN carriers c ON c.code = s.carrier
     WHERE s.user_id = ${userId} ORDER BY s.created_at DESC`;
-  return rows.map(({ trackingUrlTemplate, ...r }) => ({ ...r, statusLabel: STATUS_LABEL[r.status], trackingUrl: trackingUrl(trackingUrlTemplate, r.trackingNo) }));
+  return rows.map(({ trackingUrlTemplate, ...r }) => ({
+    ...r,
+    shipMethod: SHIPPING_TO_SHIP[r.method as keyof typeof SHIPPING_TO_SHIP] ?? null,
+    statusLabel: STATUS_LABEL[r.status],
+    trackingUrl: trackingUrl(trackingUrlTemplate, r.trackingNo),
+  }));
 }
 
 // ───────────── 出貨更正（後台） ─────────────
@@ -278,7 +284,7 @@ interface FullShipment {
 /**
  * 後台更正出貨單：出貨方式（含大件不可改超商）、物流商、追蹤編號、收件人、狀態（可回退、可改為 配送異常/退件/遺失/破損）。
  * 需要原因：狀態回退、改為例外狀態、從例外狀態改回、修改既有追蹤編號、改出貨方式。
- * 每次更正都寫入出貨事件紀錄（會員可見）與稽核鏈；可選擇通知會員。運費不因更正而重算（如需補收/退款請走客服補償流程）。
+ * 每次更正都寫入出貨事件紀錄（會員可見）與稽核鏈；可選擇通知會員。運費一律到付，更正不涉及任何 CC幣。
  */
 export async function correctShipment(actor: Principal, shipmentId: string, input: z.input<typeof CorrectionSchema>) {
   requirePermission(actor, 'shipment.manage');

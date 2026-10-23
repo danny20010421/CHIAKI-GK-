@@ -9,7 +9,7 @@ import { GET as listRoute } from '../src/app/api/pools/route';
 import { GET as poolRoute } from '../src/app/api/pools/[id]/route';
 import { GET as setRoute } from '../src/app/api/pools/[id]/sets/[no]/route';
 import { GET as revealRoute } from '../src/app/api/pools/[id]/sets/[no]/reveal/route';
-import { GK_FIRST_POOL } from '../src/server/seed/reference';
+import { BK_POOL, KG_POOL, NR_POOL, PROB_SAMPLE_POOL, SEED_POOLS } from '../src/server/seed/reference';
 import { apiRequest, ctx, expectAppError, layoutOf, makeUser, publishPool, setupTestDb, smallPool } from './helpers';
 
 describe('commitment scheme (pure)', () => {
@@ -68,38 +68,83 @@ describe('pool publishing (DB)', () => {
     await env.teardown();
   });
 
-  it('spec sample pool (CUSTOM): 10 sets × 100 tickets, qty 1,1,1,6,6,15,20,50 on levels 1–8 (4–8 small), 300 coins/draw', async () => {
-    const poolId = await publishPool(GK_FIRST_POOL);
-    const res = await poolRoute(apiRequest('GET', `/api/pools/chiaki-gk-01`), ctx({ id: 'chiaki-gk-01' }));
-    const p = (await res.json()) as { id: string; priceCoins: number; source: string; playType: string; merchantId: string; shippingNote: string; sets: { setNo: number; status: string; total: number; remaining: number; commitment: string; shippingFees: Record<string, number> }[]; prizes: { levelNo: number; levelName: string; isSmall: boolean; name: string; displayName: string; qtyPerSet: number; tag: string | null; bulky: boolean }[]; tags: string[]; drawPacks: (number | string)[] };
+  type PubPool = {
+    id: string; priceCoins: number; source: string; playType: string; merchantId: string; ip: string; shippingNote: string; shipMethods: string[];
+    shippingPolicy: { mode: string };
+    sets: { setNo: number; status: string; total: number; remaining: number; commitment: string }[];
+    levels: { levelNo: number; name: string; isSmall: boolean; odds: number | null; items: unknown[] }[];
+    prizes: { levelNo: number; levelName: string; isSmall: boolean; name: string; displayName: string; qtyPerSet: number; tag: string | null; bulky: boolean; shipMethod: string; shipMethodLabel: string }[];
+    lastPrize: { name: string; levelName: string; shipMethod: string } | null;
+    tags: string[]; drawPacks: (number | string)[];
+  };
+  const getPool = async (slug: string) => (await (await poolRoute(apiRequest('GET', `/api/pools/${slug}`), ctx({ id: slug }))).json()) as PubPool;
+
+  it('seed pools: only gb (宮崎駿), nr, bk, kg; old placeholder pools removed', async () => {
+    assert.deepEqual(SEED_POOLS.map((p) => p.slug), ['chiaki-miyazaki-prob', 'nr-valley-of-the-end', 'bk-berserk-dual-poles', 'kg-kagurabachi']);
+    assert.equal(PROB_SAMPLE_POOL.playType, 'PROB');
+  });
+
+  it('宿命的雙極 (bk, OFFICIAL): 9 graded levels A–I + last prize, 420/draw, all non-recyclable, ship A–E home / F–I 7-11', async () => {
+    const poolId = await publishPool(BK_POOL);
+    const p = await getPool(BK_POOL.slug);
     assert.equal(p.id, poolId);
-    assert.equal(p.priceCoins, 300);
-    assert.equal(p.source, 'CUSTOM');
-    assert.equal(p.playType, 'STANDARD');
-    assert.equal(p.merchantId, 'chiaki');
-    assert.deepEqual(p.prizes.map((x) => x.qtyPerSet), [1, 1, 1, 6, 6, 15, 20, 50]);
-    assert.deepEqual(p.prizes.map((x) => x.levelNo), [1, 2, 3, 4, 5, 6, 7, 8]);
-    assert.deepEqual(p.prizes.map((x) => x.isSmall), [false, false, false, true, true, true, true, true]);
+    assert.deepEqual([p.priceCoins, p.source, p.playType, p.merchantId, p.ip], [420, 'OFFICIAL', 'STANDARD', 'chiaki', '烙印勇士']);
+    assert.deepEqual(p.levels.map((l) => [l.levelNo, l.name]), 'ABCDEFGHI'.split('').map((g, i) => [i + 1, `${g}賞`]), 'nine graded levels → levels 1–9');
+    assert.deepEqual(p.prizes.map((x) => x.qtyPerSet), [1, 2, 1, 1, 1, 2, 20, 24, 28]);
+    assert.deepEqual(p.prizes.map((x) => x.shipMethod), ['home', 'home', 'home', 'home', 'home', 'c711', 'c711', 'c711', 'c711']);
+    assert.deepEqual(p.prizes.map((x) => x.shipMethodLabel).slice(4, 6), ['宅配到府', '7-11 交貨便']);
     assert.ok(p.prizes.every((x) => x.displayName === `${x.levelName} ${x.name}`), 'displayName = level name + item name');
-    assert.deepEqual(p.prizes.map((x) => x.bulky), [true, true, true, false, false, false, false, false], 'GK tag / level 1 → bulky by default');
-    assert.deepEqual(p.tags, ['GK', '卡牌', '其他']);
+    assert.deepEqual([p.lastPrize!.name, p.lastPrize!.levelName, p.lastPrize!.shipMethod], ['索特（人類姿態）', '最後賞', 'home']);
+    assert.deepEqual(p.shipMethods, ['home', 'c711']);
+    assert.equal(p.shippingPolicy.mode, 'FREIGHT_COLLECT');
+    assert.ok(p.tags.includes('一番賞'), 'official pools carry 一番賞');
     assert.deepEqual(p.drawPacks, [1, 5, 10]);
-    assert.equal(p.shippingNote, '平台商品依平台公告時程');
-    assert.deepEqual(p.sets[0]!.shippingFees, { HOME_DELIVERY: 150, CVS_711_C2C: 70, CVS_FAMI_C2C: 70 });
-    assert.equal(p.sets.length, 10);
-    assert.deepEqual(p.sets.map((s) => s.status), ['ON_SALE', ...Array(9).fill('QUEUED')]);
-    assert.ok(p.sets.every((s) => s.total === 100 && s.remaining === 100 && /^[0-9a-f]{64}$/.test(s.commitment)));
-    assert.equal(new Set(p.sets.map((s) => s.commitment)).size, 10, 'each set has its own layout + salt');
-    for (const setNo of [1, 10]) {
-      const l = await layoutOf(poolId, setNo);
-      const count = (name: string) => l.filter((t) => t.name === name).length;
-      assert.deepEqual(p.prizes.map((x) => count(x.name)), [1, 1, 1, 6, 6, 15, 20, 50]);
-      assert.equal(l.filter((t) => t.isSmall).length, 97);
-    }
+    assert.equal(p.shippingNote, '官方商品依官方出貨時程');
+    assert.deepEqual(p.sets.map((s) => [s.status, s.total, s.remaining]), [['ON_SALE', 80, 80]]);
+    const sp = await db()`SELECT sp.recycle_value, sp.recyclable FROM set_prizes sp JOIN pool_sets s ON s.id = sp.set_id WHERE s.pool_id = ${poolId}`;
+    assert.equal(sp.length, 10);
+    assert.ok(sp.every((r) => r.recycleValue === 0 && r.recyclable === false), 'all prizes non-recyclable (rv 0)');
+    const l = await layoutOf(poolId, 1);
+    assert.equal(l.length, 80);
+    assert.equal(l.filter((t) => t.levelNo === 9).length, 28);
     const listRes = await listRoute(apiRequest('GET', '/api/pools?playType=STANDARD'), undefined as never);
-    const list = (await listRes.json()) as { pools: { id: string; shippingNote: string; currentSet: { setNo: number; remaining: number } }[] };
-    assert.deepEqual(list.pools.find((x) => x.id === poolId)!.currentSet, { setNo: 1, remaining: 100, total: 100 });
-    assert.equal(list.pools.find((x) => x.id === poolId)!.shippingNote, '平台商品依平台公告時程');
+    const list = (await listRes.json()) as { pools: { id: string; currentSet: { setNo: number; remaining: number } }[] };
+    assert.deepEqual(list.pools.find((x) => x.id === poolId)!.currentSet, { setNo: 1, remaining: 80, total: 80 });
+  });
+
+  it('神樂鉢 (kg, OFFICIAL): A–I + 最後賞 六平千鑛; A–C + last prize home, rest 7-11', async () => {
+    await publishPool(KG_POOL);
+    const p = await getPool(KG_POOL.slug);
+    assert.deepEqual([p.priceCoins, p.source, p.ip], [420, 'OFFICIAL', '神樂鉢']);
+    assert.equal(p.levels.length, 9);
+    assert.deepEqual(p.prizes.map((x) => x.qtyPerSet), [3, 1, 2, 2, 4, 20, 16, 14, 18]);
+    assert.deepEqual(p.prizes.map((x) => x.shipMethod), ['home', 'home', 'home', 'c711', 'c711', 'c711', 'c711', 'c711', 'c711']);
+    assert.deepEqual([p.lastPrize!.name, p.lastPrize!.shipMethod], ['六平千鑛', 'home']);
+    assert.equal(p.sets[0]!.total, 80);
+  });
+
+  it('雲頂終結谷 (nr, CUSTOM PROB): 20,000 tickets/set, 4 獎 fixed odds 0.7, GK prizes ship home, the rest 7-11', async () => {
+    const poolId = await publishPool(NR_POOL);
+    const p = await getPool(NR_POOL.slug);
+    assert.deepEqual([p.priceCoins, p.source, p.playType, p.ip], [200, 'CUSTOM', 'PROB', '火影忍者']);
+    assert.deepEqual(p.levels.map((l) => [l.levelNo, l.name, l.isSmall, l.odds, l.items.length]), [
+      [1, '大獎', false, null, 1],
+      [2, '2 獎', false, null, 1],
+      [3, '4 獎', false, 0.7, 1],
+      [4, '5 獎', true, null, 2],
+    ]);
+    assert.deepEqual(p.prizes.map((x) => [x.name, x.qtyPerSet, x.tag, x.shipMethod]), [
+      ['雲頂終結谷 佐助', 1, 'GK', 'home'],
+      ['雲頂終結谷 鳴人', 1, 'GK', 'home'],
+      ['火影墨影霓亂徽章（一枚）', 500, '其他', 'c711'],
+      ['火影同人貼紙', 9498, '其他', 'c711'],
+      ['隨機一番賞小獎', 10000, '一番賞', 'c711'],
+    ]);
+    assert.equal(p.lastPrize, null);
+    assert.deepEqual(p.sets.map((s) => [s.total, s.remaining]), [[20000, 20000]]);
+    const rv = await db()`SELECT pp.name, sp.recycle_value, sp.recyclable FROM set_prizes sp JOIN pool_prizes pp ON pp.id = sp.prize_id JOIN pool_sets s ON s.id = sp.set_id
+                          WHERE s.pool_id = ${poolId} ORDER BY sp.recycle_value DESC`;
+    assert.deepEqual(rv.map((r) => [r.recycleValue, r.recyclable]), [[40000, true], [18000, true], [250, true], [100, true], [10, true]]);
   });
 
   it('public endpoints never expose salt or unrevealed ticket→prize mapping', async () => {

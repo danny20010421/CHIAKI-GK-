@@ -1,5 +1,5 @@
 /**
- * 獎項等級 1–8（所有賞池）：後台等級/獎項 CRUD、結構只在草稿可改、名稱/回收值/標籤隨時可改（留稽核）、
+ * 獎項等級 1–12（所有賞池）：後台等級/獎項 CRUD、結構只在草稿可改、名稱/回收值/標籤隨時可改（留稽核）、
  * 發布前結構檢查、舊資料 migration（A..H → 1..8、大/中/小 → 1/2/3）。
  */
 import { after, before, describe, it } from 'node:test';
@@ -68,7 +68,7 @@ describe('admin: levels & items while DRAFT', () => {
     const lv2 = await levelCreate(apiRequest('POST', `/api/admin/pools/${id}/levels`, { token: ops.token, body: { levelNo: 2, name: 'B賞', items: [{ name: 'GK 胸像', qtyPerSet: 2, tag: 'GK', recycleValue: 500 }] } }), ctx({ id }));
     assert.equal(lv2.status, 201);
     assert.equal((await levelCreate(apiRequest('POST', `/api/admin/pools/${id}/levels`, { token: ops.token, body: { levelNo: 2, name: 'dup', items: [{ name: 'x', qtyPerSet: 1 }] } }), ctx({ id }))).status, 409);
-    assert.equal((await levelCreate(apiRequest('POST', `/api/admin/pools/${id}/levels`, { token: ops.token, body: { levelNo: 9, name: 'x', items: [{ name: 'y', qtyPerSet: 1 }] } }), ctx({ id }))).status, 400);
+    assert.equal((await levelCreate(apiRequest('POST', `/api/admin/pools/${id}/levels`, { token: ops.token, body: { levelNo: 13, name: 'x', items: [{ name: 'y', qtyPerSet: 1 }] } }), ctx({ id }))).status, 400);
     assert.equal((await levelCreate(apiRequest('POST', `/api/admin/pools/${id}/levels`, { token: ops.token, body: { levelNo: 6, name: 'F賞', items: [{ name: '貼紙', qtyPerSet: 5 }] } }), ctx({ id }))).status, 201);
     // 新增獎項到等級 4；重名拒絕
     const it1 = await j<{ prizeId: string }>(await itemCreate(apiRequest('POST', `/api/admin/pools/${id}/levels/4/items`, { token: ops.token, body: { name: '徽章', qtyPerSet: 3, tag: '娃娃' } }), ctx({ id, levelNo: '4' })));
@@ -84,9 +84,9 @@ describe('admin: levels & items while DRAFT', () => {
     assert.equal((await patchLevel(id, 6, { name: '參加獎', isSmall: false })).status, 200);
     const moved = await j<{ levelNo: number; qtyPerSet: number }>(await patchPrize(it1.body.prizeId, { levelNo: 6, qtyPerSet: 4 }));
     assert.deepEqual([moved.status, moved.body.levelNo, moved.body.qtyPerSet], [200, 6, 4]);
-    assert.equal((await patchPrize(it1.body.prizeId, { qtyPerSet: 20_000 })).status, 400);
-    const grown = await patchPrize(it1.body.prizeId, { qtyPerSet: 9_990 });
-    assert.equal(grown.status, 400, 'max 10,000 tickets per set');
+    assert.equal((await patchPrize(it1.body.prizeId, { qtyPerSet: 20_001 })).status, 400);
+    const grown = await patchPrize(it1.body.prizeId, { qtyPerSet: 19_990 });
+    assert.equal(grown.status, 400, 'max 20,000 tickets per set');
     assert.equal(await errCode(grown), 'VALIDATION');
     assert.equal((await prizeDelete(apiRequest('DELETE', `/api/admin/prizes/${it1.body.prizeId}`, { token: ops.token }), ctx({ id: it1.body.prizeId }))).status, 200);
     assert.equal((await levelDelete(apiRequest('DELETE', `/api/admin/pools/${id}/levels/6`, { token: ops.token }), ctx({ id, levelNo: '6' }))).status, 200);
@@ -142,7 +142,7 @@ describe('admin: after publish', () => {
     await db()`UPDATE set_prizes SET recycle_value = 77 WHERE prize_id = ${small.prizeId} AND set_id = (SELECT id FROM pool_sets WHERE pool_id = ${id} AND set_no = 2)`;
     const u = await makeUser({ coins: 1000 });
     const [t] = await db()<{ ticketNo: number }[]>`SELECT t.ticket_no FROM tickets t JOIN pool_sets s ON s.id = t.set_id WHERE s.pool_id = ${id} AND s.set_no = 1 AND t.prize_id = ${small.prizeId} LIMIT 1`;
-    await executeDraw(u.id, key(), { poolId: id, setNo: 1, ticketNos: [t!.ticketNo], shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(u.id, key(), { poolId: id, setNo: 1, ticketNos: [t!.ticketNo] });
 
     // 隨時可改：等級名稱、獎項名稱、回收值、標籤、圖片
     assert.equal((await patchLevel(id, 3, { name: '幸運賞' })).status, 200);

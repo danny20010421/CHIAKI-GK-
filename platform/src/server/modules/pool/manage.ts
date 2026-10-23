@@ -51,8 +51,6 @@ interface PoolLock {
   deletedAt: Date | null;
   currentRuleVersionId: string | null;
   setCount: number;
-  shipFeeHome: number;
-  shipFeeCvs: number;
 }
 interface SetLock {
   id: string;
@@ -71,8 +69,8 @@ interface SetLock {
 
 async function lockPool(tx: Tx, idOrSlug: string, opts: { allowDeleted?: boolean } = {}): Promise<PoolLock> {
   const rows = UUID_RE.test(idOrSlug)
-    ? await tx<PoolLock[]>`SELECT id, merchant_id, status, play_type, offline, deleted_at, current_rule_version_id, set_count, ship_fee_home, ship_fee_cvs FROM pools WHERE id = ${idOrSlug} FOR UPDATE`
-    : await tx<PoolLock[]>`SELECT id, merchant_id, status, play_type, offline, deleted_at, current_rule_version_id, set_count, ship_fee_home, ship_fee_cvs FROM pools WHERE slug = ${idOrSlug} FOR UPDATE`;
+    ? await tx<PoolLock[]>`SELECT id, merchant_id, status, play_type, offline, deleted_at, current_rule_version_id, set_count FROM pools WHERE id = ${idOrSlug} FOR UPDATE`
+    : await tx<PoolLock[]>`SELECT id, merchant_id, status, play_type, offline, deleted_at, current_rule_version_id, set_count FROM pools WHERE slug = ${idOrSlug} FOR UPDATE`;
   const p = rows[0];
   if (!p || (p.deletedAt && !opts.allowDeleted)) throw new AppError('NOT_FOUND', 'pool not found');
   return p;
@@ -251,9 +249,9 @@ export async function addSet(actor: Principal, idOrSlug: string, input: z.input<
     const probSeed = p.playType === 'PROB' ? generateServerSeed() : null;
     const [set] = await tx<{ id: string }[]>`
       INSERT INTO pool_sets (merchant_id, pool_id, set_no, rule_version_id, status, total_tickets, commit_scheme, commitment, commit_salt,
-                             ship_fee_home, ship_fee_cvs, ship_refund_div, display_name, prob_server_seed, prob_seed_hash)
+                             display_name, prob_server_seed, prob_seed_hash)
       VALUES (${p.merchantId}, ${p.id}, ${setNo}, ${p.currentRuleVersionId}, 'QUEUED', ${layout.length}, ${COMMIT_SCHEME}, ${commitment}, ${salt},
-              ${p.shipFeeHome}, ${p.shipFeeCvs}, ${config().SHIPPING_REFUND_DIV}, ${v.displayName ?? null}, ${probSeed}, ${probSeed ? seedHash(probSeed) : null})
+              ${v.displayName ?? null}, ${probSeed}, ${probSeed ? seedHash(probSeed) : null})
       RETURNING id`;
     await tx`
       INSERT INTO tickets (set_id, ticket_no, prize_id)

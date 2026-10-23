@@ -120,7 +120,7 @@ describe('PROB pools (DB)', () => {
     assert.ok(!JSON.stringify(board).includes(s!.probServerSeed as string), 'server seed is secret before the set closes');
 
     const u = await makeUser({ coins: 10_000 });
-    const r1 = (await executeDraw(u.id, key(), { poolId, setNo: 1, count: 10, shippingMethod: 'HOME_DELIVERY', clientSeed: 'my-lucky-seed' })).response;
+    const r1 = (await executeDraw(u.id, key(), { poolId, setNo: 1, count: 10, clientSeed: 'my-lucky-seed' })).response;
     assert.equal(r1.results.length, 10);
     assert.deepEqual(r1.prob, { scheme: 'chiaki-prob-v1', seedHash: seedHashPublished, clientSeed: 'my-lucky-seed', nonce: 1 });
     const k2 = key();
@@ -165,12 +165,12 @@ describe('PROB pools (DB)', () => {
         break;
       }
       assert.equal(big.probability, 0.5);
-      await executeDraw(u.id, key(), { poolId, setNo: 1, count: 1, ...(first ? { shippingMethod: 'CVS_711_C2C' as const } : {}) });
+      await executeDraw(u.id, key(), { poolId, setNo: 1, count: 1 });
       first = false;
     }
     await expectAppError(revealSet(db(), poolId, 1), 'NOT_SOLD_OUT');
     const left = (await getSetBoard(db(), poolId, 1)).remaining;
-    if (left > 0) await executeDraw(u.id, key(), { poolId, setNo: 1, count: 'all', ...(first ? { shippingMethod: 'CVS_711_C2C' as const } : {}) });
+    if (left > 0) await executeDraw(u.id, key(), { poolId, setNo: 1, count: 'all' });
     const rv = await revealSet(db(), poolId, 1);
     const prob = (rv as unknown as { prob: Parameters<typeof replayProbSet>[0] & { verified: boolean } }).prob;
     assert.equal(prob.verified, true);

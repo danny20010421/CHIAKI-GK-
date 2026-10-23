@@ -47,7 +47,7 @@ describe('member journey over HTTP route handlers', () => {
     assert.equal(await (await notifyRoute(apiRequest('POST', '/api/payments/ecpay/notify', { rawBody: new URLSearchParams(n).toString(), headers: { 'content-type': 'application/x-www-form-urlencoded' } }))).text(), '1|OK');
 
     // 未年齡驗證不得抽
-    const blocked = await j<{ error: { code: string } }>(await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0001' }, body: { poolId: 'flow-pool', shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1] } }), none));
+    const blocked = await j<{ error: { code: string } }>(await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0001' }, body: { poolId: 'flow-pool', setNo: 1, ticketNos: [1] } }), none));
     assert.equal(blocked.body.error.code, 'AGE_VERIFICATION_REQUIRED');
     const minor = await ageVerify(apiRequest('POST', '/api/me/age-verification', { token, body: { birthDate: '2015-01-01' } }), none);
     assert.equal(minor.status, 403);
@@ -58,14 +58,14 @@ describe('member journey over HTTP route handlers', () => {
     assert.deepEqual(hold.body.ticketNos, [1, 2, 3]);
     const rel = await j<{ released: number[] }>(await releaseRoute(apiRequest('DELETE', '/api/pools/flow-pool/sets/1/holds', { token, body: { ticketNos: [3] } }), ctx({ id: 'flow-pool', no: '1' })));
     assert.deepEqual(rel.body.released, [3]);
-    const noKey = await drawRoute(apiRequest('POST', '/api/draws', { token, body: { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1, 2] } }), none);
+    const noKey = await drawRoute(apiRequest('POST', '/api/draws', { token, body: { poolId, setNo: 1, ticketNos: [1, 2] } }), none);
     assert.equal(noKey.status, 400);
-    const bad = await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0002' }, body: { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1, 1] } }), none);
+    const bad = await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0002' }, body: { poolId, setNo: 1, ticketNos: [1, 1] } }), none);
     assert.equal(bad.status, 400);
-    const d1 = await j<{ drawId: string; coinsAfter: number; results: { warehouseItemId: string; rank: string }[] }>(await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0003' }, body: { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1, 2] } }), none));
+    const d1 = await j<{ drawId: string; coinsAfter: number; results: { warehouseItemId: string; rank: string }[] }>(await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0003' }, body: { poolId, setNo: 1, ticketNos: [1, 2] } }), none));
     assert.equal(d1.status, 201);
-    assert.equal(d1.body.coinsAfter, 800 - 70, 'draw + prepaid CVS shipping fee');
-    const replay = await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0003' }, body: { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1, 2] } }), none);
+    assert.equal(d1.body.coinsAfter, 800, 'draw only — freight collect, no shipping fee');
+    const replay = await drawRoute(apiRequest('POST', '/api/draws', { token, headers: { 'idempotency-key': 'flow-key-0003' }, body: { poolId, setNo: 1, ticketNos: [1, 2] } }), none);
     assert.equal(replay.status, 200);
     assert.equal(replay.headers.get('idempotent-replayed'), 'true');
     assert.equal(((await replay.json()) as { drawId: string }).drawId, d1.body.drawId);
@@ -74,9 +74,10 @@ describe('member journey over HTTP route handlers', () => {
     assert.equal(board.body.remaining, 8);
     assert.equal(board.body.tickets.find((t) => t.no === 1)!.state, 'TAKEN');
 
-    const wallet = await j<{ coins: number; points: number; ledger: { entryType: string }[] }>(await walletRoute(apiRequest('GET', '/api/me/wallet', { token }), none));
-    assert.equal(wallet.body.coins, 800 - 70);
-    assert.deepEqual(wallet.body.ledger.map((l) => l.entryType), ['SHIPPING_PREPAID', 'DRAW_DEBIT', 'TOPUP']);
+    const wallet = await j<{ currency: string; coins: number; refundableCoins: number; nonRefundableCoins: number; ledger: { entryType: string }[] }>(await walletRoute(apiRequest('GET', '/api/me/wallet', { token }), none));
+    assert.deepEqual([wallet.body.currency, wallet.body.coins, wallet.body.refundableCoins, wallet.body.nonRefundableCoins], ['CC幣', 800, 800, 0]);
+    assert.ok(!('points' in wallet.body), 'no separate platform points');
+    assert.deepEqual(wallet.body.ledger.map((l) => l.entryType), ['DRAW_DEBIT', 'TOPUP']);
 
     const wh = await j<{ items: { id: string; rank: string; status: string }[] }>(await warehouseRoute(apiRequest('GET', '/api/me/warehouse?status=STORED', { token }), none));
     assert.equal(wh.body.items.length, 2);
@@ -87,8 +88,11 @@ describe('member journey over HTTP route handlers', () => {
       assert.equal(rc.status, 200);
     }
     if (keep.length) {
-      const sh = await shipRoute(apiRequest('POST', '/api/me/shipments', { token, body: { itemIds: keep.map((i) => i.id), method: 'HOME_DELIVERY', recipientName: '測試', recipientPhone: '0987654321', address: '台中市西屯區測試路 100 號' } }), none);
+      const R = { recipientName: '測試', recipientPhone: '0987654321' };
+      const destinations = { home: { ...R, address: '台中市西屯區測試路 100 號' }, c711: { ...R, cvsStoreId: '123456' } };
+      const sh = await shipRoute(apiRequest('POST', '/api/me/shipments', { token, body: { itemIds: keep.map((i) => i.id), destinations } }), none);
       assert.equal(sh.status, 201);
+      assert.equal(((await sh.json()) as { freightCollect: boolean }).freightCollect, true);
     }
 
     const rw = await j<{ tasks: { code: string; claimed: boolean }[] }>(await rewardsList(apiRequest('GET', '/api/me/rewards', { token }), none));

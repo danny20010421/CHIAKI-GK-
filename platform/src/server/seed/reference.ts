@@ -2,115 +2,164 @@ import type { Db } from '../db';
 import type { PoolDraftInput } from '../modules/pool/admin';
 
 /**
- * 參考資料（冪等）。所有數值皆為「範例／待營運與法遵確認」：運費、回收值、綁定獎勵點數。
- * 回收值已改為「每套 × 每獎項」設定（見各賞池 levels[].items[].recycleValue，發布後可逐套調整），不再有全域賞級費率表。
+ * 參考資料（冪等）。所有數值皆為「範例／待營運與法遵確認」：回收值、綁定獎勵 CC幣。
+ * 回收值為「每套 × 每獎項」設定（見各賞池 levels[].items[].recycleValue，發布後可逐套調整）。
+ * 運費一律到付（2026-10 第七批）：物流方式不再有運費；寄送方式由每個獎項預設（shipMethod）。
  */
 
-/**
- * 物流方式（只開放宅配、7-ELEVEN 交貨便、全家 店到店）。此處 fee_coins 只用於「未預收運費」的物品（直購商品）；
- * 賞池獎品的運費是在抽賞時按套預收（每套設定：宅配 150–300、超商 60–150）。
- */
-export const SHIPPING_METHODS: { method: string; label: string; feeCoins: number }[] = [
-  { method: 'HOME_DELIVERY', label: '宅配到府', feeCoins: 150 },
-  { method: 'CVS_711_C2C', label: '7-ELEVEN 交貨便', feeCoins: 70 },
-  { method: 'CVS_FAMI_C2C', label: '全家 店到店', feeCoins: 70 },
+/** 物流方式（只開放宅配、7-ELEVEN 交貨便、全家 店到店）；運費到付 */
+export const SHIPPING_METHODS: { method: string; label: string }[] = [
+  { method: 'HOME_DELIVERY', label: '宅配到府' },
+  { method: 'CVS_711_C2C', label: '7-ELEVEN 交貨便' },
+  { method: 'CVS_FAMI_C2C', label: '全家 店到店' },
 ];
 
-export const REWARD_TASKS: { code: string; title: string; points: number; coupon: string | null }[] = [
-  { code: 'BIND_LINE_OA', title: '加入 CHIAKI LINE 官方帳號', points: 50, coupon: 'LINE-WELCOME' },
-  { code: 'JOIN_LINE_COMMUNITY', title: '加入 LINE 社群', points: 30, coupon: null },
-  { code: 'FOLLOW_IG', title: '追蹤 Instagram @chiaki_gk.studies', points: 30, coupon: null },
-  { code: 'BIND_PHONE', title: '綁定手機號碼', points: 20, coupon: null },
+/** 綁定/任務獎勵（coins = 不可退款 CC幣；資料表欄位 reward_points 沿用舊名） */
+export const REWARD_TASKS: { code: string; title: string; coins: number; coupon: string | null }[] = [
+  { code: 'BIND_LINE_OA', title: '加入 CHIAKI LINE 官方帳號', coins: 50, coupon: 'LINE-WELCOME' },
+  { code: 'JOIN_LINE_COMMUNITY', title: '加入 LINE 社群', coins: 30, coupon: null },
+  { code: 'FOLLOW_IG', title: '追蹤 Instagram @chiaki_gk.studies', coins: 30, coupon: null },
+  { code: 'BIND_PHONE', title: '綁定手機號碼', coins: 20, coupon: null },
 ];
 
 export async function seedReferenceData(d: Db, merchantId = 'chiaki'): Promise<void> {
   for (const m of SHIPPING_METHODS) {
-    await d`INSERT INTO shipping_methods (method, merchant_id, label, fee_coins) VALUES (${m.method}, ${merchantId}, ${m.label}, ${m.feeCoins})
+    await d`INSERT INTO shipping_methods (method, merchant_id, label) VALUES (${m.method}, ${merchantId}, ${m.label})
             ON CONFLICT (method) DO NOTHING`;
   }
   for (const t of REWARD_TASKS) {
-    await d`INSERT INTO reward_tasks (code, merchant_id, title, reward_points, coupon_code) VALUES (${t.code}, ${merchantId}, ${t.title}, ${t.points}, ${t.coupon})
+    await d`INSERT INTO reward_tasks (code, merchant_id, title, reward_points, coupon_code) VALUES (${t.code}, ${merchantId}, ${t.title}, ${t.coins}, ${t.coupon})
             ON CONFLICT (code) DO NOTHING`;
   }
 }
 
 /**
- * 規格指定的範例賞池（自製 CUSTOM）：10 套 × 100 籤；數量 1,1,1,6,6,15,20,50；300 代幣/抽。
- * 等級 1–8 各一個獎項（A賞–H賞）；等級 4–8 為小獎（計入滿 20 件運費規則與逐件退還）。
- * 回收值（會員回收＝平台點數；寄存到期＝代幣）與運費皆為範例值，待業主確認。
+ * 已停用的種子賞池（舊的佔位/範例賞池）。scripts/seed.ts 會把既有開發資料庫中的這些賞池移除：
+ * 無銷售 → 軟刪除；已有銷售 → 下架（既有紀錄不受影響）。
  */
-export const GK_FIRST_POOL: PoolDraftInput = {
-  slug: 'chiaki-gk-01',
-  title: 'CHIAKI GK 一番賞 第一彈',
-  ip: 'CHIAKI ORIGINAL',
-  description: '每套 100 抽・共十套（範例資料，獎品名稱待填）。',
-  terms: '固定獎品清單、無放回抽取；結果由伺服器原子確定；完售後公開籤表與 salt 供驗證。運費於本套首次付費抽賞時預收。',
-  source: 'CUSTOM',
-  playType: 'STANDARD',
-  priceCoins: 300,
-  setCount: 10,
-  levels: [
-    { levelNo: 1, name: 'A賞', items: [{ name: 'CHIAKI 原創 GK 雕像 典藏版（名稱待填）', qtyPerSet: 1, recycleValue: 0, recyclable: false, tag: 'GK' }] },
-    { levelNo: 2, name: 'B賞', items: [{ name: 'CHIAKI 原創 GK 半身像（名稱待填）', qtyPerSet: 1, recycleValue: 1500, tag: 'GK' }] },
-    { levelNo: 3, name: 'C賞', items: [{ name: 'CHIAKI 原創 GK 胸像（名稱待填）', qtyPerSet: 1, recycleValue: 900, tag: 'GK' }] },
-    { levelNo: 4, name: 'D賞', items: [{ name: '壓克力立牌（名稱待填）', qtyPerSet: 6, recycleValue: 150, tag: '其他' }] },
-    { levelNo: 5, name: 'E賞', items: [{ name: '金屬徽章（名稱待填）', qtyPerSet: 6, recycleValue: 100, tag: '其他' }] },
-    { levelNo: 6, name: 'F賞', items: [{ name: '透明收藏卡（名稱待填）', qtyPerSet: 15, recycleValue: 60, tag: '卡牌' }] },
-    { levelNo: 7, name: 'G賞', items: [{ name: '貼紙組（名稱待填）', qtyPerSet: 20, recycleValue: 40, tag: '其他' }] },
-    { levelNo: 8, name: 'H賞', items: [{ name: '明信片（名稱待填）', qtyPerSet: 50, recycleValue: 20, tag: '其他' }] },
-  ],
-  lastPrize: null,
-  guarantee: null,
-  drawPacks: [1, 5, 10],
-  shippingFeeHome: 150,
-  shippingFeeCvs: 70,
-  shippingNote: '平台商品依平台公告時程',
-};
-
-/** 保底挑戰範例（自製）：每 10 抽未抽中等級 1–3 → 保底 B賞 一個（獨立保底庫存 3 個）。 */
-export const GUARANTEE_SAMPLE_POOL: PoolDraftInput = {
-  slug: 'chiaki-black-gold-guarantee',
-  title: 'CHIAKI ORIGINAL 保底挑戰 ～黑金典藏～（範例）',
-  ip: 'CHIAKI ORIGINAL',
-  source: 'CUSTOM',
-  playType: 'GUARANTEE',
-  priceCoins: 280,
-  setCount: 1,
-  levels: [
-    { levelNo: 1, name: 'A賞', items: [{ name: '黑金典藏 雕像（名稱待填）', qtyPerSet: 1, recycleValue: 0, recyclable: false, tag: 'GK' }] },
-    { levelNo: 2, name: 'B賞', items: [{ name: '黑金 半身像（名稱待填）', qtyPerSet: 4, recycleValue: 800, tag: 'GK' }] },
-    { levelNo: 3, name: 'C賞', items: [{ name: '黑金 收藏盒（名稱待填）', qtyPerSet: 10, recycleValue: 300, tag: '其他' }] },
-    { levelNo: 4, name: 'D賞', items: [{ name: '黑金 壓克力立牌（名稱待填）', qtyPerSet: 25, recycleValue: 100, tag: '其他' }] },
-    { levelNo: 5, name: 'E賞', items: [{ name: '黑金 收藏卡（名稱待填）', qtyPerSet: 40, recycleValue: 40, tag: '卡牌' }] },
-  ],
-  lastPrize: { name: '黑金 Last 特別版（名稱待填）', tag: 'GK' },
-  guarantee: { everyN: 10, minLevel: 3, reserveLevelNo: 2, reservePrizeName: '黑金 半身像（保底專用庫存）', reserveTotal: 3, reserveRecycleValue: 800, reserveTag: 'GK' },
-  drawPacks: [1, 3, 5, 10, 'all'],
-  shippingFeeHome: 180,
-  shippingFeeCvs: 80,
-};
+export const RETIRED_SEED_POOL_SLUGS = ['chiaki-gk-01', 'chiaki-black-gold-guarantee'] as const;
 
 /**
- * 機率賞範例（PROB）：每套 2000 籤、每抽 40 代幣。
+ * 「超萌宮崎駿」機率賞（前台 id: gb；自製、PROB）：每套 2000 籤、每抽 40 CC幣。
  * 大獎、2 獎為固定單抽機率（1/30、1/50；抽完後其機率滾入其餘獎項），其餘依剩餘籤數平均分配。
+ * 寄送方式：未指定 → 大獎（等級 1，大件）宅配，其餘 7-11。
  */
 export const PROB_SAMPLE_POOL: PoolDraftInput = {
   slug: 'chiaki-miyazaki-prob',
-  title: '宮崎駿 機率賞（範例）',
-  ip: '',
+  title: '超萌宮崎駿 ～100% 中獎 通通帶回家～',
+  ip: '宮崎駿・吉卜力',
   source: 'CUSTOM',
   playType: 'PROB',
   priceCoins: 40,
   setCount: 1,
   levels: [
-    { levelNo: 1, name: '大獎', odds: '1/30', items: [{ name: '神隱卡西法', qtyPerSet: 5, recycleValue: 2000 }] },
-    { levelNo: 2, name: '2 獎', odds: '1/50', items: [{ name: '宮崎駿地毯', qtyPerSet: 5, recycleValue: 300 }] },
+    { levelNo: 1, name: '大獎', odds: '1/30', items: [{ name: '神隱卡西法', qtyPerSet: 5, recycleValue: 2000, tag: 'PVC' }] },
+    { levelNo: 2, name: '2 獎', odds: '1/50', items: [{ name: '宮崎駿地毯', qtyPerSet: 5, recycleValue: 300, tag: '其他' }] },
     { levelNo: 3, name: '3 獎', items: [{ name: '宮崎駿盲盒', qtyPerSet: 30, recycleValue: 100, tag: '景品盲盒' }] },
     { levelNo: 4, name: '4 獎', items: [{ name: '宮崎駿同人貼紙', qtyPerSet: 1960, recycleValue: 10, tag: '其他' }] },
   ],
   lastPrize: null,
   guarantee: null,
   drawPacks: [1, 5, 10],
-  shippingFeeHome: 150,
-  shippingFeeCvs: 70,
 };
+
+/**
+ * 「雲頂終結谷」機率賞（前台 id: nr；自製、PROB、IP 火影忍者）：每套 20,000 籤、每抽 200 CC幣。
+ * 4 獎「火影墨影霓亂徽章」固定單抽機率 70%（抽完後滾入其餘獎項），其餘依剩餘籤數平均分配。
+ * 前台以陣列順序為等級：大獎=1、2 獎=2、4 獎=3（非小獎）、5 獎=4。
+ */
+export const NR_POOL: PoolDraftInput = {
+  slug: 'nr-valley-of-the-end',
+  title: '雲頂終結谷',
+  ip: '火影忍者',
+  description: '鳴人 vs 佐助 終結谷決戰雙雕像。70% 機率直接獲得 4 獎「火影墨影霓亂徽章」（回收值 250），大獎佐助回收值高達 40,000。',
+  source: 'CUSTOM',
+  playType: 'PROB',
+  priceCoins: 200,
+  setCount: 1,
+  levels: [
+    { levelNo: 1, name: '大獎', items: [{ name: '雲頂終結谷 佐助', qtyPerSet: 1, recycleValue: 40000, tag: 'GK', shipMethod: 'home' }] },
+    { levelNo: 2, name: '2 獎', items: [{ name: '雲頂終結谷 鳴人', qtyPerSet: 1, recycleValue: 18000, tag: 'GK', shipMethod: 'home' }] },
+    {
+      levelNo: 3,
+      name: '4 獎',
+      isSmall: false,
+      odds: 0.7,
+      items: [{ name: '火影墨影霓亂徽章（一枚）', qtyPerSet: 500, recycleValue: 250, tag: '其他', shipMethod: 'c711' }],
+    },
+    {
+      levelNo: 4,
+      name: '5 獎',
+      items: [
+        { name: '火影同人貼紙', qtyPerSet: 9498, recycleValue: 10, tag: '其他', shipMethod: 'c711' },
+        { name: '隨機一番賞小獎', qtyPerSet: 10000, recycleValue: 100, tag: '一番賞', shipMethod: 'c711' },
+      ],
+    },
+  ],
+  lastPrize: null,
+  guarantee: null,
+  drawPacks: [1, 5, 10],
+};
+
+type OfficialItem = { grade: string; name: string; qty: number; tag: NonNullable<PoolDraftInput['levels'][number]['items'][number]['tag']>; ship: 'home' | 'c711' | 'fami' };
+
+/** 官方一番賞：A–I 九個等級（等級 1–9）＋最後賞；所有獎品不可回收（回收值 0）。 */
+function officialLevels(items: OfficialItem[]): PoolDraftInput['levels'] {
+  return items.map((it, i) => ({
+    levelNo: i + 1,
+    name: `${it.grade}賞`,
+    items: [{ name: it.name, qtyPerSet: it.qty, recycleValue: 0, recyclable: false, tag: it.tag, shipMethod: it.ship }],
+  }));
+}
+
+/** 「宿命的雙極」官方一番賞（前台 id: bk；IP 烙印勇士）：每抽 420 CC幣，每套 80 籤；A–E 宅配、F–I 7-11。 */
+export const BK_POOL: PoolDraftInput = {
+  slug: 'bk-berserk-dual-poles',
+  title: '宿命的雙極',
+  ip: '烙印勇士',
+  source: 'OFFICIAL',
+  playType: 'STANDARD',
+  priceCoins: 420,
+  setCount: 1,
+  levels: officialLevels([
+    { grade: 'A', name: '複製原畫', qty: 1, tag: '其他', ship: 'home' },
+    { grade: 'B', name: '凱茲（雙版本隨機）', qty: 2, tag: 'PVC', ship: 'home' },
+    { grade: 'C', name: '斬龍劍', qty: 1, tag: '其他', ship: 'home' },
+    { grade: 'D', name: '夢之獸', qty: 1, tag: 'PVC', ship: 'home' },
+    { grade: 'E', name: '索特', qty: 1, tag: 'PVC', ship: 'home' },
+    { grade: 'F', name: '100cm 大型緹花毛巾', qty: 2, tag: '其他', ship: 'c711' },
+    { grade: 'G', name: '頭像磁鐵（全 6 種隨機）', qty: 20, tag: '其他', ship: 'c711' },
+    { grade: 'H', name: '緹花毛巾（全 8 種隨機）', qty: 24, tag: '其他', ship: 'c711' },
+    { grade: 'I', name: '畫布風格展示板（全 25 種隨機）', qty: 28, tag: '其他', ship: 'c711' },
+  ]),
+  // 最後賞寄送方式未指定：與 E 賞「索特」同為立體商品 → 宅配
+  lastPrize: { name: '索特（人類姿態）', recycleValue: 0, recyclable: false, tag: 'PVC', shipMethod: 'home' },
+  guarantee: null,
+};
+
+/** 「神樂鉢」官方一番賞（前台 id: kg；IP 神樂鉢）：每抽 420 CC幣，每套 80 籤；A–C 宅配，其餘（含最後賞）7-11。 */
+export const KG_POOL: PoolDraftInput = {
+  slug: 'kg-kagurabachi',
+  title: '神樂鉢',
+  ip: '神樂鉢',
+  source: 'OFFICIAL',
+  playType: 'STANDARD',
+  priceCoins: 420,
+  setCount: 1,
+  levels: officialLevels([
+    { grade: 'A', name: '連載三周年紀念書本造型展示板', qty: 3, tag: '其他', ship: 'home' },
+    { grade: 'B', name: '六平千鑛', qty: 1, tag: 'PVC', ship: 'home' },
+    { grade: 'C', name: '漣伯理', qty: 2, tag: 'PVC', ship: 'home' },
+    { grade: 'D', name: '大毛巾（全兩款）', qty: 2, tag: '其他', ship: 'c711' },
+    { grade: 'E', name: '網布收納袋', qty: 4, tag: '其他', ship: 'c711' },
+    { grade: 'F', name: '透明海報', qty: 20, tag: '其他', ship: 'c711' },
+    { grade: 'G', name: '壓克力立牌', qty: 16, tag: '其他', ship: 'c711' },
+    { grade: 'H', name: '壓克力吊飾', qty: 14, tag: '其他', ship: 'c711' },
+    { grade: 'I', name: '透明資料夾＆貼紙組', qty: 18, tag: '其他', ship: 'c711' },
+  ]),
+  lastPrize: { name: '六平千鑛', recycleValue: 0, recyclable: false, tag: 'PVC', shipMethod: 'home' },
+  guarantee: null,
+};
+
+/** 開發/展示用種子賞池（scripts/seed.ts 依序建立並經雙人覆核發布） */
+export const SEED_POOLS: readonly PoolDraftInput[] = [PROB_SAMPLE_POOL, NR_POOL, BK_POOL, KG_POOL];

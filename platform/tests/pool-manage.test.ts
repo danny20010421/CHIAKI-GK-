@@ -49,7 +49,7 @@ describe('take down / put back', () => {
     const id = await publishPool(smallPool());
     const u = await makeUser({ coins: 5000 });
     const v = await makeUser({ coins: 5000 });
-    await executeDraw(u.id, key(), { poolId: id, setNo: 1, ticketNos: [1], shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(u.id, key(), { poolId: id, setNo: 1, ticketNos: [1] });
     await holdTickets(v.id, id, 1, [5]);
     assert.ok((await listed()).includes(id));
     assert.equal((await poolOffline(as(ops, 'POST', `/api/admin/pools/${id}/offline`, { offline: true }), ctx({ id }))).status, 400, 'reason required');
@@ -62,12 +62,12 @@ describe('take down / put back', () => {
     const detail = await j<{ offline: boolean }>(await poolRoute(apiRequest('GET', `/api/pools/${id}`), ctx({ id })));
     assert.deepEqual([detail.status, detail.body.offline], [200, true], 'direct link still works (verification), flagged offline');
     await expectAppError(holdTickets(v.id, id, 1, [6]), 'SET_NOT_ON_SALE');
-    await expectAppError(executeDraw(v.id, key(), { poolId: id, setNo: 1, ticketNos: [6], shippingMethod: 'CVS_711_C2C' }), 'SET_NOT_ON_SALE');
+    await expectAppError(executeDraw(v.id, key(), { poolId: id, setNo: 1, ticketNos: [6] }), 'SET_NOT_ON_SALE');
     assert.equal((await playGet(apiRequest('GET', `/api/play/${id}`), ctx({ poolId: id }))).status, 409);
     assert.equal((await listWarehouse(db(), u.id)).length, 1, 'warehouse untouched');
     assert.equal((await poolOffline(as(ops, 'POST', `/api/admin/pools/${id}/offline`, { offline: false, reason: '已修正' }), ctx({ id }))).status, 200);
     assert.ok((await listed()).includes(id));
-    await executeDraw(v.id, key(), { poolId: id, setNo: 1, ticketNos: [6], shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(v.id, key(), { poolId: id, setNo: 1, ticketNos: [6] });
     assert.equal(await auditCount('POOL_TAKEN_OFFLINE'), 1);
     const [a] = await db()`SELECT payload_json FROM audit_log WHERE action = 'POOL_TAKEN_OFFLINE'`;
     assert.match(a!.payloadJson as string, /獎品圖片有誤/);
@@ -110,8 +110,8 @@ describe('edit set', () => {
 
     // 賣完第 2 套後公開：新承諾驗證通過，被取代的舊承諾也可用其舊 salt/籤表驗證
     const u = await makeUser({ coins: 10_000 });
-    await executeDraw(u.id, key(), { poolId: id, setNo: 1, count: 10, shippingMethod: 'CVS_711_C2C' });
-    await executeDraw(u.id, key(), { poolId: id, setNo: 2, count: 10, shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(u.id, key(), { poolId: id, setNo: 1, count: 10 });
+    await executeDraw(u.id, key(), { poolId: id, setNo: 2, count: 10 });
     const rv = await revealSet(db(), id, 2);
     assert.equal(rv.verified, true);
     assert.equal(rv.superseded.length, 1);
@@ -143,7 +143,7 @@ describe('add set', () => {
   it('generates a new set from current levels with a new commitment; ended pool reopens', async () => {
     const id = await publishPool(smallPool({ setCount: 1, lastPrizeName: null }));
     const u = await makeUser({ coins: 10_000 });
-    await executeDraw(u.id, key(), { poolId: id, setNo: 1, count: 10, shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(u.id, key(), { poolId: id, setNo: 1, count: 10 });
     const [p0] = await db()`SELECT status FROM pools WHERE id = ${id}`;
     assert.equal(p0!.status, 'ENDED');
     assert.equal((await addSetRoute(as(ops, 'POST', `/api/admin/pools/${id}/sets`, {}), ctx({ id }))).status, 400, 'reason required');
@@ -153,7 +153,7 @@ describe('add set', () => {
     assert.deepEqual(p1, { status: 'PUBLISHED', setCount: 2 });
     const l = await layoutOf(id, 2);
     assert.deepEqual(l.map((t) => t.levelNo).sort(), [1, 2, 3, 3, 4, 4, 4, 4, 4, 4]);
-    await executeDraw(u.id, key(), { poolId: id, setNo: 2, count: 10, shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(u.id, key(), { poolId: id, setNo: 2, count: 10 });
     assert.equal((await revealSet(db(), id, 2)).verified, true);
     const q = await j<{ setNo: number; status: string }>(await addSetRoute(as(ops, 'POST', `/api/admin/pools/${id}/sets`, { reason: '再加一套' }), ctx({ id })));
     assert.deepEqual([q.body.setNo, q.body.status], [3, 'ON_SALE']);
@@ -165,7 +165,7 @@ describe('delete / restore / purge', () => {
   it('set with sales → 409; 0-sale set soft-deleted (next set opens), hidden, restorable; purge after 30 days', async () => {
     const id = await publishPool(smallPool({ setCount: 3 }));
     const u = await makeUser({ coins: 10_000 });
-    await executeDraw(u.id, key(), { poolId: id, setNo: 1, ticketNos: [1], shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(u.id, key(), { poolId: id, setNo: 1, ticketNos: [1] });
     const sold = await j<Err>(await setDelete(as(ops, 'DELETE', `/api/admin/pools/${id}/sets/1`, { reason: '刪錯' }), ctx({ id, no: '1' })));
     assert.deepEqual([sold.status, sold.body.error.code, sold.body.error.message], [409, 'HAS_SALES', '已有銷售紀錄，只能下架']);
     assert.equal((await setDelete(as(ops, 'DELETE', `/api/admin/pools/${id}/sets/2`, {}), ctx({ id, no: '2' }))).status, 400, 'reason required');
@@ -210,7 +210,7 @@ describe('delete / restore / purge', () => {
 
     const withSales = await publishPool(customPool());
     const u = await makeUser({ coins: 1000 });
-    await executeDraw(u.id, key(), { poolId: withSales, setNo: 1, count: 1, shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(u.id, key(), { poolId: withSales, setNo: 1, count: 1 });
     const e = await j<Err>(await poolDelete(as(boss, 'DELETE', `/api/admin/pools/${withSales}`, { reason: 'x' }), ctx({ id: withSales })));
     assert.deepEqual([e.status, e.body.error.message], [409, '已有銷售紀錄，只能下架']);
 

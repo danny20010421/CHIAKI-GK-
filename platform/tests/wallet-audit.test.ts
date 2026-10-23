@@ -24,26 +24,31 @@ async function tamper(fn: (sql: ReturnType<typeof db>) => Promise<unknown>) {
 }
 
 describe('wallet ledger', () => {
-  it('coins and points are separate; balance_after chain; never negative', async () => {
-    const u = await makeUser({ coins: 500, points: 30 });
-    assert.deepEqual(await walletOf(u.id), { coins: 500, points: 30 });
-    await transaction((tx) => postLedger(tx, { userId: u.id, currency: 'POINTS', amount: -30, entryType: 'ADMIN_ADJUST', refType: 't', refId: '1' }));
-    await expectAppError(transaction((tx) => postLedger(tx, { userId: u.id, currency: 'COINS', amount: -501, entryType: 'ADMIN_ADJUST', refType: 't', refId: '2' })), 'INSUFFICIENT_FUNDS');
-    assert.deepEqual(await walletOf(u.id), { coins: 500, points: 0 });
+  it('one currency (CC幣): balance = refundable + non-refundable; balance_after chain; never negative', async () => {
+    const u = await makeUser({ coins: 500, nonRefundableCoins: 30 });
+    assert.deepEqual(await walletOf(u.id), { coins: 530, nonRefundableCoins: 30 });
+    await expectAppError(transaction((tx) => postLedger(tx, { userId: u.id, amount: -531, entryType: 'ADMIN_ADJUST', refType: 't', refId: '2' })), 'INSUFFICIENT_FUNDS');
+    // 一般扣款先扣不可退款
+    await transaction((tx) => postLedger(tx, { userId: u.id, amount: -40, entryType: 'ADMIN_ADJUST', refType: 't', refId: '3' }));
+    assert.deepEqual(await walletOf(u.id), { coins: 490, nonRefundableCoins: 0 });
     const r = (await reconcileWallets(db(), u.id))[0]!;
     assert.equal(r.ok, true);
-    assert.deepEqual(r.coins, { cached: 500, ledgerSum: 500, lastBalanceAfter: 500 });
+    assert.deepEqual(r.coins, { cached: 490, ledgerSum: 490, lastBalanceAfter: 490 });
+    assert.deepEqual(r.legacyPoints, { ledgerSum: 0, lastBalanceAfter: 0 });
   });
 
-  it('points can never be bought or refunded as cash (DB constraint)', async () => {
-    const u = await makeUser();
-    for (const t of ['TOPUP', 'REFUND_DEBIT', 'DRAW_DEBIT']) {
-      await assert.rejects(
-        transaction((tx) => postLedger(tx, { userId: u.id, currency: 'POINTS', amount: t === 'TOPUP' ? 10 : -10, entryType: t as 'TOPUP', refType: 't', refId: t })),
-        /ledger_currency_rules|INSUFFICIENT|點數不足/,
-      );
-    }
-    await assert.rejects(transaction((tx) => postLedger(tx, { userId: u.id, currency: 'POINTS', amount: 10, entryType: 'TOPUP', refType: 't', refId: 'x' })), /ledger_currency_rules/);
+  it('platform points are gone: no POINTS ledger rows can be written (code + DB constraint)', async () => {
+    const u = await makeUser({ coins: 10 });
+    await assert.rejects(
+      transaction((tx) => postLedger(tx, { userId: u.id, currency: 'POINTS' as never, amount: 10, entryType: 'BIND_REWARD', refType: 't', refId: 'x' })),
+      /only CC幣/,
+    );
+    await assert.rejects(
+      db()`INSERT INTO wallet_ledger (user_id, currency, amount, balance_after, entry_type, ref_type, ref_id) VALUES (${u.id}, 'POINTS', 10, 10, 'BIND_REWARD', 't', 't')`,
+      /ledger_coins_only/,
+    );
+    const [c] = await db()`SELECT column_name FROM information_schema.columns WHERE table_name = 'wallets' AND column_name = 'points'`;
+    assert.equal(c, undefined, 'wallets.points removed');
   });
 
   it('ledger is append-only (UPDATE/DELETE/TRUNCATE blocked)', async () => {

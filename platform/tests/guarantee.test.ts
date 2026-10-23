@@ -9,7 +9,6 @@ import { customPool, layoutOf, makeUser, publishPool, setupTestDb } from './help
 let env: Awaited<ReturnType<typeof setupTestDb>>;
 let k = 0;
 const key = () => `g-${process.pid}-${++k}-${Date.now()}`;
-const SHIP = 'CVS_711_C2C';
 before(async () => {
   env = await setupTestDb();
 });
@@ -41,7 +40,7 @@ describe('guarantee (保底挑戰) — level based', () => {
     const take = (n: number) => misses.splice(0, n);
 
     // 兩次小獎 → 尚無保底
-    let r = (await executeDraw(u.id, key(), { poolId, shippingMethod: SHIP, setNo: 1, ticketNos: take(2) })).response;
+    let r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: take(2) })).response;
     assert.equal(r.results.filter((x) => x.kind === 'GUARANTEE').length, 0);
     assert.equal(r.guarantee!.misses, 2);
     assert.equal(r.guarantee!.minLevel, 2);
@@ -49,7 +48,7 @@ describe('guarantee (保底挑戰) — level based', () => {
     r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [wins.shift()!] })).response;
     assert.equal(r.guarantee!.misses, 0);
     // 另一玩家的計數獨立
-    r = (await executeDraw(other.id, key(), { poolId, shippingMethod: SHIP, setNo: 1, ticketNos: take(1) })).response;
+    r = (await executeDraw(other.id, key(), { poolId, setNo: 1, ticketNos: take(1) })).response;
     assert.equal(r.guarantee!.misses, 1);
     // 一次多抽 3 個小獎 → 第 3 個之後插入保底獎
     const before = await getSetBoard(db(), poolId, 1);
@@ -94,7 +93,7 @@ describe('guarantee (保底挑戰) — level based', () => {
     const u = await makeUser({ coins: 10_000 });
     const layout = await layoutOf(poolId, 1);
     const mids = layout.filter((t) => t.levelNo === 2).map((t) => t.ticketNo);
-    const r = (await executeDraw(u.id, key(), { poolId, shippingMethod: SHIP, setNo: 1, ticketNos: mids.slice(0, 3) })).response;
+    const r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: mids.slice(0, 3) })).response;
     assert.deepEqual(r.results.map((x) => `${x.kind}:${x.levelNo}`), ['TICKET:2', 'TICKET:2', 'TICKET:2', 'GUARANTEE:1']);
   });
 
@@ -133,21 +132,22 @@ describe('guarantee (保底挑戰) — level based', () => {
     const layout = await layoutOf(poolId, 1);
     const ds = layout.filter((t) => t.isSmall).map((t) => t.ticketNo).slice(0, 20);
     const users = await Promise.all(ds.map(() => makeUser({ coins: 1000 })));
-    const rs = await Promise.all(users.map((u, i) => executeDraw(u.id, key(), { poolId, shippingMethod: SHIP, setNo: 1, ticketNos: [ds[i]!] })));
+    const rs = await Promise.all(users.map((u, i) => executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [ds[i]!] })));
     const awarded = rs.reduce((s, r) => s + r.response.results.filter((x) => x.kind === 'GUARANTEE').length, 0);
     assert.equal(awarded, 5);
     const [g] = await db()`SELECT reserve_used FROM pool_guarantees WHERE pool_id = ${poolId}`;
     assert.equal(g!.reserveUsed, 5);
   });
 
-  it('draft validation: guarantee config only for GUARANTEE; reserve level must exist; levels 1–8 unique; names unique', async () => {
+  it('draft validation: guarantee config only for GUARANTEE; reserve level must exist; levels 1–12 unique; names unique', async () => {
     const ops = await makeUser({ roles: ['OPS'] });
     const g = { everyN: 1, minLevel: 2, reserveLevelNo: 2, reservePrizeName: 'x', reserveTotal: 1 };
     await assert.rejects(createPoolDraft(ops.principal, customPool({ playType: 'GUARANTEE', guarantee: null })), /guarantee config/);
     await assert.rejects(createPoolDraft(ops.principal, customPool({ playType: 'STANDARD', guarantee: g })), /guarantee config/);
     await assert.rejects(createPoolDraft(ops.principal, customPool({ playType: 'GUARANTEE', guarantee: { ...g, reserveLevelNo: 7 } })), /保底獎項的等級/);
     const lv = (levelNo: number, name = `L${levelNo}`) => ({ levelNo, name, items: [{ name: `item-${levelNo}-${name}`, qtyPerSet: 1 }] });
-    await assert.rejects(createPoolDraft(ops.principal, customPool({ levels: [lv(9)] })), /等級須為 1–8/);
+    await assert.rejects(createPoolDraft(ops.principal, customPool({ levels: [lv(13)] })), /等級須為 1–12/);
+    await createPoolDraft(ops.principal, customPool({ levels: [lv(9), lv(12)] }));
     await assert.rejects(createPoolDraft(ops.principal, customPool({ levels: [lv(1), lv(1, 'b')] })), /等級號不可重複/);
     await assert.rejects(createPoolDraft(ops.principal, customPool({ levels: [] })), /至少一個等級/);
     await assert.rejects(createPoolDraft(ops.principal, customPool({ levels: [{ levelNo: 1, name: 'A賞', items: [] }] })), /每個等級至少一個獎項/);

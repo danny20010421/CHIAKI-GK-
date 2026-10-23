@@ -143,15 +143,16 @@ describe('saved recipients', () => {
     assert.equal(list.filter((a) => a.isDefault).length, 1);
 
     // 申請出貨直接引用收件資訊
-    const poolId = await publishPool(smallPool({ setCount: 1, prizes: [{ rank: 'D', name: 'D賞', qtyPerSet: 10 }] }));
-    await executeDraw(u.id, `mem-${process.pid}-1`, { poolId, setNo: 1, count: 1, shippingMethod: 'HOME_DELIVERY' });
+    const poolId = await publishPool(smallPool({ setCount: 1, prizes: [{ rank: 'D', name: 'D賞', qtyPerSet: 10, shipMethod: 'home' }] }));
+    await executeDraw(u.id, `mem-${process.pid}-1`, { poolId, setNo: 1, count: 1 });
     const items = await listWarehouse(db(), u.id, 'STORED');
-    const s = await j<{ shipmentId: string }>(await shipRoute(apiRequest('POST', '/api/me/shipments', { token: u.token, body: { itemIds: items.map((i) => i.id), addressId: home.body.id } }), none));
+    const s = await j<{ shipments: { shipmentId: string }[] }>(await shipRoute(apiRequest('POST', '/api/me/shipments', { token: u.token, body: { itemIds: items.map((i) => i.id), destinations: { home: { addressId: home.body.id } } } }), none));
     assert.equal(s.status, 201);
-    const [row] = await db()`SELECT method, recipient_name, address, address_id FROM shipments WHERE id = ${s.body.shipmentId}`;
+    const shipmentId = s.body.shipments[0]!.shipmentId;
+    const [row] = await db()`SELECT method, recipient_name, address, address_id FROM shipments WHERE id = ${shipmentId}`;
     assert.deepEqual(row, { method: 'HOME_DELIVERY', recipientName: '王小明', address: '台中市西屯區測試路 100 號', addressId: home.body.id });
-    assert.equal((await shipRoute(apiRequest('POST', '/api/me/shipments', { token: other.token, body: { itemIds: [items[0]!.id], addressId: home.body.id } }), none)).status, 404, "cannot use someone else's address");
-    const ev = await j<{ events: { status: string; kindLabel: string; actor: string }[] }>(await myEvents(apiRequest('GET', `/api/me/shipments/${s.body.shipmentId}/events`, { token: u.token }), ctx({ id: s.body.shipmentId })));
+    assert.equal((await shipRoute(apiRequest('POST', '/api/me/shipments', { token: other.token, body: { itemIds: [items[0]!.id], destinations: { home: { addressId: home.body.id } } } }), none)).status, 404, "cannot use someone else's address");
+    const ev = await j<{ events: { status: string; kindLabel: string; actor: string }[] }>(await myEvents(apiRequest('GET', `/api/me/shipments/${shipmentId}/events`, { token: u.token }), ctx({ id: shipmentId })));
     assert.deepEqual(ev.body.events.map((e) => [e.status, e.kindLabel, e.actor]), [['REQUESTED', '申請出貨', '會員']]);
   });
 });

@@ -11,8 +11,7 @@ import { resolvePublicPool } from '../pool/queries';
 import type { PoolRules } from '../pool/rules';
 import { displayName, LAST_PRIZE_LABEL, levelRank } from '../pool/levels';
 import type { Tag } from '../catalog/tags';
-import { ShippingMethodSchema } from '../shipping/fees';
-import { computeShippingCharge, lockUserSetShipping, type ShippingCharge } from '../shipping/prepaid';
+import { FREIGHT_COLLECT_NOTE } from '../shipping/methods';
 import { notifyEvent } from '../notifications/outbox';
 import { getWallet } from '../wallet/wallet';
 import { assertSellable, assertTicketPickAllowed, TicketNosSchema } from './holds';
@@ -25,8 +24,6 @@ export const DrawRequestSchema = z
     ticketNos: TicketNosSchema.optional(),
     // 快速抽：由伺服器以 CSPRNG 代選 N 張空籤；N 須在該賞池的 drawPacks（1、3、5、10、20、'all'）內
     count: z.union([z.number().int().positive(), z.literal('all')]).optional(),
-    // 運費按套預收：本次需收運費且此套尚無預收紀錄時必填；之後未填則沿用此套上次的方式
-    shippingMethod: ShippingMethodSchema.optional(),
     // 機率賞：會員可自訂 client seed（可驗證亂數的一部分）；未給則使用 Idempotency-Key
     clientSeed: z.string().min(1).max(128).optional(),
   })
@@ -46,7 +43,7 @@ export interface DrawResultItem {
   levelNo: number | null;
   /** 等級顯示名稱（抽出當下）；最後賞為「最後賞」 */
   levelName: string;
-  /** 是否小獎（計入滿 20 件運費規則與逐件退還） */
+  /** 是否小獎（等級屬性；僅供顯示） */
   isSmall: boolean;
   prizeName: string;
   /** 對外顯示名稱：等級名稱 + 獎項名稱 */
@@ -56,7 +53,6 @@ export interface DrawResultItem {
   warehouseItemId: string;
 }
 
-export type DrawShipping = Omit<ShippingCharge, 'methodRequired' | 'options'> & { prepaymentIds: string[] };
 export interface DrawResponse {
   drawId: string;
   poolId: string;
@@ -64,8 +60,8 @@ export interface DrawResponse {
   ticketNos: number[];
   unitPrice: number;
   amountCoins: number;
-  /** 本次一併扣除的預收運費 */
-  shipping: DrawShipping;
+  /** 運費到付：抽賞不收運費 */
+  freightCollect: true;
   totalCoins: number;
   coinsAfter: number;
   results: DrawResultItem[];
@@ -130,7 +126,7 @@ const SCOPE = 'draw';
  *  2. 驗證會員狀態/年齡驗證
  *  3. 鎖定「套」(pool_sets FOR UPDATE)：同套抽賞序列化，確保最後一籤/完售判定正確
  *  4. 鎖定籤 (tickets FOR UPDATE)，檢查未被抽出、未被他人保留
- *  5. 扣代幣（條件式 UPDATE + 帳本）＋ 按套預收運費（SHIPPING_PREPAID，同一交易）
+ *  5. 扣 CC幣（條件式 UPDATE + 帳本；先扣不可退款、再扣可退款）。運費到付，抽賞不收運費
  *  6. 標記籤已抽、寫入 draw / draw_results、入中獎倉庫
  *  7. 保底計數（獨立保底庫存，不改變籤的機率）、最後賞、完售與下一套開賣
  *  8. 稽核鏈（最後取得的鎖）＋ 儲存冪等回應
@@ -180,8 +176,8 @@ export async function executeDraw(
 
     // 3. 鎖定套
     const { id: poolId } = await resolvePublicPool(tx, req.poolId);
-    const [set] = await tx<{ id: string; status: string; merchantId: string; ruleVersionId: string; poolStatus: string; poolTitle: string; rulesJson: string; shipFeeHome: number; shipFeeCvs: number; drawPacks: string[] }[]>`
-      SELECT s.id, s.status, s.merchant_id, s.rule_version_id, p.status AS pool_status, p.title AS pool_title, rv.rules_json, s.ship_fee_home, s.ship_fee_cvs, p.draw_packs
+    const [set] = await tx<{ id: string; status: string; merchantId: string; ruleVersionId: string; poolStatus: string; poolTitle: string; rulesJson: string; drawPacks: string[] }[]>`
+      SELECT s.id, s.status, s.merchant_id, s.rule_version_id, p.status AS pool_status, p.title AS pool_title, rv.rules_json, p.draw_packs
       FROM pool_sets s JOIN pools p ON p.id = s.pool_id JOIN pool_rule_versions rv ON rv.id = s.rule_version_id
       WHERE s.pool_id = ${poolId} AND s.set_no = ${req.setNo}
       FOR UPDATE OF s`;
@@ -239,55 +235,24 @@ export async function executeDraw(
     const held = tickets.filter((t) => t.heldByOther).map((t) => t.ticketNo);
     if (held.length) throw new AppError('TICKET_HELD', '籤號正由其他玩家保留中', { ticketNos: held });
 
-    // 5. 扣款（不足則整筆 rollback，不會留下任何扣款或籤狀態）＋ 按套預收運費（同一交易）
+    // 5. 扣款（不足則整筆 rollback，不會留下任何扣款或籤狀態）。運費到付：不收運費
     const unitPrice = rules.priceCoins;
     const amount = unitPrice * nos.length;
     if (!Number.isSafeInteger(amount)) throw new AppError('VALIDATION', 'amount overflow');
-    // 同一會員同一套的運費計算與回收退還序列化（鎖順序：set → tickets → advisory → wallet）
-    await lockUserSetShipping(tx, userId, set.id);
-    const ship = await computeShippingCharge(tx, {
-      userId,
-      set,
-      ticketCount: nos.length,
-      requestedMethod: req.shippingMethod ?? null,
-      smallItemsPerFee: smallItemsPerFee(rules),
-    });
-    if (ship.methodRequired) {
-      throw new AppError('SHIPPING_METHOD_REQUIRED', '本套首次抽賞須選擇物流方式（運費按套預收）', { options: ship.options });
-    }
     const drawId = randomUUID();
     await tx`
-      INSERT INTO draws (id, merchant_id, user_id, pool_id, set_id, rule_version_id, idempotency_key, ticket_count, unit_price, amount_coins, shipping_coins,
+      INSERT INTO draws (id, merchant_id, user_id, pool_id, set_id, rule_version_id, idempotency_key, ticket_count, unit_price, amount_coins,
                          prob_client_seed, prob_nonce)
-      VALUES (${drawId}, ${set.merchantId}, ${userId}, ${poolId}, ${set.id}, ${set.ruleVersionId}, ${key}, ${nos.length}, ${unitPrice}, ${amount}, ${ship.amount},
+      VALUES (${drawId}, ${set.merchantId}, ${userId}, ${poolId}, ${set.id}, ${set.ruleVersionId}, ${key}, ${nos.length}, ${unitPrice}, ${amount},
               ${prob?.clientSeed ?? null}, ${prob?.nonce ?? null})`;
-    let { balanceAfter } = await postLedger(tx, {
+    const { balanceAfter } = await postLedger(tx, {
       userId,
-      currency: 'COINS',
       amount: -amount,
       entryType: 'DRAW_DEBIT',
       refType: 'draw',
       refId: drawId,
       merchantId: set.merchantId,
     });
-    const prepaymentIds: string[] = [];
-    for (let i = 0; i < ship.feesToCharge; i++) {
-      const id = randomUUID();
-      await tx`
-        INSERT INTO shipping_prepayments (id, merchant_id, user_id, pool_id, set_id, draw_id, seq, method, fee_coins, small_items_covered)
-        VALUES (${id}, ${set.merchantId}, ${userId}, ${poolId}, ${set.id}, ${drawId}, ${ship.nextSeq + i}, ${ship.method!}, ${ship.unitFee}, ${ship.smallItemsPerFee})`;
-      ({ balanceAfter } = await postLedger(tx, {
-        userId,
-        currency: 'COINS',
-        amount: -ship.unitFee,
-        entryType: 'SHIPPING_PREPAID',
-        refType: 'shipping_prepayment',
-        refId: id,
-        merchantId: set.merchantId,
-        memo: `第 ${req.setNo} 套運費預收（${ship.method}）`,
-      }));
-      prepaymentIds.push(id);
-    }
 
     // 6. 標記已抽
     const upd = await tx`
@@ -379,8 +344,8 @@ export async function executeDraw(
       ticketNos: nos,
       unitPrice,
       amountCoins: amount,
-      shipping: shippingSummary(ship, prepaymentIds),
-      totalCoins: amount + ship.amount,
+      freightCollect: true,
+      totalCoins: amount,
       coinsAfter: balanceAfter,
       results: items.map((i) => ({
         seq: i.seq,
@@ -428,7 +393,6 @@ export async function executeDraw(
         ruleVersionId: set.ruleVersionId,
         ticketNos: nos,
         amountCoins: amount,
-        shippingPrepaid: { method: ship.method, fees: ship.feesToCharge, unitFee: ship.unitFee, amount: ship.amount, feesPaidAfter: ship.feesPaidAfter },
         coinsAfter: balanceAfter,
         results: items.map((i) => ({ kind: i.kind, ticketNo: i.ticketNo, prizeId: i.prizeId, levelNo: i.levelNo })),
       },
@@ -438,17 +402,8 @@ export async function executeDraw(
   });
 }
 
-function smallItemsPerFee(rules: PoolRules): number {
-  return rules.shippingPolicy?.smallItemsPerFee ?? config().SHIPPING_SMALL_ITEMS_PER_FEE;
-}
-
-function shippingSummary(c: ShippingCharge, prepaymentIds: string[]): DrawShipping {
-  const { methodRequired: _m, options: _o, ...rest } = c;
-  return { ...rest, prepaymentIds };
-}
-
 /**
- * 抽賞前試算（POST /api/draws/quote）：籤價、預收運費明細（含各物流方式金額）、總額與餘額是否足夠。
+ * 抽賞前試算（POST /api/draws/quote）：籤價、總額與 CC幣餘額是否足夠（運費到付，不含運費）。
  * 唯讀、不鎖定；實際扣款以抽賞交易內（已鎖定該套）重新計算的結果為準（同一函式，結果一致，除非期間狀態改變）。
  */
 export async function quoteDraw(userId: string, body: unknown) {
@@ -457,8 +412,8 @@ export async function quoteDraw(userId: string, body: unknown) {
   if (req.ticketNos && req.ticketNos.length > config().MAX_TICKETS_PER_DRAW) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_DRAW} tickets per draw`);
   const d = db();
   const { id: poolId } = await resolvePublicPool(d, req.poolId);
-  const [set] = await d<{ id: string; status: string; poolStatus: string; rulesJson: string; shipFeeHome: number; shipFeeCvs: number; drawPacks: string[] }[]>`
-    SELECT s.id, s.status, p.status AS pool_status, rv.rules_json, s.ship_fee_home, s.ship_fee_cvs, p.draw_packs
+  const [set] = await d<{ id: string; status: string; poolStatus: string; rulesJson: string; drawPacks: string[] }[]>`
+    SELECT s.id, s.status, p.status AS pool_status, rv.rules_json, p.draw_packs
     FROM pool_sets s JOIN pools p ON p.id = s.pool_id JOIN pool_rule_versions rv ON rv.id = s.rule_version_id
     WHERE s.pool_id = ${poolId} AND s.set_no = ${req.setNo}`;
   if (!set) throw new AppError('NOT_FOUND', 'set not found');
@@ -473,24 +428,21 @@ export async function quoteDraw(userId: string, body: unknown) {
         AND (held_by IS NULL OR held_by = ${userId} OR held_until <= now())`;
     n = resolvePackCount(req.count, set.drawPacks, a!.n);
   }
-  const ship = await computeShippingCharge(d, { userId, set, ticketCount: n, requestedMethod: req.shippingMethod ?? null, smallItemsPerFee: smallItemsPerFee(rules) });
   const wallet = await getWallet(d, userId);
   const drawCoins = rules.priceCoins * n;
-  const totalCoins = drawCoins + ship.amount;
   return {
     poolId,
     setNo: req.setNo,
     ticketCount: n,
     unitPrice: rules.priceCoins,
     drawCoins,
-    shipping: {
-      ...ship,
-      setFees: { HOME_DELIVERY: set.shipFeeHome, CVS_711_C2C: set.shipFeeCvs, CVS_FAMI_C2C: set.shipFeeCvs },
-      rule: `運費按套預收：本套首次付費抽賞時收取一份；需要份數 = floor((本套抽到過的全部小獎 + 本次籤數) / ${ship.smallItemsPerFee}) + 1（滿 ${ship.smallItemsPerFee} 件即再收一份；只計「小獎」等級；已回收、已出貨的小獎仍計入）。回收小獎時每件退還 運費 ÷ N 代幣（不可退款）。`,
-    },
-    totalCoins,
+    totalCoins: drawCoins,
+    freightCollect: true as const,
+    shippingNote: FREIGHT_COLLECT_NOTE,
     coinsBalance: wallet.coins,
-    sufficientFunds: !ship.methodRequired && wallet.coins >= totalCoins,
+    refundableCoins: wallet.refundableCoins,
+    nonRefundableCoins: wallet.nonRefundableCoins,
+    sufficientFunds: wallet.coins >= drawCoins,
   };
 }
 

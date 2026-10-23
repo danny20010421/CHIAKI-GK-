@@ -6,14 +6,15 @@ import { transaction, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { requirePermission, type Principal } from '../auth/rbac';
 import { COMMIT_SCHEME, computeCommitment, generateLayout, generateSalt } from './commitment';
-import { defaultIsSmall, LevelNoSchema } from './levels';
+import { defaultIsSmall, LEVEL_MAX, LevelNoSchema } from './levels';
 import { rulesHash, type PoolRules } from './rules';
 import { generateServerSeed, parseOdds, PROB_SCHEME, seedHash } from './prob';
 import { linkPoolIp } from '../catalog/ips';
 import { resolveBulky, TagSchema } from '../catalog/tags';
-import { CVS_FEE_RANGE, CvsFeeSchema, DEFAULT_SHIPPING_NOTE, HOME_FEE_RANGE, HomeFeeSchema } from '../shipping/fees';
+import { DEFAULT_SHIPPING_NOTE, resolveShipMethod, ShipMethodSchema } from '../shipping/methods';
 
-export const MAX_TICKETS_PER_SET = 10_000;
+/** 每套籤數上限（2026-10 第七批由 10,000 放寬為 20,000：雲頂終結谷每套 20,000 籤） */
+export const MAX_TICKETS_PER_SET = 20_000;
 export const RecycleValueSchema = z.number().int().min(0).max(10_000_000);
 export const PrizeNameSchema = z.string().trim().min(1).max(200);
 export const LevelNameSchema = z.string().trim().min(1, '等級名稱不可空白').max(50);
@@ -40,7 +41,9 @@ export const PrizeItemSchema = z.object({
   recycleValue: RecycleValueSchema.default(0),
   recyclable: z.boolean().optional(), // 未填：回收值 > 0 即可回收
   tag: TagSchema.nullable().default(null),
-  bulky: z.boolean().optional(), // 大件・限宅配（未填：GK 標籤或等級 1 為是）
+  bulky: z.boolean().optional(), // 大件（未填：GK 標籤或等級 1 為是）
+  /** 寄送方式（上架時預設，會員不可選；未填：大件 → home，其餘 → c711）；賞池一有銷售即鎖定 */
+  shipMethod: ShipMethodSchema.optional(),
   imageUrl: ImageUrlSchema.nullable().default(null),
 });
 /** 機率賞的固定單抽機率：數字或 "1/30" 這類分數字串；0 < odds < 1 */
@@ -63,15 +66,16 @@ export const LastPrizeSchema = z.object({
   recyclable: z.boolean().optional(),
   tag: TagSchema.nullable().default(null),
   bulky: z.boolean().optional(),
+  shipMethod: ShipMethodSchema.optional(),
   imageUrl: ImageUrlSchema.nullable().default(null),
 });
 
 /**
  * 賞池草稿（所有來源一致：官方、自製、混合）。
- *  - levels：1–8 個等級（等級 1 最高），每級有顯示名稱（如「A賞」「大獎」）、是否小獎、1..N 個獎項。
+ *  - levels：1–12 個等級（等級 1 最高），每級有顯示名稱（如「A賞」「大獎」）、是否小獎、1..N 個獎項。
  *  - lastPrize：最後賞（等級之外的獨立獎項，可無）。
  *  - 每個獎項的回收值/可否回收為「預設值」，發布時複製到每一套，之後可逐套調整（set_prizes）。
- *  - 運費：每套宅配 150–300、超商 C2C 60–150 代幣（預設值，發布後可逐套調整）。
+ *  - 每個獎項的寄送方式（shipMethod：home / c711 / fami）；運費一律到付（不再有每套運費設定）。
  */
 export const PoolDraftSchema = z
   .object({
@@ -90,7 +94,7 @@ export const PoolDraftSchema = z
     playType: z.enum(['STANDARD', 'GUARANTEE', 'SOLO', 'PROB']),
     priceCoins: z.number().int().positive().max(1_000_000),
     setCount: z.number().int().min(1).max(1000),
-    levels: z.array(LevelSchema).min(1, '至少一個等級').max(8, '最多 8 個等級'),
+    levels: z.array(LevelSchema).min(1, '至少一個等級').max(LEVEL_MAX, `最多 ${LEVEL_MAX} 個等級`),
     lastPrize: LastPrizeSchema.nullable().default(null),
     guarantee: z
       .object({
@@ -105,13 +109,12 @@ export const PoolDraftSchema = z
         reserveRecyclable: z.boolean().optional(),
         reserveTag: TagSchema.nullable().default(null),
         reserveBulky: z.boolean().optional(),
+        reserveShipMethod: ShipMethodSchema.optional(),
         reserveImageUrl: ImageUrlSchema.nullable().default(null),
       })
       .nullable()
       .default(null),
     drawPacks: DrawPacksSchema.optional(),
-    shippingFeeHome: HomeFeeSchema.default(150),
-    shippingFeeCvs: CvsFeeSchema.default(70),
     shippingNote: z.string().max(500).optional(),
   })
   .superRefine((v, ctx) => {
@@ -145,9 +148,9 @@ export async function insertPrizeItem(
   sortOrder: number,
 ): Promise<string> {
   const [row] = await tx<{ id: string }[]>`
-    INSERT INTO pool_prizes (pool_id, kind, level_id, name, qty_per_set, sort_order, recycle_value, recyclable, tag, bulky, image_url)
+    INSERT INTO pool_prizes (pool_id, kind, level_id, name, qty_per_set, sort_order, recycle_value, recyclable, tag, bulky, ship_method, image_url)
     VALUES (${poolId}, 'TICKET', ${level.id}, ${p.name}, ${p.qtyPerSet}, ${sortOrder}, ${p.recycleValue}, ${p.recyclable ?? p.recycleValue > 0},
-            ${p.tag}, ${resolveBulky(p.tag, p.bulky, level.levelNo)}, ${p.imageUrl})
+            ${p.tag}, ${resolveBulky(p.tag, p.bulky, level.levelNo)}, ${resolveShipMethod(p.shipMethod, p.tag, p.bulky, level.levelNo)}, ${p.imageUrl})
     RETURNING id`;
   return row!.id;
 }
@@ -161,9 +164,9 @@ export async function insertLevel(tx: Tx, poolId: string, l: { levelNo: number; 
 }
 
 export async function insertLastPrize(tx: Tx, poolId: string, lp: z.infer<typeof LastPrizeSchema>) {
-  await tx`INSERT INTO pool_prizes (pool_id, kind, name, qty_per_set, sort_order, recycle_value, recyclable, tag, bulky, image_url)
+  await tx`INSERT INTO pool_prizes (pool_id, kind, name, qty_per_set, sort_order, recycle_value, recyclable, tag, bulky, ship_method, image_url)
            VALUES (${poolId}, 'LAST', ${lp.name}, 0, 1000, ${lp.recycleValue}, ${lp.recyclable ?? lp.recycleValue > 0}, ${lp.tag},
-                   ${resolveBulky(lp.tag, lp.bulky)}, ${lp.imageUrl})`;
+                   ${resolveBulky(lp.tag, lp.bulky)}, ${resolveShipMethod(lp.shipMethod, lp.tag, lp.bulky)}, ${lp.imageUrl})`;
   await tx`UPDATE pools SET last_prize_name = ${lp.name} WHERE id = ${poolId}`;
 }
 
@@ -173,9 +176,9 @@ export async function createPoolDraft(actor: Principal, input: PoolDraftInput): 
   return transaction(async (tx) => {
     const [pool] = await tx<{ id: string }[]>`
       INSERT INTO pools (slug, title, ip, description, terms, source, play_type, price_coins, set_count, created_by,
-                         shipping_note, ship_fee_home, ship_fee_cvs, draw_packs, source_note, item_condition)
+                         shipping_note, draw_packs, source_note, item_condition)
       VALUES (${v.slug}, ${v.title}, ${v.ip}, ${v.description}, ${v.terms}, ${v.source}, ${v.playType}, ${v.priceCoins}, ${v.setCount},
-              ${actor.userId}, ${v.shippingNote ?? DEFAULT_SHIPPING_NOTE[v.source]}, ${v.shippingFeeHome}, ${v.shippingFeeCvs},
+              ${actor.userId}, ${v.shippingNote ?? DEFAULT_SHIPPING_NOTE[v.source]},
               ${v.drawPacks ?? DEFAULT_DRAW_PACKS}::text[], ${v.sourceNote}, ${v.condition})
       RETURNING id`;
     const poolId = pool!.id;
@@ -192,9 +195,10 @@ export async function createPoolDraft(actor: Principal, input: PoolDraftInput): 
       const g = v.guarantee;
       const lv = levelIds.get(g.reserveLevelNo)!;
       const [rp] = await tx<{ id: string }[]>`
-        INSERT INTO pool_prizes (pool_id, kind, level_id, name, qty_per_set, sort_order, recycle_value, recyclable, tag, bulky, image_url)
+        INSERT INTO pool_prizes (pool_id, kind, level_id, name, qty_per_set, sort_order, recycle_value, recyclable, tag, bulky, ship_method, image_url)
         VALUES (${poolId}, 'GUARANTEE', ${lv.id}, ${g.reservePrizeName}, 0, 1001, ${g.reserveRecycleValue}, ${g.reserveRecyclable ?? g.reserveRecycleValue > 0},
-                ${g.reserveTag}, ${resolveBulky(g.reserveTag, g.reserveBulky, g.reserveLevelNo)}, ${g.reserveImageUrl})
+                ${g.reserveTag}, ${resolveBulky(g.reserveTag, g.reserveBulky, g.reserveLevelNo)},
+                ${resolveShipMethod(g.reserveShipMethod, g.reserveTag, g.reserveBulky, g.reserveLevelNo)}, ${g.reserveImageUrl})
         RETURNING id`;
       await tx`INSERT INTO pool_guarantees (pool_id, every_n, min_level, reserve_prize_name, reserve_total, reserve_prize_id)
                VALUES (${poolId}, ${g.everyN}, ${g.minLevel}, ${g.reservePrizeName}, ${g.reserveTotal}, ${rp!.id})`;
@@ -208,7 +212,7 @@ export async function createPoolDraft(actor: Principal, input: PoolDraftInput): 
       payload: {
         slug: v.slug, playType: v.playType, source: v.source, priceCoins: v.priceCoins, setCount: v.setCount,
         levels: v.levels.map((l) => ({ levelNo: l.levelNo, name: l.name, items: l.items.length })),
-        shippingFeeHome: v.shippingFeeHome, shippingFeeCvs: v.shippingFeeCvs,
+        freightCollect: true,
       },
     });
     return { poolId };
@@ -225,8 +229,6 @@ interface PoolRow {
   setCount: number;
   terms: string;
   status: string;
-  shipFeeHome: number;
-  shipFeeCvs: number;
 }
 
 interface StructPrize {
@@ -258,14 +260,14 @@ async function loadStructure(tx: Tx, poolId: string) {
 
 /**
  * 發布前結構檢查（申請發布與核准發布時都會執行）：
- * 1–8 個等級、每級至少一個籤獎項、每套總籤數 ≤ 10,000；SOLO 須恰好一個非小獎獎項；GUARANTEE 須有保底設定。
+ * 1–12 個等級、每級至少一個籤獎項、每套總籤數 ≤ 20,000；SOLO 須恰好一個非小獎獎項；GUARANTEE 須有保底設定。
  */
 export async function assertPublishable(tx: Tx, poolId: string): Promise<void> {
   const [pool] = await tx<{ playType: string }[]>`SELECT play_type FROM pools WHERE id = ${poolId}`;
   if (!pool) throw new AppError('NOT_FOUND', 'pool not found');
   const { levels, prizes, guarantee } = await loadStructure(tx, poolId);
   const problems: string[] = [];
-  if (levels.length < 1 || levels.length > 8) problems.push('賞池須有 1–8 個等級');
+  if (levels.length < 1 || levels.length > LEVEL_MAX) problems.push(`賞池須有 1–${LEVEL_MAX} 個等級`);
   const tickets = prizes.filter((p) => p.kind === 'TICKET');
   for (const l of levels) if (!tickets.some((p) => p.levelId === l.id)) problems.push(`等級 ${l.levelNo}（${l.name}）沒有獎項`);
   const total = tickets.reduce((s, p) => s + p.qtyPerSet, 0);
@@ -281,10 +283,10 @@ export async function assertPublishable(tx: Tx, poolId: string): Promise<void> {
   if (problems.length) throw new AppError('VALIDATION', problems.join('；'), { problems });
 }
 
-/** 由雙人覆核核准後執行：建立不可變規則版本、每套以 CSPRNG 洗牌並產生承諾雜湊、建立每套運費與每套獎項回收設定。 */
+/** 由雙人覆核核准後執行：建立不可變規則版本、每套以 CSPRNG 洗牌並產生承諾雜湊、建立每套獎項回收設定。 */
 export async function publishPool(tx: Tx, poolId: string, approverId: string): Promise<Record<string, unknown>> {
   const [pool] = await tx<PoolRow[]>`
-    SELECT id, merchant_id, title, source, play_type, price_coins, set_count, terms, status, ship_fee_home, ship_fee_cvs
+    SELECT id, merchant_id, title, source, play_type, price_coins, set_count, terms, status
     FROM pools WHERE id = ${poolId} AND deleted_at IS NULL FOR UPDATE`;
   if (!pool) throw new AppError('NOT_FOUND', 'pool not found');
   if (pool.status !== 'PENDING_PUBLISH') throw new AppError('INVALID_STATE', `pool is ${pool.status}`);
@@ -293,7 +295,6 @@ export async function publishPool(tx: Tx, poolId: string, approverId: string): P
   const prizes = all.filter((p) => p.kind === 'TICKET');
   const lastPrize = all.find((p) => p.kind === 'LAST') ?? null;
   const reserve = g ? all.find((p) => p.id === g.reservePrizeId)! : null;
-  const perFee = config().SHIPPING_SMALL_ITEMS_PER_FEE;
 
   const rules: PoolRules = {
     schema: 'chiaki-rules-v3',
@@ -328,11 +329,8 @@ export async function publishPool(tx: Tx, poolId: string, approverId: string): P
         }
       : null,
     shippingPolicy: {
-      mode: 'PREPAID_PER_SET',
-      smallItemsPerFee: perFee,
-      homeFeeRange: HOME_FEE_RANGE,
-      cvsFeeRange: CVS_FEE_RANGE,
-      rule: `SHIPPING_FEE_CHARGED_AT_FIRST_PAID_DRAW_PER_SET; ONE_FEE_COVERS_${perFee}_SMALL_LEVEL_PRIZES_PER_USER_PER_SET; EXTRA_FEE_WHEN_HELD_SMALL_PLUS_TICKETS_EXCEEDS_COVERAGE`,
+      mode: 'FREIGHT_COLLECT',
+      rule: 'NO_SHIPPING_CHARGE_AT_DRAW_OR_SHIP_REQUEST; FREIGHT_PAID_BY_RECIPIENT_ON_DELIVERY; SHIP_METHOD_PRESET_PER_PRIZE; MIXED_METHODS_SPLIT_INTO_ONE_SHIPMENT_PER_METHOD',
     },
     ...(pool.playType === 'PROB'
       ? {
@@ -359,10 +357,9 @@ export async function publishPool(tx: Tx, poolId: string, approverId: string): P
     const probSeed = pool.playType === 'PROB' ? generateServerSeed() : null;
     const [set] = await tx<{ id: string }[]>`
       INSERT INTO pool_sets (merchant_id, pool_id, set_no, rule_version_id, status, total_tickets, commit_scheme, commitment, commit_salt, on_sale_at,
-                             ship_fee_home, ship_fee_cvs, ship_refund_div, prob_server_seed, prob_seed_hash)
+                             prob_server_seed, prob_seed_hash)
       VALUES (${pool.merchantId}, ${poolId}, ${setNo}, ${rv!.id}, ${setNo === 1 ? 'ON_SALE' : 'QUEUED'}, ${layout.length},
-              ${COMMIT_SCHEME}, ${commitment}, ${salt}, ${setNo === 1 ? new Date() : null}, ${pool.shipFeeHome}, ${pool.shipFeeCvs},
-              ${config().SHIPPING_REFUND_DIV}, ${probSeed}, ${probSeed ? seedHash(probSeed) : null})
+              ${COMMIT_SCHEME}, ${commitment}, ${salt}, ${setNo === 1 ? new Date() : null}, ${probSeed}, ${probSeed ? seedHash(probSeed) : null})
       RETURNING id`;
     await tx`
       INSERT INTO tickets (set_id, ticket_no, prize_id)
@@ -450,20 +447,16 @@ export async function updatePoolSettings(actor: Principal, idOrSlug: string, inp
 
 export const SetConfigSchema = z
   .object({
-    shippingFeeHome: HomeFeeSchema.optional(),
-    shippingFeeCvs: CvsFeeSchema.optional(),
-    /** 逐件運費退還除數 N（每回收一件小獎退 運費 ÷ N）；已開始退還的會員沿用當時鎖定的 N */
-    shipRefundDiv: z.number().int().min(1).max(1000).optional(),
     prizes: z
       .array(z.object({ prizeId: z.string().uuid(), recycleValue: RecycleValueSchema.optional(), recyclable: z.boolean().optional() }))
-      .max(60)
-      .optional(),
+      .min(1)
+      .max(60),
   })
-  .refine((v) => v.shippingFeeHome !== undefined || v.shippingFeeCvs !== undefined || v.shipRefundDiv !== undefined || (v.prizes?.length ?? 0) > 0, 'nothing to update');
+  .strict();
 
 /**
- * 逐套設定：運費（宅配 150–300、超商 C2C 60–150）與每個獎項的回收值/可否回收。
- * 新運費只影響之後的預收；回收值於「回收或到期轉換當下」讀取。
+ * 逐套設定：每個獎項的回收值/可否回收（運費到付後不再有每套運費設定）。
+ * 回收值於「回收或到期轉換當下」讀取。
  */
 export async function updateSetConfig(actor: Principal, idOrSlug: string, setNo: number, input: z.input<typeof SetConfigSchema>) {
   requirePermission(actor, 'pool.config.manage');
@@ -471,17 +464,10 @@ export async function updateSetConfig(actor: Principal, idOrSlug: string, setNo:
   return transaction(async (tx) => {
     const p = await lockPublishedPool(tx, idOrSlug);
     if (p.status !== 'PUBLISHED' && p.status !== 'ENDED') throw new AppError('INVALID_STATE', 'pool is not published');
-    const [s] = await tx<{ id: string; shipFeeHome: number; shipFeeCvs: number; shipRefundDiv: number }[]>`
-      SELECT id, ship_fee_home, ship_fee_cvs, ship_refund_div FROM pool_sets WHERE pool_id = ${p.id} AND set_no = ${setNo} FOR UPDATE`;
+    const [s] = await tx<{ id: string }[]>`SELECT id FROM pool_sets WHERE pool_id = ${p.id} AND set_no = ${setNo} FOR UPDATE`;
     if (!s) throw new AppError('NOT_FOUND', 'set not found');
-    const home = v.shippingFeeHome ?? s.shipFeeHome;
-    const cvs = v.shippingFeeCvs ?? s.shipFeeCvs;
-    const div = v.shipRefundDiv ?? s.shipRefundDiv;
-    if (home !== s.shipFeeHome || cvs !== s.shipFeeCvs || div !== s.shipRefundDiv) {
-      await tx`UPDATE pool_sets SET ship_fee_home = ${home}, ship_fee_cvs = ${cvs}, ship_refund_div = ${div} WHERE id = ${s.id}`;
-    }
     const changed: { prizeId: string; before: { recycleValue: number; recyclable: boolean }; after: { recycleValue: number; recyclable: boolean } }[] = [];
-    for (const pr of v.prizes ?? []) {
+    for (const pr of v.prizes) {
       const [cur] = await tx<{ recycleValue: number; recyclable: boolean }[]>`
         SELECT recycle_value, recyclable FROM set_prizes WHERE set_id = ${s.id} AND prize_id = ${pr.prizeId} FOR UPDATE`;
       if (!cur) throw new AppError('NOT_FOUND', 'prize not found in this set', { prizeId: pr.prizeId });
@@ -496,9 +482,9 @@ export async function updateSetConfig(actor: Principal, idOrSlug: string, setNo:
       action: 'SET_CONFIG_UPDATED',
       entityType: 'pool_set',
       entityId: s.id,
-      payload: { poolId: p.id, setNo, shippingFees: { before: { home: s.shipFeeHome, cvs: s.shipFeeCvs }, after: { home, cvs } }, shipRefundDiv: { before: s.shipRefundDiv, after: div }, prizes: changed },
+      payload: { poolId: p.id, setNo, prizes: changed },
     });
-    return { poolId: p.id, setNo, shippingFees: { home, cvs }, shipRefundDiv: div, prizes: changed.map((c) => ({ prizeId: c.prizeId, ...c.after })) };
+    return { poolId: p.id, setNo, prizes: changed.map((c) => ({ prizeId: c.prizeId, ...c.after })) };
   });
 }
 

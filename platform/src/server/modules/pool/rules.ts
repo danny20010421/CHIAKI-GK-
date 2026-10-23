@@ -17,7 +17,7 @@ export interface RulesPrize {
 
 /**
  * 規則快照：發布後不可變；rulesHash 也被綁進每一套的承諾雜湊。
- * v3（業主 2026-10 第四批）：獎項等級 1–8（levels：等級號、顯示名稱、是否小獎、獎項），保底門檻為 minLevel。
+ * v3（業主 2026-10 第四批）：獎項等級（現為 1–12）（levels：等級號、顯示名稱、是否小獎、獎項），保底門檻為 minLevel。
  * v1/v2 舊版快照仍可被讀取與驗證（抽賞只使用共同欄位）。
  */
 export interface PoolRules {
@@ -49,13 +49,13 @@ export interface PoolRules {
     reserveTotal: number;
     rule: string;
   } | null;
-  shippingPolicy?: {
-    mode: 'PREPAID_PER_SET';
-    smallItemsPerFee: number;
-    homeFeeRange: [number, number];
-    cvsFeeRange: [number, number];
-    rule: string;
-  };
+  /**
+   * v3 新版：FREIGHT_COLLECT（運費到付、寄送方式逐件預設）。
+   * 舊快照：PREPAID_PER_SET（已停用的按套預收運費；保留型別以便讀取/驗證已發布的舊規則）。
+   */
+  shippingPolicy?:
+    | { mode: 'FREIGHT_COLLECT'; rule: string }
+    | { mode: 'PREPAID_PER_SET'; smallItemsPerFee: number; homeFeeRange: [number, number]; cvsFeeRange: [number, number]; rule: string };
   /** 機率賞（PROB）：可驗證亂數方案 */
   prob?: { scheme: string; rule: string };
   terms: string;

@@ -64,16 +64,17 @@ export interface TestUser {
 }
 
 let phoneSeq = 0;
-export async function makeUser(opts: { roles?: Role[]; coins?: number; points?: number; ageVerified?: boolean; phone?: string | null } = {}): Promise<TestUser> {
+/** coins：可退款 CC幣（人工調整）；nonRefundableCoins：不可退款 CC幣（以客服補償入帳） */
+export async function makeUser(opts: { roles?: Role[]; coins?: number; nonRefundableCoins?: number; ageVerified?: boolean; phone?: string | null } = {}): Promise<TestUser> {
   const roles = opts.roles ?? ['MEMBER'];
   // 096 開頭：與種子（0900…）及各測試寫死的號碼（0911…、0977…、0987…、0988…）不會相撞（舊格式在 pid 尾數 00/11 時會撞號）
   const phone = opts.phone === undefined ? `096${String(process.pid % 1000).padStart(3, '0')}${String(++phoneSeq).padStart(4, '0')}` : opts.phone;
   const u = await createUser(db(), { phone, roles });
   if (opts.ageVerified ?? true) await db()`UPDATE users SET age_verified_at = now(), birth_date = '1990-01-01' WHERE id = ${u.id}`;
-  if (opts.coins || opts.points) {
+  if (opts.coins || opts.nonRefundableCoins) {
     await transaction(async (tx) => {
-      if (opts.coins) await postLedger(tx, { userId: u.id, currency: 'COINS', amount: opts.coins, entryType: 'ADMIN_ADJUST', refType: 'test_seed', refId: u.id });
-      if (opts.points) await postLedger(tx, { userId: u.id, currency: 'POINTS', amount: opts.points, entryType: 'ADMIN_ADJUST', refType: 'test_seed', refId: u.id });
+      if (opts.coins) await postLedger(tx, { userId: u.id, amount: opts.coins, entryType: 'ADMIN_ADJUST', refType: 'test_seed', refId: u.id });
+      if (opts.nonRefundableCoins) await postLedger(tx, { userId: u.id, amount: opts.nonRefundableCoins, entryType: 'CS_COMPENSATION', refType: 'test_seed', refId: u.id });
     });
   }
   // 員工：模擬「後台帳號密碼登入」的 session（後台 API 需要 PASSWORD session＋近期重新驗證）
@@ -83,9 +84,6 @@ export async function makeUser(opts: { roles?: Role[]; coins?: number; points?: 
 }
 
 let slugSeq = 0;
-/** 測試賞池預設運費（宅配 / 超商 C2C） */
-export const FEE_HOME = 150;
-export const FEE_CVS = 70;
 /** 測試賞池預設開放全部快速抽包（正式預設為 1、5、10） */
 export const ALL_PACKS = [1, 3, 5, 10, 20, 'all'] as const;
 
@@ -102,6 +100,7 @@ export interface TestPrize {
   tag?: string | null;
   category?: string | null;
   bulky?: boolean;
+  shipMethod?: 'home' | 'c711' | 'fami';
   imageUrl?: string | null;
 }
 export type TestPoolInput = Omit<Partial<PoolDraftInput>, 'guarantee'> & {
@@ -135,7 +134,7 @@ export function toDraft(input: TestPoolInput): PoolDraftInput {
       const g = p.grade ?? (p.rank ? defaultGradeForRank(p.rank) : 'SMALL');
       const name = p.rank ? `${p.rank}賞` : no === 1 ? '大獎' : no === 2 ? '中獎' : '小獎';
       const l = levels.get(no) ?? { levelNo: no, name, items: [], small: [] };
-      l.items.push({ name: p.name, qtyPerSet: p.qtyPerSet, recycleValue: p.recycleValue, recyclable: p.recyclable, tag: tagOf(p), bulky: p.bulky, imageUrl: p.imageUrl });
+      l.items.push({ name: p.name, qtyPerSet: p.qtyPerSet, recycleValue: p.recycleValue, recyclable: p.recyclable, tag: tagOf(p), bulky: p.bulky, shipMethod: p.shipMethod, imageUrl: p.imageUrl });
       l.small.push(g === 'SMALL');
       levels.set(no, l);
       const cur = grades.get(no);
@@ -183,8 +182,6 @@ export function smallPool(overrides: TestPoolInput = {}): PoolDraftInput {
     ],
     guarantee: null,
     drawPacks: [...ALL_PACKS],
-    shippingFeeHome: FEE_HOME,
-    shippingFeeCvs: FEE_CVS,
     ...overrides,
   });
 }
@@ -210,8 +207,6 @@ export function customPool(overrides: TestPoolInput = {}): PoolDraftInput {
     ],
     guarantee: null,
     drawPacks: [...ALL_PACKS],
-    shippingFeeHome: FEE_HOME,
-    shippingFeeCvs: FEE_CVS,
     ...overrides,
   });
 }
@@ -263,8 +258,9 @@ export async function ledgerOf(userId: string) {
     SELECT amount, balance_after, entry_type, refundable FROM wallet_ledger WHERE user_id = ${userId} ORDER BY id`;
 }
 
+/** CC幣餘額：coins = 可退款 + 不可退款 */
 export async function walletOf(userId: string) {
-  const [w] = await db()<{ coins: number; points: number }[]>`SELECT coins, points FROM wallets WHERE user_id = ${userId}`;
+  const [w] = await db()<{ coins: number; nonRefundableCoins: number }[]>`SELECT coins, nonrefundable_coins AS non_refundable_coins FROM wallets WHERE user_id = ${userId}`;
   return w!;
 }
 

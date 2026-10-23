@@ -67,11 +67,11 @@ describe('quick draw only', () => {
     const u = await makeUser({ coins: 5000 });
     const hold = await j(await holdRoute(apiRequest('POST', `/api/pools/${poolId}/sets/1/holds`, { token: u.token, body: { ticketNos: [1] } }), ctx({ id: poolId, no: '1' })));
     assert.deepEqual([hold.status, hold.body.error.code], [403, 'TICKET_PICK_DISABLED']);
-    const pick = await j(await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, ticketNos: [1], shippingMethod: 'CVS_711_C2C' } }), none));
+    const pick = await j(await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, ticketNos: [1] } }), none));
     assert.deepEqual([pick.status, pick.body.error.code], [403, 'TICKET_PICK_DISABLED']);
     const quote = await quoteRoute(apiRequest('POST', '/api/draws/quote', { token: u.token, body: { poolId, setNo: 1, ticketNos: [1] } }), none);
     assert.equal(quote.status, 403);
-    const ok = await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, count: 5, shippingMethod: 'CVS_711_C2C' } }), none);
+    const ok = await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, count: 5 } }), none);
     assert.equal(ok.status, 201);
     // 管理者可用設定重新開啟舊功能
     process.env.ALLOW_TICKET_PICK = 'true';

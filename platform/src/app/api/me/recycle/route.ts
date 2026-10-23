@@ -10,7 +10,7 @@ const B = z.object({ itemIds: ItemIdsSchema });
 const Key = z.string().regex(/^[A-Za-z0-9_\-:.]{8,128}$/, 'Idempotency-Key must be 8-128 chars [A-Za-z0-9_-:.]');
 
 /**
- * POST /api/me/recycle — 回收獎品換平台點數（不可逆；點數不可提領）。
+ * POST /api/me/recycle — 回收獎品換不可退款 CC幣（不可逆；不可申請退款）。
  * 每回收一件小獎另退還 運費 ÷ N 代幣（不可退款）。可帶 Idempotency-Key：同鍵重送回傳同一結果（200 + Idempotent-Replayed）。
  */
 export const POST = route(async (req: Request) => {

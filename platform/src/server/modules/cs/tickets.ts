@@ -20,7 +20,7 @@ import { extendStorage } from '../warehouse/warehouse';
  *   建單時自動連結會員最近 30 天的抽賞 / 儲值訂單 / 出貨單（可由會員指定）。
  *   一鍵動作（皆呼叫既有 domain 函式，各自寫稽核；另記錄 cs_actions＋稽核）：
  *     重新出貨、延長寄存 N 天、核准退款申請（未使用儲值代幣的退款 → 進雙人覆核）、
- *     補償點數（超過 CS_COMPENSATION_APPROVAL_THRESHOLD 需第二人核准）。
+ *     補償 CC幣（不可退款；超過 CS_COMPENSATION_APPROVAL_THRESHOLD 需第二人核准）。
  */
 export const CATEGORIES = ['DRAW_DISPUTE', 'TOPUP_PAYMENT', 'SHIPPING', 'ACCOUNT', 'REFUND', 'OTHER'] as const;
 export const TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'WAITING_USER', 'CLOSED'] as const;
@@ -164,7 +164,7 @@ export async function getTicket(actor: Principal, ticketId: string) {
   const [t] = await d<TicketRow[]>`SELECT ${TICKET_COLS(d)} FROM cs_tickets t JOIN cs_categories c ON c.code = t.category WHERE t.id = ${ticketId}`;
   if (!t) throw new AppError('NOT_FOUND', 'ticket not found');
   const [member] = await d<{ phone: string | null; displayName: string; createdAt: Date }[]>`SELECT phone, display_name, created_at FROM users WHERE id = ${t.userId}`;
-  const [draw] = t.linkedDrawId ? await d`SELECT id, pool_id, set_id, ticket_count, amount_coins, shipping_coins, created_at FROM draws WHERE id = ${t.linkedDrawId}` : [];
+  const [draw] = t.linkedDrawId ? await d`SELECT id, pool_id, set_id, ticket_count, amount_coins, created_at FROM draws WHERE id = ${t.linkedDrawId}` : [];
   const [order] = t.linkedPaymentOrderId ? await d`SELECT id, provider, merchant_trade_no, amount_twd, status, created_at, paid_at FROM payment_orders WHERE id = ${t.linkedPaymentOrderId}` : [];
   const [shipment] = t.linkedShipmentId ? await d`SELECT id, method, status, carrier, tracking_no, created_at FROM shipments WHERE id = ${t.linkedShipmentId}` : [];
   const actions = await d`SELECT id, action, params_json, result_json, actor_id, approval_request_id, created_at FROM cs_actions WHERE ticket_id = ${t.id} ORDER BY id`;
@@ -242,12 +242,19 @@ export async function listCannedReplies(actor: Principal, category?: string) {
   return d`SELECT code, category, title, body FROM cs_canned_replies WHERE active ${category ? d`AND (category = ${category} OR category IS NULL)` : d``} ORDER BY sort_order, code`;
 }
 
-export const ActionSchema = z.discriminatedUnion('action', [
+/** 舊欄位名：GRANT_COMPENSATION 的 points 視為 coins（CC幣） */
+const legacyCompensation = (x: unknown) =>
+  x && typeof x === 'object' && (x as { action?: unknown }).action === 'GRANT_COMPENSATION' && !('coins' in x) && 'points' in x
+    ? { ...(x as Record<string, unknown>), coins: (x as { points: unknown }).points }
+    : x;
+
+export const ActionSchema = z.preprocess(legacyCompensation, z.discriminatedUnion('action', [
   z.object({ action: z.literal('RESEND_SHIPMENT'), shipmentId: z.string().uuid().optional(), note: z.string().max(500).optional() }),
   z.object({ action: z.literal('EXTEND_STORAGE'), days: z.number().int().min(1).max(90), itemIds: z.array(z.string().uuid()).min(1).max(100).optional() }),
   z.object({ action: z.literal('APPROVE_REFUND'), kind: z.literal('COIN_REFUND').default('COIN_REFUND'), refundId: z.string().uuid(), note: z.string().max(500).optional() }),
-  z.object({ action: z.literal('GRANT_COMPENSATION'), points: z.number().int().positive().max(1_000_000), memo: z.string().min(2).max(500) }),
-]);
+  // 補償 CC幣（不可退款）
+  z.object({ action: z.literal('GRANT_COMPENSATION'), coins: z.number().int().positive().max(1_000_000), memo: z.string().min(2).max(500) }),
+]));
 
 /** 一鍵動作：執行既有 domain 函式（各自交易＋稽核），成功後記錄於工單（cs_actions＋內部備註＋稽核）。 */
 export async function runTicketAction(actor: Principal, ticketId: string, input: z.input<typeof ActionSchema>) {
@@ -273,7 +280,7 @@ export async function runTicketAction(actor: Principal, ticketId: string, input:
       note = `已延長寄存 ${v.days} 天（${(result.items as unknown[]).length} 件）`;
       break;
     case 'APPROVE_REFUND': {
-      // 新台幣退款只限未使用的儲值代幣（運費退還一律為不可退款代幣，無須核准）
+      // 新台幣退款只限可退款 CC幣（儲值）；回收、獎勵、補償等不可退款 CC幣不可申請
       const [own] = await db()`SELECT 1 FROM refund_requests WHERE id = ${v.refundId} AND user_id = ${t.userId}`;
       if (!own) throw new AppError('NOT_FOUND', 'refund request not found for this member');
       result = { ...(await decideRefundRequest(actor, v.refundId, 'APPROVE', v.note)) };
@@ -283,19 +290,19 @@ export async function runTicketAction(actor: Principal, ticketId: string, input:
     }
     case 'GRANT_COMPENSATION': {
       requirePermission(actor, 'cs.compensation.grant');
-      const c = CompensationSchema.parse({ userId: t.userId, points: v.points, memo: v.memo, ticketId });
-      if (v.points > config().CS_COMPENSATION_APPROVAL_THRESHOLD) {
+      const c = CompensationSchema.parse({ userId: t.userId, coins: v.coins, memo: v.memo, ticketId });
+      if (v.coins > config().CS_COMPENSATION_APPROVAL_THRESHOLD) {
         const a = await transaction((tx) => createApproval(tx, actor, 'CS_COMPENSATION', randomUUID(), c));
         approvalId = a.approvalId;
         result = { status: 'PENDING_APPROVAL', approvalId };
-        note = `補償 ${v.points} 點超過門檻，已送第二人核准`;
+        note = `補償 ${v.coins} CC幣超過門檻，已送第二人核准`;
       } else {
         result = await transaction(async (tx) => {
           const r = await postCompensation(tx, c, actor.userId, 'cs_ticket', ticketId);
-          await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'CS_COMPENSATION_GRANTED', entityType: 'cs_ticket', entityId: ticketId, payload: { userId: t.userId, points: v.points } });
+          await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'CS_COMPENSATION_GRANTED', entityType: 'cs_ticket', entityId: ticketId, payload: { userId: t.userId, coins: v.coins } });
           return { status: 'GRANTED', ...r };
         });
-        note = `已補償 ${v.points} 點`;
+        note = `已補償 ${v.coins} CC幣（不可退款）`;
       }
       break;
     }

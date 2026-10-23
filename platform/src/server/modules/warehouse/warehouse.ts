@@ -6,15 +6,14 @@ import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
 import { displayName } from '../pool/levels';
 import type { Tag } from '../catalog/tags';
-import { lockUserSetShipping, refundRecycledSmallItems, type ItemRefund } from '../shipping/prepaid';
+import type { ShipMethod } from '../shipping/methods';
 import { canonicalJson, sha256Hex } from '../../lib/canonical';
-import { notifyEvent } from '../notifications/outbox';
 import { requirePermission, type Principal } from '../auth/rbac';
 
 /**
  * 中獎倉庫。狀態機（資料庫 trigger 同步強制）：
  *   STORED → SHIP_REQUESTED → SHIPPED → DELIVERED
- *   STORED → RECYCLED（會員回收 → 平台點數；寄存到期自動轉換 → 代幣；皆不可逆）
+ *   STORED → RECYCLED（會員回收、寄存到期自動轉換 → 不可退款 CC幣；皆不可逆）
  * 寄存：自入庫起免費保管 STORAGE_FREE_DAYS（預設 30）天，見 storage.ts。
  */
 export type ItemStatus = 'STORED' | 'SHIP_REQUESTED' | 'SHIPPED' | 'DELIVERED' | 'RECYCLED';
@@ -27,22 +26,23 @@ export interface WarehouseItem {
   setNo: number | null;
   ticketNo: number | null;
   prizeId: string | null;
-  /** 等級 1–8（抽出當下）；最後賞與商城商品為 null */
+  /** 等級 1–12（抽出當下）；最後賞與商城商品為 null */
   levelNo: number | null;
   levelName: string | null;
-  /** 是否小獎（計入運費規則） */
+  /** 是否小獎（等級屬性） */
   isSmall: boolean;
   prizeName: string;
   displayName: string;
   tag: Tag | null;
   bulky: boolean;
+  /** 寄送方式（上架時預設，會員不可選擇；直購商品：大件 → 宅配，其餘 → 7-11） */
+  shipMethod: ShipMethod;
   imageUrl: string | null;
   status: ItemStatus;
   shipmentId: string | null;
-  /** 目前此套此獎項的回收值（會員回收＝點數；到期自動轉換＝代幣） */
+  /** 目前此套此獎項的回收值（CC幣，不可退款） */
   recycleValue: number | null;
   recyclable: boolean;
-  recycledPoints: number | null;
   recycledCoins: number | null;
   recycleReason: 'USER' | 'STORAGE_EXPIRY' | null;
   storageExpiresAt: Date;
@@ -52,8 +52,9 @@ export interface WarehouseItem {
 export async function listWarehouse(db: Db, userId: string, status?: ItemStatus): Promise<WarehouseItem[]> {
   const rows = await db<(Omit<WarehouseItem, 'displayName' | 'recyclable'> & { recyclable: boolean | null })[]>`
     SELECT wi.id, wi.source, wi.pool_id, wi.set_id, s.set_no, wi.ticket_no, wi.prize_id, wi.level_no, wi.level_name, wi.is_small, wi.prize_name, wi.status, wi.shipment_id,
-           sp.recycle_value, sp.recyclable, wi.recycled_points, wi.recycled_coins, wi.recycle_reason, wi.storage_expires_at, wi.created_at,
-           COALESCE(pp.tag, pr.tag) AS tag, COALESCE(pp.bulky, pr.bulky, false) AS bulky, pp.image_url
+           sp.recycle_value, sp.recyclable, wi.recycled_coins, wi.recycle_reason, wi.storage_expires_at, wi.created_at,
+           COALESCE(pp.tag, pr.tag) AS tag, COALESCE(pp.bulky, pr.bulky, false) AS bulky, pp.image_url,
+           ${ITEM_SHIP_METHOD_SQL(db)} AS ship_method
     FROM warehouse_items wi
     LEFT JOIN pool_prizes pp ON pp.id = wi.prize_id
     LEFT JOIN products pr ON pr.id = wi.product_id
@@ -63,6 +64,12 @@ export async function listWarehouse(db: Db, userId: string, status?: ItemStatus)
     ORDER BY wi.created_at DESC, wi.id`;
   return rows.map((r) => ({ ...r, recyclable: r.recyclable ?? false, displayName: displayName(r.levelName, r.prizeName) }));
 }
+
+/**
+ * 物品的寄送方式（SQL 片段；需 JOIN pool_prizes pp、products pr）：獎項 → 上架時設定；直購商品 → 大件宅配、其餘 7-11。
+ * 賞池一有銷售，獎項的寄送方式即鎖定（資料庫 trigger），因此抽到的物品讀到的永遠是抽出當下的設定。
+ */
+export const ITEM_SHIP_METHOD_SQL = (d: Db | Tx) => d`COALESCE(pp.ship_method, CASE WHEN pr.bulky THEN 'home' ELSE 'c711' END)`;
 
 export const ItemIdsSchema = z
   .array(z.string().uuid())
@@ -83,21 +90,17 @@ export async function lockStoredItems(tx: Tx, userId: string, itemIds: string[])
 
 export interface RecycleResult {
   batchId: string;
-  points: number;
-  pointsAfter: number;
-  items: { id: string; prizeName: string; levelNo: number | null; isSmall: boolean; points: number }[];
-  /** 逐件運費退還（每件小獎退 運費 ÷ N；不可退款代幣），依套 */
-  shippingRefunds: ItemRefund[];
-  shippingRefundCoins: number;
+  /** 本次回收入帳的 CC幣（不可退款） */
+  coins: number;
+  coinsAfter: number;
+  items: { id: string; prizeName: string; levelNo: number | null; isSmall: boolean; coins: number }[];
 }
 
 const RECYCLE_SCOPE = 'recycle';
 
 /**
- * 會員主動回收 → 平台點數（不可逆）。回收值依「該套 × 該獎項」的後台設定（set_prizes），
- * recyclable=false 或無設定（例如直購商品）者不可回收。點數性質與折算標準待法遵確認。
- *
- * 回收的每一件小獎另退還 運費 ÷ N 代幣（不可退款；見 shipping/prepaid.ts refundRecycledSmallItems）。
+ * 會員主動回收 → 不可退款 CC幣（帳本 RECYCLE_CREDIT，不可逆）。回收值依「該套 × 該獎項」的後台設定（set_prizes），
+ * recyclable=false 或無設定（例如直購商品）者不可回收。運費到付，回收不涉及任何運費退還。
  * 冪等：可帶 Idempotency-Key（同鍵同內容重送 → 回傳同一結果、不重複入帳）；未帶鍵時，物品狀態機也保證同一件只能回收一次。
  */
 export async function recycleItems(userId: string, itemIds: string[], opts: { idempotencyKey?: string | null } = {}): Promise<RecycleResult & { replayed: boolean }> {
@@ -116,10 +119,8 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { id
         return { ...(JSON.parse(row.responseJson) as RecycleResult), replayed: true };
       }
     }
+    // 鎖順序：物品 → 錢包 → 稽核
     const items = await lockStoredItems(tx, userId, ids);
-    // 鎖順序：物品 → 運費 advisory lock → 錢包 → 稽核
-    const smallSets = [...new Set(items.filter((i) => i.isSmall && i.setId).map((i) => i.setId!))].sort();
-    for (const sid of smallSets) await lockUserSetShipping(tx, userId, sid);
     const cfg = await tx<{ id: string; recycleValue: number; recyclable: boolean }[]>`
       SELECT wi.id, sp.recycle_value, sp.recyclable FROM warehouse_items wi
       JOIN set_prizes sp ON sp.set_id = wi.set_id AND sp.prize_id = wi.prize_id
@@ -128,40 +129,22 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { id
     const priced = items.map((i) => {
       const c = cfgOf.get(i.id);
       if (!c || !c.recyclable) throw new AppError('NOT_RECYCLABLE', `「${i.prizeName}」不可回收`, { itemId: i.id, prizeName: i.prizeName, levelNo: i.levelNo });
-      return { id: i.id, prizeName: i.prizeName, levelNo: i.levelNo, isSmall: i.isSmall, points: c.recycleValue, setId: i.setId };
+      return { id: i.id, prizeName: i.prizeName, levelNo: i.levelNo, isSmall: i.isSmall, coins: c.recycleValue };
     });
-    const total = priced.reduce((s, p) => s + p.points, 0);
+    const total = priced.reduce((s, p) => s + p.coins, 0);
     const batchId = randomUUID();
     for (const p of priced) {
-      await tx`UPDATE warehouse_items SET status = 'RECYCLED', recycled_points = ${p.points}, recycle_reason = 'USER', recycled_at = now(), updated_at = now() WHERE id = ${p.id}`;
+      await tx`UPDATE warehouse_items SET status = 'RECYCLED', recycled_coins = ${p.coins}, recycle_reason = 'USER', recycled_at = now(), updated_at = now() WHERE id = ${p.id}`;
     }
-    let pointsAfter: number;
+    let coinsAfter: number;
     if (total > 0) {
-      pointsAfter = (await postLedger(tx, { userId, currency: 'POINTS', amount: total, entryType: 'RECYCLE_CREDIT', refType: 'recycle_batch', refId: batchId })).balanceAfter;
+      coinsAfter = (
+        await postLedger(tx, { userId, amount: total, entryType: 'RECYCLE_CREDIT', refType: 'recycle_batch', refId: batchId, memo: `回收 ${priced.length} 件（不可退款 CC幣）` })
+      ).balanceAfter;
     } else {
-      pointsAfter = (await tx<{ points: number }[]>`SELECT points FROM wallets WHERE user_id = ${userId}`)[0]!.points;
+      coinsAfter = (await tx<{ coins: number }[]>`SELECT coins FROM wallets WHERE user_id = ${userId}`)[0]!.coins;
     }
-    const unitsBySet = new Map<string, number>();
-    for (const p of priced) if (p.isSmall && p.setId) unitsBySet.set(p.setId, (unitsBySet.get(p.setId) ?? 0) + 1);
-    const fr = await refundRecycledSmallItems(tx, userId, unitsBySet, { type: 'USER_RECYCLE', id: batchId });
-    const refundCoins = fr.refunds.reduce((a, r) => a + r.amount, 0);
-    if (refundCoins > 0) {
-      await notifyEvent(tx, {
-        userId,
-        event: 'SHIPPING_FEE_REFUND',
-        data: { count: fr.refunds.reduce((a, r) => a + r.units, 0), coins: refundCoins },
-        payload: { refunds: fr.refunds },
-        dedupeOn: { recycleBatch: batchId },
-      });
-    }
-    const result: RecycleResult = {
-      batchId,
-      points: total,
-      pointsAfter,
-      items: priced.map(({ setId: _s, ...p }) => p),
-      shippingRefunds: fr.refunds,
-      shippingRefundCoins: refundCoins,
-    };
+    const result: RecycleResult = { batchId, coins: total, coinsAfter, items: priced };
     await appendAudit(tx, {
       actorType: 'USER',
       actorId: userId,
@@ -169,9 +152,10 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { id
       entityType: 'recycle_batch',
       entityId: batchId,
       payload: {
-        items: priced.map((p) => ({ id: p.id, levelNo: p.levelNo, isSmall: p.isSmall, points: p.points })),
-        totalPoints: total,
-        shippingRefunds: fr.refunds.map((r) => ({ eventId: r.eventId, setId: r.setId, units: r.units, coins: r.amount })),
+        items: priced.map((p) => ({ id: p.id, levelNo: p.levelNo, isSmall: p.isSmall, coins: p.coins })),
+        totalCoins: total,
+        currency: 'COINS',
+        refundable: false,
       },
     });
     if (key) await tx`UPDATE idempotency_keys SET response_json = ${JSON.stringify(result)} WHERE user_id = ${userId} AND scope = ${RECYCLE_SCOPE} AND key = ${key}`;

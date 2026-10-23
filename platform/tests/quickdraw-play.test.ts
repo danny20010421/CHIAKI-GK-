@@ -31,11 +31,11 @@ describe('quick draw packs', () => {
     const detail = await j<{ drawPacks: (number | string)[] }>(await poolRoute(apiRequest('GET', `/api/pools/${poolId}`), ctx({ id: poolId })));
     assert.deepEqual(detail.body.drawPacks, [1, 5, 10]);
     const u = await makeUser({ coins: 10_000 });
-    await expectAppError(executeDraw(u.id, key(), { poolId, setNo: 1, count: 3, shippingMethod: 'CVS_711_C2C' }), 'DRAW_PACK_NOT_ALLOWED');
-    await expectAppError(executeDraw(u.id, key(), { poolId, setNo: 1, count: 'all', shippingMethod: 'CVS_711_C2C' }), 'DRAW_PACK_NOT_ALLOWED');
+    await expectAppError(executeDraw(u.id, key(), { poolId, setNo: 1, count: 3 }), 'DRAW_PACK_NOT_ALLOWED');
+    await expectAppError(executeDraw(u.id, key(), { poolId, setNo: 1, count: 'all' }), 'DRAW_PACK_NOT_ALLOWED');
     await expectAppError(quoteDraw(u.id, { poolId, setNo: 1, count: 3 }), 'DRAW_PACK_NOT_ALLOWED');
     assert.equal((await walletOf(u.id)).coins, 10_000, 'rejected before any charge');
-    const r = (await executeDraw(u.id, key(), { poolId, setNo: 1, count: 5, shippingMethod: 'CVS_711_C2C' })).response;
+    const r = (await executeDraw(u.id, key(), { poolId, setNo: 1, count: 5 })).response;
     assert.equal(r.ticketNos.length, 5);
     assert.equal(new Set(r.ticketNos).size, 5);
     // 自選籤號不受抽包限制
@@ -64,7 +64,7 @@ describe('quick draw packs', () => {
   it('count mode skips tickets held by others; concurrent quick draws never overlap', async () => {
     const poolId = await publishPool(customPool({ priceCoins: 1, prizes: [{ name: '小獎', grade: 'SMALL', qtyPerSet: 100 }] }));
     const users = await Promise.all(Array.from({ length: 10 }, () => makeUser({ coins: 1000 })));
-    const rs = await Promise.all(users.map((u) => executeDraw(u.id, key(), { poolId, setNo: 1, count: 10, shippingMethod: 'CVS_711_C2C' })));
+    const rs = await Promise.all(users.map((u) => executeDraw(u.id, key(), { poolId, setNo: 1, count: 10 })));
     const nos = rs.flatMap((r) => r.response.ticketNos);
     assert.equal(nos.length, 100);
     assert.equal(new Set(nos).size, 100, 'no ticket drawn twice');
@@ -75,9 +75,9 @@ describe('quick draw packs', () => {
   it('API: count accepts numbers or "all"; other strings are rejected', async () => {
     const poolId = await publishPool(smallPool());
     const u = await makeUser({ coins: 5000 });
-    const bad = await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, count: 'half', shippingMethod: 'CVS_711_C2C' } }), none);
+    const bad = await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, count: 'half' } }), none);
     assert.equal(bad.status, 400);
-    const ok = await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, count: 'all', shippingMethod: 'CVS_711_C2C' } }), none);
+    const ok = await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, count: 'all' } }), none);
     assert.equal(ok.status, 201);
     const body = (await ok.json()) as { ticketNos: number[]; results: { kind: string }[] };
     assert.equal(body.ticketNos.length, 10);
@@ -100,7 +100,7 @@ describe('free play (試玩)', () => {
     rateLimitStore().reset?.();
     const poolId = await publishPool(smallPool());
     const u = await makeUser({ coins: 5000 });
-    await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: (await layoutOf(poolId, 1)).filter((t) => t.levelNo === 1).map((t) => t.ticketNo), shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: (await layoutOf(poolId, 1)).filter((t) => t.levelNo === 1).map((t) => t.ticketNo) });
     const before = await snapshot(poolId);
     const headers = { 'x-forwarded-for': '203.0.113.7' };
     for (let i = 0; i < 20; i++) {

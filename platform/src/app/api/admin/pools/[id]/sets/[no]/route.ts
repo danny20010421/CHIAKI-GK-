@@ -6,8 +6,8 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 /**
- * PATCH /api/admin/pools/:id/sets/:no — 逐套設定：
- * { shippingFeeHome? (150–300), shippingFeeCvs? (60–150), prizes?: [{ prizeId, recycleValue?, recyclable? }] }
+ * PATCH /api/admin/pools/:id/sets/:no — 逐套設定：{ prizes: [{ prizeId, recycleValue?, recyclable? }] }
+ * （運費到付：已無每套運費設定）
  */
 export const PATCH = route(async (req: Request, ctx: RouteContext<{ id: string; no: string }>) => {
   const p = await requirePrincipal(req);

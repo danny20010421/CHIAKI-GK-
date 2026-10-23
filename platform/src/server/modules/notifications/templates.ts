@@ -25,20 +25,20 @@ const T: Record<NotificationType, (d: Data) => Rendered> = {
   }),
   STORAGE_EXPIRY_7D: (d) => ({
     title: `獎品寄存將於 ${n(d.warnDays)} 天內到期`,
-    body: `${n(d.count)} 件獎品寄存將於 ${s(d.day)} 起陸續到期，請於期限前申請出貨或回收；到期未處理的可回收獎品將依回收值自動轉為代幣。`,
+    body: `${n(d.count)} 件獎品寄存將於 ${s(d.day)} 起陸續到期，請於期限前申請出貨或回收；到期未處理的可回收獎品將依回收值自動轉為CC幣。`,
     sms: `【CHIAKI】您有 ${n(d.count)} 件獎品寄存將於 ${s(d.day)} 起到期，請儘速申請出貨。`,
     url: '/me/warehouse',
   }),
   STORAGE_EXPIRY_TODAY: (d) => ({
     title: '獎品寄存今日到期',
-    body: `${n(d.count)} 件獎品寄存今日（${s(d.day)}）到期，到期未出貨的可回收獎品將依回收值自動轉為代幣。`,
+    body: `${n(d.count)} 件獎品寄存今日（${s(d.day)}）到期，到期未出貨的可回收獎品將依回收值自動轉為CC幣。`,
     sms: `【CHIAKI】您有 ${n(d.count)} 件獎品寄存今日到期，請儘速申請出貨。`,
     url: '/me/warehouse',
   }),
   STORAGE_AUTO_CONVERTED: (d) => ({
-    title: '寄存到期，獎品已自動轉為代幣',
-    body: `${n(d.count)} 件獎品寄存已到期，已依各獎項回收值轉為 ${n(d.totalCoins)} 代幣（此代幣不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
-    sms: `【CHIAKI】${n(d.count)} 件到期獎品已轉為 ${n(d.totalCoins)} 代幣（不可退款）。`,
+    title: '寄存到期，獎品已自動轉為CC幣',
+    body: `${n(d.count)} 件獎品寄存已到期，已依各獎項回收值轉為 ${n(d.totalCoins)} CC幣（此CC幣不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
+    sms: `【CHIAKI】${n(d.count)} 件到期獎品已轉為 ${n(d.totalCoins)} CC幣（不可退款）。`,
     url: '/me/wallet',
   }),
   STORAGE_EXPIRED_HOLD: (d) => ({
@@ -71,12 +71,6 @@ const T: Record<NotificationType, (d: Data) => Rendered> = {
     sms: `【CHIAKI】您的${s(d.kindLabel, '退款')}申請狀態：${s(d.statusLabel)}`,
     url: '/me/refunds',
   }),
-  SHIPPING_FEE_REFUND: (d) => ({
-    title: '運費部分退還',
-    body: `回收 ${n(d.count)} 件小獎，已退還運費 ${n(d.coins)} 代幣（不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
-    sms: `【CHIAKI】已退還運費 ${n(d.coins)} 代幣（不可退款）。`,
-    url: '/me/wallet',
-  }),
   TICKET_REPLY: (d) => ({
     title: '客服已回覆您的問題',
     body: `工單 #${s(d.ticketNo)}「${s(d.subject)}」有新的客服回覆。`,
@@ -85,8 +79,8 @@ const T: Record<NotificationType, (d: Data) => Rendered> = {
   }),
   REFERRAL_REWARD: (d) => ({
     title: '邀請獎勵已入帳',
-    body: `恭喜！您邀請的 ${n(d.count)} 位好友皆已完成註冊與手機驗證，${n(d.coins)} 代幣已入帳（不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
-    sms: `【CHIAKI】邀請獎勵 ${n(d.coins)} 代幣已入帳。`,
+    body: `恭喜！您邀請的 ${n(d.count)} 位好友皆已完成註冊與手機驗證，${n(d.coins)} CC幣已入帳（不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
+    sms: `【CHIAKI】邀請獎勵 ${n(d.coins)} CC幣已入帳。`,
     url: '/me/referral',
   }),
 };

@@ -49,13 +49,13 @@ describe('binding rewards (綁定獎勵)', () => {
     const rs = await Promise.allSettled(Array.from({ length: 8 }, () => claimReward(u.id, 'BIND_LINE_OA')));
     assert.equal(rs.filter((r) => r.status === 'fulfilled').length, 1);
     assert.ok(rs.filter((r) => r.status === 'rejected').every((r) => (r as PromiseRejectedResult).reason.code === 'ALREADY_CLAIMED'));
-    assert.equal((await walletOf(u.id)).points, 50);
+    assert.deepEqual(await walletOf(u.id), { coins: 50, nonRefundableCoins: 50 }, 'binding rewards are non-refundable CC幣');
     const coupons = await db()`SELECT code FROM user_coupons WHERE user_id = ${u.id}`;
     assert.deepEqual(coupons.map((c) => c.code), ['LINE-WELCOME']);
     await claimReward(u.id, 'BIND_PHONE');
     const tasks = await listRewardTasks(db(), u.id);
     assert.deepEqual(tasks.filter((t) => t.claimed).map((t) => t.code).sort(), ['BIND_LINE_OA', 'BIND_PHONE']);
-    assert.equal((await walletOf(u.id)).points, 70);
+    assert.deepEqual(await walletOf(u.id), { coins: 70, nonRefundableCoins: 70 });
   });
 
   it('BIND_PHONE requires a phone; social tasks need real verification when the stub is off', async () => {

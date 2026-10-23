@@ -93,7 +93,8 @@ export async function creditPaidOrder(
     createdBy: meta.actorType === 'ADMIN' ? meta.actorId : null,
   });
   if (order.bonusPoints > 0) {
-    await postLedger(tx, { userId: order.userId, currency: 'POINTS', amount: order.bonusPoints, entryType: 'TOPUP_BONUS', refType: 'payment_order', refId: order.id, merchantId: order.merchantId });
+    // 儲值贈送 → 不可退款 CC幣
+    await postLedger(tx, { userId: order.userId, amount: order.bonusPoints, entryType: 'TOPUP_BONUS', refType: 'payment_order', refId: order.id, merchantId: order.merchantId });
   }
   await flagLargeTopup(tx, order.userId, order.amountTwd, order.id);
   await appendAudit(tx, {

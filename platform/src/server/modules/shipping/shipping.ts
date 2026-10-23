@@ -1,137 +1,181 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AppError } from '../../errors';
-import { db, transaction, type Db } from '../../db';
-import { ADDRESS_TO_SHIPPING, getOwnAddress } from '../member/profile';
+import { transaction, type Db, type Tx } from '../../db';
+import { getOwnAddress, PhoneSchema } from '../member/profile';
 import { appendAudit } from '../audit/audit';
-import { postLedger } from '../wallet/wallet';
 import type { Principal } from '../auth/rbac';
-import { ItemIdsSchema, lockStoredItems } from '../warehouse/warehouse';
-import { methodCategory, SHIPPING_METHODS } from './fees';
+import { ItemIdsSchema, ITEM_SHIP_METHOD_SQL, lockStoredItems } from '../warehouse/warehouse';
+import {
+  FREIGHT_COLLECT_NOTE,
+  methodCategory,
+  SHIP_METHOD_LABEL,
+  SHIP_METHODS,
+  SHIP_TO_SHIPPING,
+  SHIPPING_METHODS,
+  type ShipMethod,
+  type ShippingMethod,
+} from './methods';
 import { advanceShipment, listMemberShipments } from './fulfilment';
 
 export { SHIPPING_METHODS };
 
-const RecipientSchema = z
+/** 某一寄送方式的收件資訊：直接填寫，或以 addressId 引用該方式的「常用收件資訊」 */
+const ManualRecipientSchema = z
   .object({
-    method: z.enum(SHIPPING_METHODS),
-    recipientName: z.string().min(1).max(50),
-    recipientPhone: z.string().regex(/^09\d{8}$/, '請填寫台灣手機號碼 09xxxxxxxx'),
-    address: z.string().min(5).max(200).optional(),
-    cvsStoreId: z.string().min(3).max(20).optional(),
-    cvsStoreName: z.string().max(50).optional(),
+    recipientName: z.string().trim().min(1).max(50),
+    recipientPhone: PhoneSchema,
+    address: z.string().trim().min(5).max(200).optional(),
+    cvsStoreId: z.string().trim().min(3).max(20).optional(),
+    cvsStoreName: z.string().trim().max(50).optional(),
   })
-  .superRefine((v, ctx) => {
-    if (v.method === 'HOME_DELIVERY' && !v.address) ctx.addIssue({ code: 'custom', path: ['address'], message: 'address required for home delivery' });
-    if (v.method !== 'HOME_DELIVERY' && !v.cvsStoreId) ctx.addIssue({ code: 'custom', path: ['cvsStoreId'], message: 'store id required for CVS pickup' });
-  });
+  .strict();
+const DestinationSchema = z.union([z.object({ addressId: z.string().uuid() }).strict(), ManualRecipientSchema]);
 
 /**
- * 申請出貨：收件資訊可直接填寫，或以 addressId 引用「常用收件資訊」（此時以該筆資料為準，不需再填其他收件欄位）。
+ * 申請出貨。寄送方式由每個獎項上架時預設（會員不可選擇）；含不同寄送方式的物品時拆成多張出貨單。
+ * destinations：依寄送方式提供收件資訊（home → 地址；c711 / fami → 門市）。未提供的方式改用會員該方式的常用收件資訊
+ * （預設優先，其次最新一筆）；仍沒有則回 SHIP_DESTINATION_REQUIRED（details.methods 列出缺少的方式）。
  */
 export const ShipmentRequestSchema = z
   .object({
     itemIds: ItemIdsSchema,
-    addressId: z.string().uuid().optional(),
-    method: z.enum(SHIPPING_METHODS).optional(),
-    recipientName: z.string().min(1).max(50).optional(),
-    recipientPhone: z.string().optional(),
-    address: z.string().min(5).max(200).optional(),
-    cvsStoreId: z.string().min(3).max(20).optional(),
-    cvsStoreName: z.string().max(50).optional(),
+    destinations: z
+      .object({ home: DestinationSchema.optional(), c711: DestinationSchema.optional(), fami: DestinationSchema.optional() })
+      .strict()
+      .default({}),
   })
-  .superRefine((v, ctx) => {
-    if (v.addressId) return;
-    const r = RecipientSchema.safeParse(v);
-    if (!r.success) for (const i of r.error.issues) ctx.addIssue(i);
-  });
+  .strict();
 
-/**
- * 物流方式。fee_coins 只用於「未預收運費」的物品（例如直購商品）；賞池獎品的運費已於抽賞時按套預收。
- */
-export async function listShippingMethods(db: Db) {
-  const rows = await db<{ method: string; label: string; feeCoins: number; maxItems: number }[]>`
-    SELECT method, label, fee_coins, max_items FROM shipping_methods WHERE active ORDER BY fee_coins, method`;
-  return rows.map((r) => ({ ...r, category: methodCategory(r.method) }));
+interface Recipient {
+  recipientName: string;
+  recipientPhone: string;
+  address: string | null;
+  cvsStoreId: string | null;
+  cvsStoreName: string | null;
+  addressId: string | null;
 }
 
 /**
- * 申請出貨（可合併多件）。運費規則：
- *  - 來自「已預收運費」之套（該會員在該套有 shipping_prepayments）的獎品：不再收運費。
- *  - 其他物品（直購商品、無預收紀錄的舊資料）：依 shipping_methods 收一次運費。
- *  - 若預收時選的是超商、出貨卻改宅配：每個涉及的套補收「宅配 − 超商」差額（該套目前設定）。
+ * 物流方式（不再有運費；運費到付）。shipMethods：寄送方式代碼與標示，供前台顯示。
  */
-export async function requestShipment(userId: string, input: z.input<typeof ShipmentRequestSchema>) {
-  const raw = ShipmentRequestSchema.parse(input);
-  let recipient: z.infer<typeof RecipientSchema>;
-  if (raw.addressId) {
-    const a = await getOwnAddress(db(), userId, raw.addressId);
-    recipient = { method: ADDRESS_TO_SHIPPING[a.method], recipientName: a.recipientName, recipientPhone: a.recipientPhone, address: a.address ?? undefined, cvsStoreId: a.cvsStoreId ?? undefined, cvsStoreName: a.cvsStoreName ?? undefined };
-  } else {
-    recipient = RecipientSchema.parse(raw);
+export async function listShippingMethods(db: Db) {
+  const rows = await db<{ method: ShippingMethod; label: string; maxItems: number }[]>`
+    SELECT method, label, max_items FROM shipping_methods WHERE active ORDER BY method`;
+  const ship = Object.fromEntries(SHIP_METHODS.map((m) => [SHIP_TO_SHIPPING[m], m])) as Record<ShippingMethod, ShipMethod>;
+  return rows.map((r) => ({ ...r, shipMethod: ship[r.method], category: methodCategory(r.method), freightCollect: true as const, note: FREIGHT_COLLECT_NOTE }));
+}
+
+async function resolveDestination(tx: Tx, userId: string, m: ShipMethod, d: z.infer<typeof DestinationSchema> | undefined): Promise<Recipient | null> {
+  if (d && 'addressId' in d) {
+    const a = await getOwnAddress(tx, userId, d.addressId);
+    if (a.method !== m) {
+      throw new AppError('VALIDATION', `收件資訊「${a.recipientName}」是${SHIP_METHOD_LABEL[a.method]}，不能用於${SHIP_METHOD_LABEL[m]}`, { method: m, addressId: a.id });
+    }
+    return { recipientName: a.recipientName, recipientPhone: a.recipientPhone, address: a.address, cvsStoreId: a.cvsStoreId, cvsStoreName: a.cvsStoreName, addressId: a.id };
   }
-  const v = { ...recipient, itemIds: raw.itemIds, addressId: raw.addressId ?? null };
+  if (d) {
+    if (m === 'home' && !d.address) throw new AppError('VALIDATION', '宅配到府需填寫地址', { method: m });
+    if (m !== 'home' && !d.cvsStoreId) throw new AppError('VALIDATION', `${SHIP_METHOD_LABEL[m]}需填寫門市代號`, { method: m });
+    return {
+      recipientName: d.recipientName,
+      recipientPhone: d.recipientPhone,
+      address: m === 'home' ? d.address! : null,
+      cvsStoreId: m === 'home' ? null : d.cvsStoreId!,
+      cvsStoreName: m === 'home' ? null : (d.cvsStoreName ?? null),
+      addressId: null,
+    };
+  }
+  const [a] = await tx<{ id: string; recipientName: string; recipientPhone: string; address: string | null; cvsStoreId: string | null; cvsStoreName: string | null }[]>`
+    SELECT id, recipient_name, recipient_phone, address, cvs_store_id, cvs_store_name FROM member_addresses
+    WHERE user_id = ${userId} AND method = ${m} ORDER BY is_default DESC, created_at DESC LIMIT 1`;
+  return a ? { ...a, addressId: a.id } : null;
+}
+
+export interface ShipmentPart {
+  shipmentId: string;
+  shipMethod: ShipMethod;
+  shipMethodLabel: string;
+  method: ShippingMethod;
+  itemIds: string[];
+  itemCount: number;
+  freightCollect: true;
+  feeCoins: 0;
+}
+
+/**
+ * 申請出貨（可合併多件）。運費到付：不收任何 CC幣。
+ * 物品依寄送方式分組 → 每組一張出貨單（同一次申請共用 request_id），每張各自檢查該物流方式的件數上限。
+ */
+export async function requestShipment(userId: string, input: unknown) {
+  if (input && typeof input === 'object' && ('method' in input || 'addressId' in input)) {
+    throw new AppError('SHIP_METHOD_PRESET', '寄送方式由每個獎項預設，無法自選；請依寄送方式提供收件資訊（destinations）');
+  }
+  const v = ShipmentRequestSchema.parse(input);
   return transaction(async (tx) => {
-    const [m] = await tx<{ feeCoins: number; maxItems: number; merchantId: string }[]>`
-      SELECT fee_coins, max_items, merchant_id FROM shipping_methods WHERE method = ${v.method} AND active`;
-    if (!m) throw new AppError('VALIDATION', 'shipping method unavailable');
-    if (v.itemIds.length > m.maxItems) throw new AppError('VALIDATION', `max ${m.maxItems} items per shipment`);
-    const items = await lockStoredItems(tx, userId, v.itemIds);
-    // 大件・限宅配（GK 等）：含大件時不可用超商取貨
-    if (methodCategory(v.method) !== 'HOME') {
-      const bulky = await tx<{ id: string; prizeName: string; tag: string | null }[]>`
-        SELECT wi.id, wi.prize_name, COALESCE(pp.tag, pr.tag) AS tag FROM warehouse_items wi
-        LEFT JOIN pool_prizes pp ON pp.id = wi.prize_id LEFT JOIN products pr ON pr.id = wi.product_id
-        WHERE wi.id = ANY(${v.itemIds}::uuid[]) AND COALESCE(pp.bulky, pr.bulky, false)
-        ORDER BY wi.prize_name, wi.id`;
-      if (bulky.length) {
-        throw new AppError('BULKY_HOME_DELIVERY_ONLY', `「${bulky.map((b) => b.prizeName).join('、')}」為大件商品（限宅配），無法使用超商取貨，請改選宅配到府或將大件商品分開出貨`, {
-          items: bulky.map((b) => ({ id: b.id, prizeName: b.prizeName, tag: b.tag })),
-        });
-      }
+    // 鎖順序：物品（依 id）→ 出貨單 → 稽核
+    const locked = await lockStoredItems(tx, userId, v.itemIds);
+    const merchantId = locked[0]!.merchantId;
+    const rows = await tx<{ id: string; shipMethod: ShipMethod }[]>`
+      SELECT wi.id, ${ITEM_SHIP_METHOD_SQL(tx)} AS ship_method FROM warehouse_items wi
+      LEFT JOIN pool_prizes pp ON pp.id = wi.prize_id LEFT JOIN products pr ON pr.id = wi.product_id
+      WHERE wi.id = ANY(${v.itemIds}::uuid[]) ORDER BY wi.id`;
+    const groups = new Map<ShipMethod, string[]>();
+    for (const r of rows) groups.set(r.shipMethod, [...(groups.get(r.shipMethod) ?? []), r.id]);
+    const methods = SHIP_METHODS.filter((m) => groups.has(m));
+
+    const recipients = new Map<ShipMethod, Recipient>();
+    const missing: ShipMethod[] = [];
+    for (const m of methods) {
+      const r = await resolveDestination(tx, userId, m, v.destinations[m]);
+      if (r) recipients.set(m, r);
+      else missing.push(m);
     }
-    const setIds = [...new Set(items.flatMap((i) => (i.setId ? [i.setId] : [])))];
-    const prepaid = setIds.length
-      ? await tx<{ setId: string; hasHome: boolean; shipFeeHome: number; shipFeeCvs: number }[]>`
-          SELECT sp.set_id, bool_or(sp.method = 'HOME_DELIVERY') AS has_home, s.ship_fee_home, s.ship_fee_cvs
-          FROM shipping_prepayments sp JOIN pool_sets s ON s.id = sp.set_id
-          WHERE sp.user_id = ${userId} AND sp.set_id = ANY(${setIds}::uuid[])
-          GROUP BY sp.set_id, s.ship_fee_home, s.ship_fee_cvs`
-      : [];
-    const prepaidOf = new Map(prepaid.map((p) => [p.setId, p]));
-    const covered = items.filter((i) => i.setId && prepaidOf.has(i.setId));
-    const uncoveredCount = items.length - covered.length;
-    const baseFee = uncoveredCount > 0 ? m.feeCoins : 0;
-    const homeUpgrades =
-      methodCategory(v.method) === 'HOME'
-        ? [...new Set(covered.map((i) => i.setId!))]
-            .map((sid) => prepaidOf.get(sid)!)
-            .filter((p) => !p.hasHome)
-            .map((p) => ({ setId: p.setId, amount: Math.max(0, p.shipFeeHome - p.shipFeeCvs) }))
-            .filter((u) => u.amount > 0)
-        : [];
-    const fee = baseFee + homeUpgrades.reduce((s, u) => s + u.amount, 0);
-    const [s] = await tx<{ id: string }[]>`
-      INSERT INTO shipments (merchant_id, user_id, method, recipient_name, recipient_phone, address, cvs_store_id, cvs_store_name, fee_coins, item_count, prepaid_item_count, address_id)
-      VALUES (${m.merchantId}, ${userId}, ${v.method}, ${v.recipientName}, ${v.recipientPhone},
-              ${v.method === 'HOME_DELIVERY' ? v.address! : null}, ${v.method === 'HOME_DELIVERY' ? null : v.cvsStoreId!},
-              ${v.cvsStoreName ?? null}, ${fee}, ${v.itemIds.length}, ${covered.length}, ${v.addressId})
-      RETURNING id`;
-    await tx`INSERT INTO shipment_events (shipment_id, status, kind, actor_type, actor_id, note) VALUES (${s!.id}, 'REQUESTED', 'REQUESTED', 'USER', ${userId}, '會員申請出貨')`;
-    await tx`UPDATE warehouse_items SET status = 'SHIP_REQUESTED', shipment_id = ${s!.id}, updated_at = now() WHERE id = ANY(${v.itemIds}::uuid[])`;
-    let coinsAfter: number | null = null;
-    if (fee > 0) {
-      coinsAfter = (await postLedger(tx, { userId, currency: 'COINS', amount: -fee, entryType: 'SHIPPING_FEE', refType: 'shipment', refId: s!.id })).balanceAfter;
+    if (missing.length) {
+      throw new AppError('SHIP_DESTINATION_REQUIRED', `請提供${missing.map((m) => SHIP_METHOD_LABEL[m]).join('、')}的收件資訊`, {
+        methods: missing,
+        items: Object.fromEntries(missing.map((m) => [m, groups.get(m)])),
+      });
     }
-    const breakdown = { prepaidItems: covered.length, uncoveredItems: uncoveredCount, baseFee, homeUpgrades };
-    await appendAudit(tx, {
-      actorType: 'USER',
-      actorId: userId,
-      action: 'SHIPMENT_REQUESTED',
-      entityType: 'shipment',
-      entityId: s!.id,
-      payload: { method: v.method, itemIds: [...v.itemIds].sort(), feeCoins: fee, breakdown },
-    });
-    return { shipmentId: s!.id, feeCoins: fee, itemCount: v.itemIds.length, prepaidItemCount: covered.length, feeBreakdown: breakdown, coinsAfter };
+
+    const limits = await tx<{ method: ShippingMethod; maxItems: number; active: boolean }[]>`
+      SELECT method, max_items, active FROM shipping_methods WHERE method = ANY(${methods.map((m) => SHIP_TO_SHIPPING[m])}::text[])`;
+    const limitOf = new Map(limits.map((l) => [l.method, l]));
+    for (const m of methods) {
+      const l = limitOf.get(SHIP_TO_SHIPPING[m]);
+      if (!l?.active) throw new AppError('VALIDATION', `${SHIP_METHOD_LABEL[m]}目前暫停服務`, { method: m });
+      if (groups.get(m)!.length > l.maxItems) throw new AppError('VALIDATION', `${SHIP_METHOD_LABEL[m]}每張出貨單最多 ${l.maxItems} 件`, { method: m, maxItems: l.maxItems });
+    }
+
+    const requestId = randomUUID();
+    const parts: ShipmentPart[] = [];
+    for (const m of methods) {
+      const r = recipients.get(m)!;
+      const ids = groups.get(m)!;
+      const method = SHIP_TO_SHIPPING[m];
+      const [s] = await tx<{ id: string }[]>`
+        INSERT INTO shipments (merchant_id, user_id, method, recipient_name, recipient_phone, address, cvs_store_id, cvs_store_name,
+                               fee_coins, item_count, address_id, freight_collect, request_id)
+        VALUES (${merchantId}, ${userId}, ${method}, ${r.recipientName}, ${r.recipientPhone}, ${r.address}, ${r.cvsStoreId}, ${r.cvsStoreName},
+                0, ${ids.length}, ${r.addressId}, true, ${requestId})
+        RETURNING id`;
+      await tx`INSERT INTO shipment_events (shipment_id, status, kind, actor_type, actor_id, note)
+               VALUES (${s!.id}, 'REQUESTED', 'REQUESTED', 'USER', ${userId}, ${`會員申請出貨（${SHIP_METHOD_LABEL[m]}・運費到付）`})`;
+      await tx`UPDATE warehouse_items SET status = 'SHIP_REQUESTED', shipment_id = ${s!.id}, updated_at = now() WHERE id = ANY(${ids}::uuid[])`;
+      parts.push({ shipmentId: s!.id, shipMethod: m, shipMethodLabel: SHIP_METHOD_LABEL[m], method, itemIds: ids, itemCount: ids.length, freightCollect: true, feeCoins: 0 });
+    }
+    // 稽核：每張出貨單一筆（同一次申請以 requestId 關聯）
+    for (const part of parts) {
+      await appendAudit(tx, {
+        actorType: 'USER',
+        actorId: userId,
+        action: 'SHIPMENT_REQUESTED',
+        entityType: 'shipment',
+        entityId: part.shipmentId,
+        payload: { requestId, method: part.method, shipMethod: part.shipMethod, itemIds: [...part.itemIds].sort(), freightCollect: true, feeCoins: 0 },
+      });
+    }
+    return { requestId, shipments: parts, itemCount: v.itemIds.length, freightCollect: true as const, feeCoins: 0 as const, note: FREIGHT_COLLECT_NOTE };
   });
 }
 

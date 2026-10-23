@@ -31,7 +31,7 @@ describe('draw history retention', () => {
     const poolId = await publishPool(smallPool({ setCount: 1 }));
     const u = await makeUser({ coins: 5000 });
     const ids: string[] = [];
-    for (let i = 1; i <= 4; i++) ids.push((await executeDraw(u.id, `ret-${process.pid}-${i}`, { poolId, setNo: 1, ticketNos: [i], shippingMethod: 'CVS_711_C2C' })).response.drawId);
+    for (let i = 1; i <= 4; i++) ids.push((await executeDraw(u.id, `ret-${process.pid}-${i}`, { poolId, setNo: 1, ticketNos: [i] })).response.drawId);
     await age(ids[0]!, 120);
     await age(ids[1]!, 91);
     await age(ids[2]!, 89);

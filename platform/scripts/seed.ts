@@ -8,8 +8,9 @@ import { setAdminCredentials } from '../src/server/modules/auth/admin-auth';
 import type { Principal, Role } from '../src/server/modules/auth/rbac';
 import { createPoolDraft } from '../src/server/modules/pool/admin';
 import { approve, requestBalanceAdjust, requestPoolPublish } from '../src/server/modules/admin/approvals';
-import { GK_FIRST_POOL, GUARANTEE_SAMPLE_POOL, PROB_SAMPLE_POOL, seedReferenceData } from '../src/server/seed/reference';
+import { RETIRED_SEED_POOL_SLUGS, SEED_POOLS, seedReferenceData } from '../src/server/seed/reference';
 import type { PoolDraftInput } from '../src/server/modules/pool/admin';
+import { deletePool, setPoolOffline } from '../src/server/modules/pool/manage';
 
 const sql = db();
 await seedReferenceData(sql);
@@ -46,7 +47,7 @@ await sql`UPDATE users SET age_verified_at = COALESCE(age_verified_at, now()), b
 
 const [{ coins }] = (await sql<{ coins: number }[]>`SELECT coins FROM wallets WHERE user_id = ${member.userId}`) as unknown as [{ coins: number }];
 if (coins === 0) {
-  const { approvalId } = await requestBalanceAdjust(fin1, { userId: member.userId, currency: 'COINS', amount: 5000, memo: '開發示範：初始代幣' });
+  const { approvalId } = await requestBalanceAdjust(fin1, { userId: member.userId, amount: 5000, memo: '開發示範：初始 CC幣' });
   await approve(fin2, approvalId);
 }
 
@@ -68,13 +69,25 @@ async function ensurePool(draft: PoolDraftInput) {
   await approve(admin, approvalId); // 第二人核准 → 洗牌、承諾雜湊、規則版本
   return `${draft.slug}: published (${poolId})`;
 }
-console.log(await ensurePool(GK_FIRST_POOL));
-console.log(await ensurePool(GUARANTEE_SAMPLE_POOL));
-console.log(await ensurePool(PROB_SAMPLE_POOL));
+/** 舊的佔位/範例賞池：無銷售 → 軟刪除；已有銷售 → 下架（既有紀錄不受影響） */
+async function retirePool(slug: string) {
+  const [p] = await sql<{ id: string; offline: boolean; deletedAt: Date | null; sales: number }[]>`
+    SELECT p.id, p.offline, p.deleted_at, (SELECT count(*)::int FROM draws d WHERE d.pool_id = p.id) AS sales FROM pools p WHERE p.slug = ${slug}`;
+  if (!p || p.deletedAt) return `${slug}: absent`;
+  const reason = '種子資料更新：移除舊的範例賞池';
+  if (p.sales === 0) {
+    await deletePool(admin, p.id, { reason });
+    return `${slug}: deleted`;
+  }
+  if (!p.offline) await setPoolOffline(admin, p.id, { offline: true, reason });
+  return `${slug}: offline (has sales)`;
+}
+for (const slug of RETIRED_SEED_POOL_SLUGS) console.log(await retirePool(slug));
+for (const draft of SEED_POOLS) console.log(await ensurePool(draft));
 
 console.log(`
 Seed complete.
-  會員登入（AUTH_DEV_STUB=1）：POST /api/auth/otp/verify {"phone": "0900000010", "code": "000000"}（示範會員，已年齡驗證，5000 代幣）
+  會員登入（AUTH_DEV_STUB=1）：POST /api/auth/otp/verify {"phone": "0900000010", "code": "000000"}（示範會員，已年齡驗證，5000 CC幣）
   後台登入：POST /api/auth/admin/login {"loginId": "admin|ops|finance-a|finance-b|support", "password": "<ADMIN_INITIAL_PASSWORD>"}
   ${initialPassword ? `已設定後台密碼（scrypt 雜湊）：${credentialsSet.join(', ') || '（皆已存在，未變更）'}` : '⚠ 未設定 ADMIN_INITIAL_PASSWORD：未建立後台密碼，後台 API 將無法登入'}`);
 await closeDb();

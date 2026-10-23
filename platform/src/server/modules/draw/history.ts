@@ -51,7 +51,6 @@ export interface MemberDrawRow {
   setNo: number;
   ticketCount: number;
   amountCoins: number;
-  shippingCoins: number;
   createdAt: Date;
   results: { seq: number; kind: string; ticketNo: number | null; levelNo: number | null; levelName: string | null; isSmall: boolean; displayName: string }[];
 }
@@ -59,8 +58,8 @@ export interface MemberDrawRow {
 /** 會員：近 3 個月的抽賞紀錄（新到舊、分頁） */
 export async function listMemberDraws(d: Db, userId: string, opts: { limit?: number; before?: Date; drawId?: string } = {}): Promise<{ visibleDays: number; draws: MemberDrawRow[] }> {
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
-  const draws = await d<{ id: string; poolId: string; poolTitle: string; source: string; setNo: number; ticketCount: number; amountCoins: number; shippingCoins: number; createdAt: Date }[]>`
-    SELECT h.id, h.pool_id, p.title AS pool_title, p.source, s.set_no, h.ticket_count, h.amount_coins, h.shipping_coins, h.created_at
+  const draws = await d<{ id: string; poolId: string; poolTitle: string; source: string; setNo: number; ticketCount: number; amountCoins: number; createdAt: Date }[]>`
+    SELECT h.id, h.pool_id, p.title AS pool_title, p.source, s.set_no, h.ticket_count, h.amount_coins, h.created_at
     FROM member_draw_history h JOIN pools p ON p.id = h.pool_id JOIN pool_sets s ON s.id = h.set_id
     WHERE h.user_id = ${userId} ${opts.before ? d`AND h.created_at < ${opts.before}` : d``} ${opts.drawId ? d`AND h.id = ${opts.drawId}` : d``}
     ORDER BY h.created_at DESC, h.id LIMIT ${limit}`;
@@ -77,7 +76,6 @@ export async function listMemberDraws(d: Db, userId: string, opts: { limit?: num
       setNo: x.setNo,
       ticketCount: x.ticketCount,
       amountCoins: x.amountCoins,
-      shippingCoins: x.shippingCoins,
       createdAt: x.createdAt,
       results: results.filter((r) => r.drawId === x.id).map((r) => ({ seq: r.seq, kind: r.kind, ticketNo: r.ticketNo, levelNo: r.levelNo, levelName: r.levelName, isSmall: r.isSmall, displayName: displayName(r.levelName, r.prizeName) })),
     })),

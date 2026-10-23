@@ -6,6 +6,7 @@ import { displayName, LAST_PRIZE_LABEL } from './levels';
 import { distinctTags, type Tag } from '../catalog/tags';
 import { drawPacksOut } from './admin';
 import { effectiveProbabilities, PROB_SCHEME, replayProbSet } from './prob';
+import { FREIGHT_COLLECT_NOTE, SHIP_METHOD_LABEL, SHIP_METHODS, type ShipMethod } from '../shipping/methods';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -90,11 +91,12 @@ interface PrizeRow {
   qtyPerSet: number;
   tag: Tag | null;
   bulky: boolean;
+  shipMethod: ShipMethod;
   imageUrl: string | null;
 }
 
-/** 對外的獎項表示：等級號、等級名稱、是否小獎、名稱、顯示名稱、標籤、大件、圖片 */
-export function showPrize(r: Pick<PrizeRow, 'kind' | 'levelNo' | 'levelName' | 'isSmall' | 'name' | 'tag' | 'bulky' | 'imageUrl'> & { id?: string }) {
+/** 對外的獎項表示：等級號、等級名稱、是否小獎、名稱、顯示名稱、標籤、大件、寄送方式、圖片 */
+export function showPrize(r: Pick<PrizeRow, 'kind' | 'levelNo' | 'levelName' | 'isSmall' | 'name' | 'tag' | 'bulky' | 'shipMethod' | 'imageUrl'> & { id?: string }) {
   const levelName = r.kind === 'LAST' ? LAST_PRIZE_LABEL : r.levelName;
   return {
     ...(r.id ? { prizeId: r.id } : {}),
@@ -105,6 +107,9 @@ export function showPrize(r: Pick<PrizeRow, 'kind' | 'levelNo' | 'levelName' | '
     displayName: displayName(levelName, r.name),
     tag: r.tag,
     bulky: r.bulky,
+    /** 寄送方式（上架時預設，會員不可選；運費到付） */
+    shipMethod: r.shipMethod,
+    shipMethodLabel: SHIP_METHOD_LABEL[r.shipMethod],
     imageUrl: r.imageUrl,
   };
 }
@@ -121,7 +126,7 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
     FROM pools p JOIN pool_rule_versions rv ON rv.id = p.current_rule_version_id WHERE p.id = ${id}`;
   if (!p) throw new AppError('NOT_FOUND', 'pool not found');
   const all = await db<PrizeRow[]>`
-    SELECT pp.id, pp.kind, pl.level_no, pl.name AS level_name, pl.is_small, pp.name, pp.qty_per_set, pp.tag, pp.bulky, pp.image_url
+    SELECT pp.id, pp.kind, pl.level_no, pl.name AS level_name, pl.is_small, pp.name, pp.qty_per_set, pp.tag, pp.bulky, pp.ship_method, pp.image_url
     FROM pool_prizes pp LEFT JOIN pool_levels pl ON pl.id = pp.level_id
     WHERE pp.pool_id = ${id} ORDER BY pl.level_no NULLS LAST, pp.sort_order, pp.name`;
   const levels = await db<{ levelNo: number; name: string; isSmall: boolean; odds: number | null }[]>`
@@ -130,9 +135,9 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
   const [g] = await db<{ everyN: number; minLevel: number; reservePrizeId: string; reserveTotal: number; reserveUsed: number }[]>`
     SELECT every_n, min_level, reserve_prize_id, reserve_total, reserve_used FROM pool_guarantees WHERE pool_id = ${id}`;
   const reserve = g ? all.find((r) => r.id === g.reservePrizeId) : undefined;
-  const sets = await db<{ setNo: number; displayName: string | null; offline: boolean; status: string; total: number; remaining: number; commitment: string; commitScheme: string; probSeedHash: string | null; ruleVersionId: string; lastPrizeAwarded: boolean; shipFeeHome: number; shipFeeCvs: number }[]>`
+  const sets = await db<{ setNo: number; displayName: string | null; offline: boolean; status: string; total: number; remaining: number; commitment: string; commitScheme: string; probSeedHash: string | null; ruleVersionId: string; lastPrizeAwarded: boolean }[]>`
     SELECT s.set_no, s.display_name, s.offline, s.status, s.total_tickets AS total, s.commitment, s.commit_scheme, s.prob_seed_hash, s.rule_version_id,
-           (s.last_prize_user_id IS NOT NULL) AS last_prize_awarded, s.ship_fee_home, s.ship_fee_cvs,
+           (s.last_prize_user_id IS NOT NULL) AS last_prize_awarded,
            (SELECT count(*)::int FROM tickets t WHERE t.set_id = s.id AND t.status = 'AVAILABLE') AS remaining
     FROM pool_sets s WHERE s.pool_id = ${id} AND s.deleted_at IS NULL ORDER BY s.set_no`;
   const tickets = all.filter((r) => r.kind === 'TICKET');
@@ -157,6 +162,8 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
     drawPacks: drawPacksOut(p.drawPacks),
     tags: distinctTags(all.map((r) => r.tag), p.source),
     hasBulky: all.some((r) => r.bulky),
+    /** 本賞池獎項用到的寄送方式 */
+    shipMethods: SHIP_METHODS.filter((m) => all.some((r) => r.shipMethod === m)),
     levels: levels.map((l) => ({
       levelNo: l.levelNo,
       name: l.name,
@@ -178,9 +185,9 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
             reserveRemaining: g.reserveTotal - g.reserveUsed,
           }
         : null,
-    shippingPolicy: { mode: 'PREPAID_PER_SET', note: '運費於本套首次付費抽賞時預收；需要份數 = floor((本套抽到過的全部小獎 + 本次籤數) / 20) + 1（滿 20 件即再收一份；只計「小獎」等級，已回收的小獎仍計入）；回收小獎每件退還 運費 ÷ N 代幣（不可退款）', rules: (JSON.parse(p.rulesJson) as PoolRules).shippingPolicy ?? null },
+    shippingPolicy: { mode: 'FREIGHT_COLLECT', freightCollect: true, note: `${FREIGHT_COLLECT_NOTE}；寄送方式依每個獎項預設，不同寄送方式的獎品會分開出貨` },
     rules: { ruleVersionId: p.ruleVersionId, version: p.ruleVersion, rulesHash: p.rulesHash, content: JSON.parse(p.rulesJson) as PoolRules },
-    sets: sets.map(({ shipFeeHome, shipFeeCvs, ...s }) => ({ ...s, shippingFees: { HOME_DELIVERY: shipFeeHome, CVS_711_C2C: shipFeeCvs, CVS_FAMI_C2C: shipFeeCvs } })),
+    sets,
   };
 }
 
@@ -192,17 +199,16 @@ export type TicketState = 'AVAILABLE' | 'HELD' | 'TAKEN';
  */
 export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewerId?: string | null) {
   const { id: poolId } = await resolvePublicPool(db, idOrSlug);
-  const [s] = await db<{ id: string; setNo: number; displayName: string | null; offline: boolean; playType: string; probSeedHash: string | null; probNonce: number; status: string; total: number; commitment: string; commitScheme: string; rulesHash: string; ruleVersion: number; lastPrizeName: string | null; lastPrizeAwarded: boolean; soldOutAt: Date | null; source: string; shippingNote: string; shipFeeHome: number; shipFeeCvs: number }[]>`
+  const [s] = await db<{ id: string; setNo: number; displayName: string | null; offline: boolean; playType: string; probSeedHash: string | null; probNonce: number; status: string; total: number; commitment: string; commitScheme: string; rulesHash: string; ruleVersion: number; lastPrizeName: string | null; lastPrizeAwarded: boolean; soldOutAt: Date | null; source: string; shippingNote: string }[]>`
     SELECT s.id, s.set_no, s.display_name, (s.offline OR p.offline) AS offline, s.status, s.total_tickets AS total, s.commitment, s.commit_scheme, rv.rules_hash, rv.version AS rule_version,
            p.play_type, s.prob_seed_hash, s.prob_nonce,
-           p.last_prize_name, (s.last_prize_user_id IS NOT NULL) AS last_prize_awarded, s.sold_out_at, p.source, p.shipping_note,
-           s.ship_fee_home, s.ship_fee_cvs
+           p.last_prize_name, (s.last_prize_user_id IS NOT NULL) AS last_prize_awarded, s.sold_out_at, p.source, p.shipping_note
     FROM pool_sets s JOIN pools p ON p.id = s.pool_id JOIN pool_rule_versions rv ON rv.id = s.rule_version_id
     WHERE s.pool_id = ${poolId} AND s.set_no = ${setNo} AND s.deleted_at IS NULL`;
   if (!s) throw new AppError('NOT_FOUND', 'set not found');
 
   const byPrize = await db<(PrizeRow & { total: number; remaining: number; recycleValue: number; recyclable: boolean })[]>`
-    SELECT pr.id, pr.kind, pl.level_no, pl.name AS level_name, pl.is_small, pr.name, pr.qty_per_set, pr.tag, pr.bulky, pr.image_url,
+    SELECT pr.id, pr.kind, pl.level_no, pl.name AS level_name, pl.is_small, pr.name, pr.qty_per_set, pr.tag, pr.bulky, pr.ship_method, pr.image_url,
            count(t.*)::int AS total, count(t.*) FILTER (WHERE t.status = 'AVAILABLE')::int AS remaining, sp.recycle_value, sp.recyclable
     FROM pool_prizes pr JOIN tickets t ON t.prize_id = pr.id AND t.set_id = ${s.id}
     LEFT JOIN pool_levels pl ON pl.id = pr.level_id
@@ -210,7 +216,7 @@ export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewe
     GROUP BY pr.id, pl.level_no, pl.name, pl.is_small, sp.recycle_value, sp.recyclable
     ORDER BY pl.level_no, pr.sort_order, pr.name`;
   const [lastPrize] = await db<(PrizeRow & { recycleValue: number | null; recyclable: boolean | null })[]>`
-    SELECT pr.id, pr.kind, NULL::int AS level_no, NULL AS level_name, false AS is_small, pr.name, pr.qty_per_set, pr.tag, pr.bulky, pr.image_url,
+    SELECT pr.id, pr.kind, NULL::int AS level_no, NULL AS level_name, false AS is_small, pr.name, pr.qty_per_set, pr.tag, pr.bulky, pr.ship_method, pr.image_url,
            sp.recycle_value, sp.recyclable
     FROM pool_prizes pr LEFT JOIN set_prizes sp ON sp.set_id = ${s.id} AND sp.prize_id = pr.id
     WHERE pr.pool_id = ${poolId} AND pr.kind = 'LAST'`;
@@ -259,7 +265,7 @@ export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewe
     },
     playType: s.playType,
     shippingNote: s.shippingNote,
-    shippingFees: { HOME_DELIVERY: s.shipFeeHome, CVS_711_C2C: s.shipFeeCvs, CVS_FAMI_C2C: s.shipFeeCvs },
+    freightCollect: true,
     /** 各等級剩餘與即時機率 */
     levels: [...levelMap.values()]
       .sort((a, b) => a.levelNo - b.levelNo)

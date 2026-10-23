@@ -4,7 +4,8 @@ import { transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { requirePermission, type Principal } from '../auth/rbac';
 import { resolveBulky, TagSchema, type Tag } from '../catalog/tags';
-import { defaultIsSmall, LAST_PRIZE_LABEL, LevelNoSchema } from './levels';
+import { defaultIsSmall, LAST_PRIZE_LABEL, LEVEL_MAX, LevelNoSchema } from './levels';
+import { SHIP_METHOD_LABEL, ShipMethodSchema, type ShipMethod } from '../shipping/methods';
 import {
   drawPacksOut,
   ImageUrlSchema,
@@ -26,6 +27,7 @@ import {
  * 發布後每一套的籤表已以 CSPRNG 洗牌並公開承諾雜湊（籤與承諾在資料庫層不可變），即使尚未售出也不能改動，
  * 否則公開的承諾就失去意義。要改結構請另建新賞池。
  * 非結構欄位（等級名稱、獎項名稱、回收值、可否回收、標籤、大件、圖片）隨時可改，全部寫入稽核鏈。
+ * 寄送方式（shipMethod）不影響籤表與承諾：發布後仍可修改，但賞池一有銷售即鎖定（HAS_SALES；資料庫 trigger 同步強制）。
  */
 
 const STRUCTURE_LOCKED_MSG = '賞池已送審或已發布：等級、數量、是否小獎等結構只能在草稿階段修改（已發布的籤表與承諾不可變）';
@@ -49,6 +51,13 @@ async function assertTicketTotal(tx: Tx, poolId: string) {
   if (n > MAX_TICKETS_PER_SET) throw new AppError('VALIDATION', `max ${MAX_TICKETS_PER_SET} tickets per set`, { total: n });
 }
 
+const SHIP_METHOD_LOCKED_MSG = '賞池已有銷售紀錄，獎項的寄送方式已鎖定';
+
+async function poolHasSales(tx: Db | Tx, poolId: string): Promise<boolean> {
+  const [r] = await tx<{ has: boolean }[]>`SELECT EXISTS (SELECT 1 FROM draws WHERE pool_id = ${poolId}) AS has`;
+  return r!.has;
+}
+
 async function audit(tx: Tx, actor: Principal, action: string, entityType: string, entityId: string, payload: Record<string, unknown>) {
   await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action, entityType, entityId, payload });
 }
@@ -65,8 +74,9 @@ export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
   const levels = await db<{ id: string; levelNo: number; name: string; isSmall: boolean; odds: number | null }[]>`
     SELECT id, level_no, name, is_small, odds FROM pool_levels WHERE pool_id = ${p.id} ORDER BY level_no`;
   const prizes = await db<AdminPrizeRow[]>`
-    SELECT id, kind, level_id, name, qty_per_set, recycle_value, recyclable, tag, bulky, image_url
+    SELECT id, kind, level_id, name, qty_per_set, recycle_value, recyclable, tag, bulky, ship_method, image_url
     FROM pool_prizes WHERE pool_id = ${p.id} ORDER BY sort_order, name`;
+  const hasSales = await poolHasSales(db, p.id);
   const [g] = await db<{ everyN: number; minLevel: number; reservePrizeId: string; reserveTotal: number; reserveUsed: number }[]>`
     SELECT every_n, min_level, reserve_prize_id, reserve_total, reserve_used FROM pool_guarantees WHERE pool_id = ${p.id}`;
   const sets = await db<{ setNo: number; displayName: string | null; internalNote: string; status: string; offline: boolean; deletedAt: Date | null; deleteReason: string | null; total: number; remaining: number; sales: number; commitment: string }[]>`
@@ -76,7 +86,7 @@ export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
     FROM pool_sets s WHERE s.pool_id = ${p.id} ORDER BY s.set_no`;
   const item = (r: AdminPrizeRow) => ({
     prizeId: r.id, kind: r.kind, name: r.name, qtyPerSet: r.qtyPerSet, recycleValue: r.recycleValue, recyclable: r.recyclable,
-    tag: r.tag, bulky: r.bulky, imageUrl: r.imageUrl,
+    tag: r.tag, bulky: r.bulky, shipMethod: r.shipMethod, shipMethodLabel: SHIP_METHOD_LABEL[r.shipMethod], imageUrl: r.imageUrl,
   });
   const last = prizes.find((r) => r.kind === 'LAST');
   const reserve = g ? prizes.find((r) => r.id === g.reservePrizeId) : undefined;
@@ -94,6 +104,8 @@ export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
     setCount: p.setCount,
     drawPacks: drawPacksOut(p.drawPacks),
     structureEditable: p.status === 'DRAFT',
+    /** 寄送方式可改（賞池尚無任何銷售） */
+    shipMethodEditable: !hasSales,
     /** 各套（含已刪除、可還原者）；sales = 抽賞筆數，> 0 只能下架 */
     sets,
     ticketsPerSet: prizes.filter((r) => r.kind === 'TICKET').reduce((s, r) => s + r.qtyPerSet, 0),
@@ -116,7 +128,7 @@ interface PoolHead {
 }
 interface AdminPrizeRow {
   id: string; kind: 'TICKET' | 'LAST' | 'GUARANTEE'; levelId: string | null; name: string; qtyPerSet: number; recycleValue: number; recyclable: boolean;
-  tag: Tag | null; bulky: boolean; imageUrl: string | null;
+  tag: Tag | null; bulky: boolean; shipMethod: ShipMethod; imageUrl: string | null;
 }
 
 // ───────────── 等級 ─────────────
@@ -144,7 +156,7 @@ export async function createLevel(actor: Principal, idOrSlug: string, input: z.i
     const p = await lockPool(tx, idOrSlug);
     requireDraft(p);
     const [cnt] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM pool_levels WHERE pool_id = ${p.id}`;
-    if (cnt!.n >= 8) throw new AppError('VALIDATION', '最多 8 個等級');
+    if (cnt!.n >= LEVEL_MAX) throw new AppError('VALIDATION', `最多 ${LEVEL_MAX} 個等級`);
     const lv = await insertLevel(tx, p.id, v);
     let i = 0;
     for (const it of v.items) await insertItemChecked(tx, p.id, lv, it, v.levelNo * 100 + i++);
@@ -232,6 +244,8 @@ export const UpdatePrizeSchema = z
     tag: TagSchema.nullable().optional(),
     bulky: z.boolean().optional(),
     imageUrl: ImageUrlSchema.nullable().optional(),
+    // 寄送方式：賞池無銷售前可改
+    shipMethod: ShipMethodSchema.optional(),
     // 結構（只在草稿）
     qtyPerSet: z.number().int().positive().max(MAX_TICKETS_PER_SET).optional(),
     levelNo: LevelNoSchema.optional(),
@@ -240,11 +254,11 @@ export const UpdatePrizeSchema = z
 
 interface PrizeFull {
   id: string; poolId: string; kind: string; levelId: string | null; levelNo: number | null; name: string; qtyPerSet: number;
-  recycleValue: number; recyclable: boolean; tag: Tag | null; bulky: boolean; imageUrl: string | null;
+  recycleValue: number; recyclable: boolean; tag: Tag | null; bulky: boolean; shipMethod: ShipMethod; imageUrl: string | null;
 }
 
 /**
- * 修改獎項。名稱/回收值/可否回收/標籤/大件/圖片隨時可改；數量與換等級只在草稿。
+ * 修改獎項。名稱/回收值/可否回收/標籤/大件/圖片隨時可改；寄送方式在賞池有銷售前可改；數量與換等級只在草稿。
  * 回收值：更新賞池預設值，並同步到「仍沿用舊預設值」的每一套（已逐套自訂的套不受影響，可再用逐套設定調整）。
  * 只改標籤未指定 bulky 時，大件旗標依新標籤與等級重新套用預設（GK 或等級 1 → 是）。
  */
@@ -256,13 +270,16 @@ export async function updatePrize(actor: Principal, prizeId: string, input: z.in
     if (!pre) throw new AppError('NOT_FOUND', 'prize not found');
     const p = await lockPool(tx, pre.poolId);
     const [cur] = await tx<PrizeFull[]>`
-      SELECT pp.id, pp.pool_id, pp.kind, pp.level_id, pl.level_no, pp.name, pp.qty_per_set, pp.recycle_value, pp.recyclable, pp.tag, pp.bulky, pp.image_url
+      SELECT pp.id, pp.pool_id, pp.kind, pp.level_id, pl.level_no, pp.name, pp.qty_per_set, pp.recycle_value, pp.recyclable, pp.tag, pp.bulky, pp.ship_method, pp.image_url
       FROM pool_prizes pp LEFT JOIN pool_levels pl ON pl.id = pp.level_id WHERE pp.id = ${prizeId} FOR UPDATE OF pp`;
     if (!cur) throw new AppError('NOT_FOUND', 'prize not found');
     if ((v.qtyPerSet !== undefined && v.qtyPerSet !== cur.qtyPerSet) || (v.levelNo !== undefined && v.levelNo !== cur.levelNo)) {
       requireDraft(p);
       if (cur.kind !== 'TICKET' && v.qtyPerSet !== undefined) throw new AppError('VALIDATION', '最後賞/保底獎項沒有籤數');
       if (cur.kind === 'LAST' && v.levelNo !== undefined) throw new AppError('VALIDATION', '最後賞不屬於任何等級');
+    }
+    if (v.shipMethod !== undefined && v.shipMethod !== cur.shipMethod && (await poolHasSales(tx, p.id))) {
+      throw new AppError('HAS_SALES', SHIP_METHOD_LOCKED_MSG, { prizeId, shipMethod: cur.shipMethod });
     }
     let levelId = cur.levelId;
     let levelNo = cur.levelNo;
@@ -285,11 +302,13 @@ export async function updatePrize(actor: Principal, prizeId: string, input: z.in
       recyclable: v.recyclable ?? cur.recyclable,
       tag,
       bulky: v.bulky ?? (v.tag !== undefined ? resolveBulky(tag, undefined, levelNo) : cur.bulky),
+      shipMethod: v.shipMethod ?? cur.shipMethod,
       imageUrl: v.imageUrl === undefined ? cur.imageUrl : v.imageUrl,
     };
     await tx`
       UPDATE pool_prizes SET name = ${after.name}, qty_per_set = ${after.qtyPerSet}, level_id = ${levelId}, recycle_value = ${after.recycleValue},
              recyclable = ${after.recyclable}, tag = ${after.tag}, bulky = ${after.bulky}, image_url = ${after.imageUrl}
+             ${after.shipMethod !== cur.shipMethod ? tx`, ship_method = ${after.shipMethod}` : tx``}
       WHERE id = ${prizeId}`;
     if (cur.kind === 'LAST' && after.name !== cur.name) await tx`UPDATE pools SET last_prize_name = ${after.name} WHERE id = ${p.id}`;
     if (cur.kind === 'GUARANTEE' && after.name !== cur.name) await tx`UPDATE pool_guarantees SET reserve_prize_name = ${after.name} WHERE pool_id = ${p.id}`;
@@ -301,7 +320,7 @@ export async function updatePrize(actor: Principal, prizeId: string, input: z.in
       setsUpdated = upd.count;
     }
     if (v.qtyPerSet !== undefined) await assertTicketTotal(tx, p.id);
-    const before = { name: cur.name, qtyPerSet: cur.qtyPerSet, levelNo: cur.levelNo, recycleValue: cur.recycleValue, recyclable: cur.recyclable, tag: cur.tag, bulky: cur.bulky, imageUrl: cur.imageUrl };
+    const before = { name: cur.name, qtyPerSet: cur.qtyPerSet, levelNo: cur.levelNo, recycleValue: cur.recycleValue, recyclable: cur.recyclable, tag: cur.tag, bulky: cur.bulky, shipMethod: cur.shipMethod, imageUrl: cur.imageUrl };
     await audit(tx, actor, 'PRIZE_UPDATED', 'pool_prize', prizeId, { poolId: p.id, kind: cur.kind, before, after, setsUpdated });
     return { prizeId, poolId: p.id, kind: cur.kind, ...after, setsUpdated };
   });

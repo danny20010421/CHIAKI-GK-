@@ -1,13 +1,13 @@
 /**
- * 業主 2026-10 商業規則：等級制獎項、每套每獎回收值、寄存 30 天＋到期自動轉代幣（不可退款）、
- * 運費按套預收（一份涵蓋 20 件小獎）、物流方式與運費範圍、試算端點、出貨時程說明。
+ * 業主 2026-10 商業規則：等級制獎項、每套每獎回收值、寄存 30 天＋到期自動轉 CC幣（不可退款）、
+ * 運費到付（抽賞不收運費）、試算端點、出貨時程說明。
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { db, transaction } from '../src/server/db';
 import { resetConfig } from '../src/server/config';
 import { executeDraw } from '../src/server/modules/draw/draw';
-import { createPoolDraft, updateSetConfig } from '../src/server/modules/pool/admin';
+import { updateSetConfig } from '../src/server/modules/pool/admin';
 import { getSetBoard } from '../src/server/modules/pool/queries';
 import { listWarehouse, recycleItems } from '../src/server/modules/warehouse/warehouse';
 import { runStorageSweep } from '../src/server/modules/warehouse/storage';
@@ -23,7 +23,7 @@ import { PATCH as setConfigRoute } from '../src/app/api/admin/pools/[id]/sets/[n
 import { PATCH as poolSettingsRoute } from '../src/app/api/admin/pools/[id]/route';
 import { POST as sweepRoute } from '../src/app/api/admin/jobs/storage-sweep/route';
 import { GET as poolRoute } from '../src/app/api/pools/[id]/route';
-import { apiRequest, ctx, customPool, expectAppError, FEE_CVS, FEE_HOME, layoutOf, ledgerOf, makeUser, pickTickets, publishPool, setupTestDb, walletOf } from './helpers';
+import { apiRequest, ctx, customPool, expectAppError, layoutOf, ledgerOf, makeUser, pickTickets, publishPool, setupTestDb, walletOf } from './helpers';
 
 let env: Awaited<ReturnType<typeof setupTestDb>>;
 let k = 0;
@@ -36,8 +36,6 @@ after(async () => {
   await env.teardown();
 });
 
-const prepaidCount = async (userId: string) =>
-  ((await db()`SELECT count(*)::int AS n FROM shipping_prepayments WHERE user_id = ${userId}`) as unknown as [{ n: number }])[0].n;
 const ledgerTypes = async (userId: string, type: string) => (await ledgerOf(userId)).filter((l) => l.entryType === type);
 
 /** 依等級挑籤號 */
@@ -56,7 +54,7 @@ describe('rule 1 — prize levels in API output (every pool type)', () => {
     const poolId = await publishPool(customPool());
     const u = await makeUser({ coins: 5000 });
     const t = await ticketsByGrade(poolId);
-    const res = await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, ticketNos: [t.GRAND[0], t.MID[0], t.SMALL[0]], shippingMethod: 'CVS_711_C2C' } }), none);
+    const res = await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, ticketNos: [t.GRAND[0], t.MID[0], t.SMALL[0]] } }), none);
     assert.equal(res.status, 201);
     const body = (await res.json()) as { results: { levelNo: number; levelName: string; isSmall: boolean; displayName: string; prizeName: string; rank?: string; grade?: string }[] };
     const got = body.results.map((r) => [r.levelNo, r.levelName, r.isSmall, r.displayName] as const).sort((a, b) => a[0] - b[0]);
@@ -78,7 +76,7 @@ describe('rule 1 — prize levels in API output (every pool type)', () => {
   });
 });
 
-describe('rule 2 — recycle value is per prize per set (admin), user recycling credits POINTS', () => {
+describe('rule 2 — recycle value is per prize per set (admin), user recycling credits non-refundable CC幣', () => {
   it('uses the set-specific value; admin can change value / recyclable flag per set; GRAND default non-recyclable', async () => {
     const poolId = await publishPool(
       customPool({
@@ -98,17 +96,17 @@ describe('rule 2 — recycle value is per prize per set (admin), user recycling 
     await updateSetConfig(ops.principal, poolId, 1, { prizes: [{ prizeId: small!.id, recycleValue: 77 }, { prizeId: mid!.id, recyclable: false }] });
 
     const u = await makeUser({ coins: 5000 });
-    await executeDraw(u.id, key(), { poolId, setNo: 1, count: 10, shippingMethod: 'CVS_711_C2C' }); // 整套 → 第 2 套開賣
-    await executeDraw(u.id, key(), { poolId, setNo: 2, ticketNos: (await ticketsByGrade(poolId, 2)).SMALL.slice(0, 1), shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(u.id, key(), { poolId, setNo: 1, count: 10 }); // 整套 → 第 2 套開賣
+    await executeDraw(u.id, key(), { poolId, setNo: 2, ticketNos: (await ticketsByGrade(poolId, 2)).SMALL.slice(0, 1) });
     const items = await listWarehouse(db(), u.id, 'STORED');
     const set1Small = items.filter((i) => i.setNo === 1 && i.isSmall);
     const set2Small = items.filter((i) => i.setNo === 2 && i.isSmall);
     assert.ok(set1Small.every((i) => i.recycleValue === 77) && set2Small.every((i) => i.recycleValue === 50));
-    const p0 = (await walletOf(u.id)).points;
+    const w0 = await walletOf(u.id);
     const r = await recycleItems(u.id, [set1Small[0]!.id, set2Small[0]!.id]);
-    assert.equal(r.points, 77 + 50, 'set 1 value 77, set 2 keeps default 50');
-    assert.equal((await walletOf(u.id)).points, p0 + 127);
-    assert.equal((await ledgerTypes(u.id, 'RECYCLE_CREDIT')).length, 1);
+    assert.equal(r.coins, 77 + 50, 'set 1 value 77, set 2 keeps default 50');
+    assert.deepEqual(await walletOf(u.id), { coins: w0.coins + 127, nonRefundableCoins: w0.nonRefundableCoins + 127 }, 'recycle credits non-refundable CC幣 only');
+    assert.deepEqual((await ledgerTypes(u.id, 'RECYCLE_CREDIT')).map((l) => [l.amount, l.refundable]), [[127, false]]);
     const grand = items.find((i) => i.levelNo === 1)!;
     await expectAppError(recycleItems(u.id, [grand.id]), 'NOT_RECYCLABLE');
     const set1Mid = items.find((i) => i.setNo === 1 && i.levelNo === 2)!;
@@ -123,18 +121,18 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     const poolId = await publishPool(customPool());
     const u = await makeUser({ coins: 1000 });
     const t = await ticketsByGrade(poolId);
-    await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.GRAND[0]!, t.MID[0]!, ...t.SMALL.slice(0, 4)], shippingMethod: 'CVS_711_C2C' });
+    await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.GRAND[0]!, t.MID[0]!, ...t.SMALL.slice(0, 4)] });
     const items = await listWarehouse(db(), u.id);
     const expiresAt = items[0]!.storageExpiresAt;
     const days = (expiresAt.getTime() - items[0]!.createdAt.getTime()) / 86_400_000;
     assert.ok(Math.abs(days - 30) < 0.01, `30-day free storage, got ${days}`);
     // 一件小獎在到期前已出貨申請 → 不受到期轉換影響
     const shipped = items.find((i) => i.isSmall)!;
-    await requestShipment(u.id, { itemIds: [shipped.id], method: 'CVS_711_C2C', recipientName: 'A', recipientPhone: '0912345678', cvsStoreId: '1234' });
+    await requestShipment(u.id, { itemIds: [shipped.id], destinations: { c711: { recipientName: 'A', recipientPhone: '0912345678', cvsStoreId: '1234' } } });
 
     // 掃描是全域的（本檔其他測試的會員也會被處理），因此以下以「本會員」的資料驗證
     const DAY = 86_400_000;
-    const ZERO = { autoConverted: 0, coinsCredited: 0, expiredHeld: 0, warnedToday: 0, warned7d: 0, notifications: 0, shippingRefundCoins: 0 };
+    const ZERO = { autoConverted: 0, coinsCredited: 0, expiredHeld: 0, warnedToday: 0, warned7d: 0, notifications: 0 };
     const notesOf = async (type: string) =>
       ((await db()`SELECT count(*)::int AS n FROM notifications WHERE user_id = ${u.id} AND type = ${type}`) as unknown as [{ n: number }])[0].n;
     const marks = async (col: 'storage_warned_7d_at' | 'storage_warned_day_at') =>
@@ -157,7 +155,7 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     assert.equal(await ledgerTypes(u.id, 'EXPIRY_AUTO_CONVERT').then((l) => l.length), 0, 'not converted before the expiry instant');
     assert.equal((await runStorageSweep(sameDay)).notifications, 0, 'expiry-day notice only once');
 
-    // 到期後：3 件小獎（每件 50）＋中獎 400 → 共 550 代幣；大獎不可回收 → 保留＋通知
+    // 到期後：3 件小獎（每件 50）＋中獎 400 → 共 550 CC幣；大獎不可回收 → 保留＋通知
     const coins0 = (await walletOf(u.id)).coins;
     const after = new Date(expiresAt.getTime() + 1000);
     const runs = await Promise.all([runStorageSweep(after), runStorageSweep(after), runStorageSweep(after)]);
@@ -170,32 +168,32 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     assert.equal(conv.length, 1, 'one credit for the batch');
     assert.equal(conv[0]!.amount, 550);
     assert.equal(conv[0]!.refundable, false, 'auto-converted coins are non-refundable by default');
-    // 到期轉換的 3 件小獎另逐件退還運費 floor(70 × 3 / 20) = 10（不可退款）
-    assert.equal((await walletOf(u.id)).coins, coins0 + 550 + 10, 'credited as COINS (代幣), not points');
-    assert.deepEqual((await ledgerTypes(u.id, 'SHIPPING_REFUND_COINS')).map((l) => [l.amount, l.refundable]), [[10, false]]);
+    // 運費到付：到期轉換不再有任何運費退還
+    assert.equal((await walletOf(u.id)).coins, coins0 + 550, 'credited as CC幣');
+    assert.equal((await ledgerTypes(u.id, 'SHIPPING_REFUND_COINS')).length, 0);
     const after2 = await listWarehouse(db(), u.id);
     assert.equal(after2.filter((i) => i.recycleReason === 'STORAGE_EXPIRY' && i.status === 'RECYCLED').length, 4);
-    assert.ok(after2.filter((i) => i.recycleReason === 'STORAGE_EXPIRY').every((i) => i.recycledCoins !== null && i.recycledPoints === null));
+    assert.ok(after2.filter((i) => i.recycleReason === 'STORAGE_EXPIRY').every((i) => i.recycledCoins !== null && !('recycledPoints' in i)));
     assert.equal(after2.find((i) => i.levelNo === 1)!.status, 'STORED', 'non-recyclable prize is held for CS, not destroyed');
     assert.equal(after2.find((i) => i.id === shipped.id)!.status, 'SHIP_REQUESTED');
     const [audit] = await db()`SELECT count(*)::int AS n FROM audit_log WHERE action = 'STORAGE_EXPIRY_AUTO_CONVERT' AND payload_json LIKE ${'%' + u.id + '%'}`;
     assert.equal(audit!.n, 1);
 
     const notes = (await (await notificationsRoute(apiRequest('GET', '/api/me/notifications', { token: u.token }), none)).json()) as { notifications: { id: string; type: string; readAt: string | null }[] };
-    assert.deepEqual(notes.notifications.map((n) => n.type).sort(), ['SHIPPING_FEE_REFUND', 'STORAGE_AUTO_CONVERTED', 'STORAGE_EXPIRED_HOLD', 'STORAGE_EXPIRY_7D', 'STORAGE_EXPIRY_TODAY']);
+    assert.deepEqual(notes.notifications.map((n) => n.type).sort(), ['STORAGE_AUTO_CONVERTED', 'STORAGE_EXPIRED_HOLD', 'STORAGE_EXPIRY_7D', 'STORAGE_EXPIRY_TODAY']);
     const mr = (await (await markReadRoute(apiRequest('POST', '/api/me/notifications', { token: u.token, body: { ids: notes.notifications.map((n) => n.id) } }), none)).json()) as { updated: number };
-    assert.equal(mr.updated, 5);
+    assert.equal(mr.updated, 4);
 
-    // 可退款餘額不含自動轉換代幣
+    // 可退款餘額不含自動轉換 CC幣
     const w = await getWallet(db(), u.id);
-    assert.equal(w.nonRefundableCoins, 560);
-    assert.equal(w.refundableCoins, w.coins - 560);
+    assert.equal(w.nonRefundableCoins, 550);
+    assert.equal(w.refundableCoins, w.coins - 550);
     await expectAppError(createRefundRequest(u.id, w.refundableCoins + 1, 'x'), 'INSUFFICIENT_FUNDS');
-    await expectAppError(transaction((tx) => postLedger(tx, { userId: u.id, currency: 'COINS', amount: -(w.refundableCoins + 1), entryType: 'REFUND_DEBIT', refType: 't', refId: 't' })), 'INSUFFICIENT_FUNDS');
+    await expectAppError(transaction((tx) => postLedger(tx, { userId: u.id, amount: -(w.refundableCoins + 1), entryType: 'REFUND_DEBIT', refType: 't', refId: 't' })), 'INSUFFICIENT_FUNDS');
     await createRefundRequest(u.id, w.refundableCoins, 'all refundable coins');
-    // 一般消費優先使用不可退款代幣
+    // 一般消費優先使用不可退款 CC幣
     await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.SMALL[10]!] });
-    assert.equal((await getWallet(db(), u.id)).nonRefundableCoins, 560 - 10);
+    assert.equal((await getWallet(db(), u.id)).nonRefundableCoins, 550 - 10);
     assert.ok((await reconcileWallets(db(), u.id))[0]!.ok, 'reconciliation covers non-refundable balance chain');
     assert.equal((await verifyAuditChain(db())).ok, true);
     // 會員自己回收已到期轉換的物品 → 已非 STORED
@@ -208,16 +206,16 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     try {
       const poolId = await publishPool(customPool());
       const u = await makeUser({ coins: 1000 });
-      await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: (await ticketsByGrade(poolId)).SMALL.slice(0, 2), shippingMethod: 'CVS_711_C2C' });
+      await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: (await ticketsByGrade(poolId)).SMALL.slice(0, 2) });
       const [it0] = await listWarehouse(db(), u.id);
       await runStorageSweep(new Date(it0!.storageExpiresAt.getTime() + 1000));
       const conv = await ledgerTypes(u.id, 'EXPIRY_AUTO_CONVERT');
       assert.equal(conv[0]!.refundable, false);
       const w = await getWallet(db(), u.id);
-      // 2 件小獎 × 回收值 50 ＋ 逐件運費退還 floor(70 × 2 / 20) = 7，全部不可退款
-      assert.equal(w.nonRefundableCoins, 100 + 7);
-      assert.equal(w.refundableCoins, w.coins - 107);
-      await assert.rejects(transaction((tx) => postLedger(tx, { userId: u.id, currency: 'COINS', amount: 1, entryType: 'EXPIRY_AUTO_CONVERT', refType: 't', refId: 't', refundable: true })), /always non-refundable/);
+      // 2 件小獎 × 回收值 50，全部不可退款（運費到付：無運費退還）
+      assert.equal(w.nonRefundableCoins, 100);
+      assert.equal(w.refundableCoins, w.coins - 100);
+      await assert.rejects(transaction((tx) => postLedger(tx, { userId: u.id, amount: 1, entryType: 'EXPIRY_AUTO_CONVERT', refType: 't', refId: 't', refundable: true })), /always non-refundable/);
       await assert.rejects(db()`INSERT INTO wallet_ledger (user_id, currency, amount, balance_after, entry_type, ref_type, ref_id, refundable, nonrefundable_after)
                                 VALUES (${u.id}, 'COINS', 1, 1, 'REFERRAL_REWARD', 't', 't', true, 0)`, /ledger_nonrefundable_sources/);
     } finally {
@@ -234,151 +232,80 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
   });
 });
 
-describe('rule 4 — shipping prepaid per set (按套收取)', () => {
-  it('first paid draw charges the chosen method fee atomically; method required; fees = floor(small/20)+1; GRAND/MID do not count', async () => {
+describe('rule 4 — freight collect (運費到付): no shipping charge at draw time', () => {
+  it('a draw debits only the ticket price; no prepaid fee, no method needed; legacy shippingMethod is ignored', async () => {
     const poolId = await publishPool(customPool());
     const u = await makeUser({ coins: 5000 });
     const t = await ticketsByGrade(poolId);
-    // 首抽未選物流方式 → 拒絕、零扣款
-    await expectAppError(executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.SMALL[0]!] }), 'SHIPPING_METHOD_REQUIRED');
-    await assert.rejects(executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.SMALL[0]!], shippingMethod: 'CVS_OK' }), /Invalid enum value/);
-    assert.equal((await walletOf(u.id)).coins, 5000);
-    // 首抽：5 小獎，全家店到店 → 收一份超商運費（同一交易）
-    let r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(0, 5), shippingMethod: 'CVS_FAMI_C2C' })).response;
-    assert.deepEqual([r.shipping.feesToCharge, r.shipping.amount, r.shipping.method, r.shipping.feesPaidAfter, r.shipping.coverageAfter], [1, FEE_CVS, 'CVS_FAMI_C2C', 1, 19]);
-    assert.equal(r.coinsAfter, 5000 - 50 - FEE_CVS);
-    const [pp] = await db()`SELECT draw_id, seq, method, fee_coins, small_items_covered FROM shipping_prepayments WHERE user_id = ${u.id}`;
-    assert.deepEqual(pp, { drawId: r.drawId, seq: 1, method: 'CVS_FAMI_C2C', feeCoins: FEE_CVS, smallItemsCovered: 20 });
-    // 5 + 10 = 15 ≤ 20 → 不收（未指定方式亦可）
-    r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(5, 15) })).response;
-    assert.equal(r.shipping.feesToCharge, 0);
-    // 大獎、中獎不計入：15 小獎 + 大獎 + 2 中獎 + 5 小獎 → 最壞 15 + 8 = 23 > 20 → 再收一份（沿用上次方式）
-    r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.GRAND[0]!, ...t.MID, ...t.SMALL.slice(15, 20)] })).response;
-    assert.deepEqual([r.shipping.smallItemsDrawn, r.shipping.worstCaseSmallItems, r.shipping.feesToCharge, r.shipping.method], [15, 23, 1, 'CVS_FAMI_C2C']);
-    // 實際抽到 20 小獎（大獎/中獎不算）→ 下一抽 20 + 1 = 21 → floor(21/20)+1 = 2 = 已付 → 不收
-    r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.SMALL[20]!] })).response;
-    assert.deepEqual([r.shipping.smallItemsDrawn, r.shipping.feesToCharge], [20, 0]);
-    assert.equal(await prepaidCount(u.id), 2);
-    const fees = await ledgerTypes(u.id, 'SHIPPING_PREPAID');
-    assert.deepEqual(fees.map((f) => f.amount), [-FEE_CVS, -FEE_CVS]);
+    const r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(0, 5) })).response;
+    assert.deepEqual([r.amountCoins, r.totalCoins, r.freightCollect, r.coinsAfter], [50, 50, true, 5000 - 50]);
+    assert.ok(!('shipping' in r), 'no prepaid shipping block in the response');
+    // 舊客戶端仍帶 shippingMethod → 忽略，不收任何運費
+    const r2 = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(5, 30), shippingMethod: 'HOME_DELIVERY' })).response;
+    assert.deepEqual([r2.totalCoins, r2.coinsAfter], [250, 5000 - 300]);
+    const types = (await ledgerOf(u.id)).map((l) => l.entryType);
+    assert.deepEqual(types, ['ADMIN_ADJUST', 'DRAW_DEBIT', 'DRAW_DEBIT']);
+    const [d] = await db()`SELECT column_name FROM information_schema.columns WHERE table_name = 'draws' AND column_name = 'shipping_coins'`;
+    assert.equal(d, undefined, 'draws.shipping_coins removed');
     assert.ok((await reconcileWallets(db(), u.id))[0]!.ok);
   });
 
-  it('home delivery uses the set home fee; one draw of many tickets can charge several fees at once', async () => {
-    const poolId = await publishPool(customPool({ prizes: [{ name: '小獎', grade: 'SMALL', qtyPerSet: 50 }] }));
-    const u = await makeUser({ coins: 5000 });
-    const r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 45), shippingMethod: 'HOME_DELIVERY' })).response;
-    assert.deepEqual([r.shipping.feesToCharge, r.shipping.unitFee, r.shipping.amount], [3, FEE_HOME, 3 * FEE_HOME]);
-    assert.equal(r.totalCoins, 450 + 3 * FEE_HOME);
-    assert.deepEqual((await db()`SELECT seq FROM shipping_prepayments WHERE user_id = ${u.id} ORDER BY seq`).map((x) => x.seq), [1, 2, 3]);
-  });
-
-  it('recycled SMALL items still count toward the threshold (refunded per item instead); shipped items still count', async () => {
-    const poolId = await publishPool(customPool());
-    const t = await ticketsByGrade(poolId);
-    const a = await makeUser({ coins: 5000 });
-    await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(0, 18), shippingMethod: 'CVS_711_C2C' });
-    const smalls = (await listWarehouse(db(), a.id, 'STORED')).filter((i) => i.isSmall);
-    const rec = await recycleItems(a.id, smalls.slice(0, 5).map((i) => i.id));
-    assert.equal(rec.shippingRefundCoins, Math.floor((FEE_CVS * 5) / 20), 'recycling refunds fee ÷ 20 per item');
-    const r = (await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(18, 24) })).response; // 抽到過 18 + 6 = 24 → floor(24/20)+1 = 2
-    assert.deepEqual([r.shipping.smallItemsDrawn, r.shipping.feesToCharge], [18, 1], 'recycled small prizes do not free coverage (no double benefit)');
-    assert.equal(await prepaidCount(a.id), 2);
-
-    const b = await makeUser({ coins: 5000 });
-    await executeDraw(b.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(25, 35), shippingMethod: 'CVS_711_C2C' });
-    const bItems = (await listWarehouse(db(), b.id, 'STORED')).map((i) => i.id);
-    const s = await requestShipment(b.id, { itemIds: bItems, method: 'CVS_711_C2C', recipientName: 'B', recipientPhone: '0912345678', cvsStoreId: '1234' });
-    assert.equal(s.feeCoins, 0, 'shipment of prepaid items is free');
-    const rb = (await executeDraw(b.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(35, 37).concat(t.MID) })).response;
-    assert.equal(rb.shipping.smallItemsDrawn, 10, 'shipped small items still consume the prepaid coverage');
-    assert.equal(rb.shipping.feesToCharge, 0);
-  });
-
-  it('fee ranges: home 150–300, CVS C2C 60–150 (draft, admin per-set update, DB CHECK); new fee applies to later charges', async () => {
-    const ops = await makeUser({ roles: ['OPS'] });
-    for (const [home, cvs] of [[149, 70], [301, 70], [150, 59], [150, 151]] as const) {
-      await assert.rejects(createPoolDraft(ops.principal, customPool({ shippingFeeHome: home, shippingFeeCvs: cvs })), /運費須介於/);
+  it('retired shipping ledger types and prepaid tables are gone; per-set fee config is rejected', async () => {
+    const u = await makeUser({ coins: 100 });
+    for (const t of ['SHIPPING_PREPAID', 'SHIPPING_FEE', 'SHIPPING_REFUND_COINS']) {
+      await assert.rejects(
+        db()`INSERT INTO wallet_ledger (user_id, currency, amount, balance_after, entry_type, ref_type, ref_id, nonrefundable_after)
+             VALUES (${u.id}, 'COINS', -1, 99, ${t}, 't', 't', 0)`,
+        /ledger_retired_entry_types/,
+      );
     }
-    for (const [home, cvs] of [[150, 60], [300, 150]] as const) await createPoolDraft(ops.principal, customPool({ shippingFeeHome: home, shippingFeeCvs: cvs }));
+    const tables = await db()<{ t: string }[]>`
+      SELECT table_name AS t FROM information_schema.tables WHERE table_schema = 'public'
+        AND table_name IN ('shipping_prepayments', 'shipping_fee_refunds', 'shipping_item_refunds', 'shipping_item_refund_events')`;
+    assert.equal(tables.length, 0);
+    const ops = await makeUser({ roles: ['OPS'] });
     const poolId = await publishPool(customPool());
-    const bad = await setConfigRoute(apiRequest('PATCH', `/api/admin/pools/${poolId}/sets/1`, { token: ops.token, body: { shippingFeeCvs: 151 } }), ctx({ id: poolId, no: '1' }));
-    assert.equal(bad.status, 400);
+    const bad = await setConfigRoute(apiRequest('PATCH', `/api/admin/pools/${poolId}/sets/1`, { token: ops.token, body: { shippingFeeCvs: 100 } }), ctx({ id: poolId, no: '1' }));
+    assert.equal(bad.status, 400, 'per-set shipping fees no longer exist');
     const m = await makeUser();
-    assert.equal((await setConfigRoute(apiRequest('PATCH', `/api/admin/pools/${poolId}/sets/1`, { token: m.token, body: { shippingFeeCvs: 100 } }), ctx({ id: poolId, no: '1' }))).status, 403);
-    const ok = await setConfigRoute(apiRequest('PATCH', `/api/admin/pools/${poolId}/sets/1`, { token: ops.token, body: { shippingFeeHome: 300, shippingFeeCvs: 150 } }), ctx({ id: poolId, no: '1' }));
-    assert.equal(ok.status, 200);
-    await assert.rejects(db()`UPDATE pool_sets SET ship_fee_home = 400 WHERE pool_id = ${poolId}`, /check constraint/);
-    await assert.rejects(db()`UPDATE pool_sets SET ship_fee_cvs = 59 WHERE pool_id = ${poolId}`, /check constraint/);
-    const u = await makeUser({ coins: 1000 });
-    const r = (await executeDraw(u.id, key(), { poolId, setNo: 1, count: 1, shippingMethod: 'CVS_711_C2C' })).response;
-    assert.equal(r.shipping.amount, 150);
+    assert.equal((await setConfigRoute(apiRequest('PATCH', `/api/admin/pools/${poolId}/sets/1`, { token: m.token, body: { prizes: [] } }), ctx({ id: poolId, no: '1' }))).status, 403);
     const note = await poolSettingsRoute(apiRequest('PATCH', `/api/admin/pools/${poolId}`, { token: ops.token, body: { shippingNote: '官方商品依官方出貨時程；平台商品依平台公告時程' } }), ctx({ id: poolId }));
     assert.equal(note.status, 200);
-    const pool = (await (await poolRoute(apiRequest('GET', `/api/pools/${poolId}`), ctx({ id: poolId }))).json()) as { shippingNote: string };
+    const pool = (await (await poolRoute(apiRequest('GET', `/api/pools/${poolId}`), ctx({ id: poolId }))).json()) as {
+      shippingNote: string;
+      shippingPolicy: { mode: string; freightCollect: boolean };
+      sets: Record<string, unknown>[];
+      rules: { content: { shippingPolicy: { mode: string } } };
+    };
     assert.equal(pool.shippingNote, '官方商品依官方出貨時程；平台商品依平台公告時程');
+    assert.deepEqual([pool.shippingPolicy.mode, pool.shippingPolicy.freightCollect, pool.rules.content.shippingPolicy.mode], ['FREIGHT_COLLECT', true, 'FREIGHT_COLLECT']);
+    assert.ok(pool.sets.every((x) => !('shippingFees' in x)));
   });
 
-  it('insufficient coins for draw + fee → whole draw rolls back', async () => {
+  it('insufficient coins → whole draw rolls back', async () => {
     const poolId = await publishPool(customPool());
-    const u = await makeUser({ coins: 10 + FEE_CVS - 1 });
-    await expectAppError(executeDraw(u.id, key(), { poolId, setNo: 1, count: 1, shippingMethod: 'CVS_711_C2C' }), 'INSUFFICIENT_FUNDS');
-    assert.equal((await walletOf(u.id)).coins, 10 + FEE_CVS - 1);
-    assert.equal(await prepaidCount(u.id), 0);
+    const u = await makeUser({ coins: 9 });
+    await expectAppError(executeDraw(u.id, key(), { poolId, setNo: 1, count: 1 }), 'INSUFFICIENT_FUNDS');
+    assert.equal((await walletOf(u.id)).coins, 9);
     assert.equal((await layoutOf(poolId, 1)).filter((x) => x.status === 'TAKEN').length, 0);
-  });
-
-  it('race: many concurrent draws by the same user in one set charge exactly floor(tickets / 20) + 1 fees', async () => {
-    const poolId = await publishPool(customPool({ priceCoins: 5, prizes: [{ name: '小獎', grade: 'SMALL', qtyPerSet: 80 }] }));
-    const START = 10_000;
-    const u = await makeUser({ coins: START });
-    const N = 30; // 30 筆 × 2 籤 = 60 籤 → 依序累積 floor(60/20)+1 = 恰 4 份運費
-    const keys = Array.from({ length: N }, () => key());
-    const calls = keys.flatMap((kk, i) => {
-      const body = { poolId, setNo: 1, ticketNos: [2 * i + 1, 2 * i + 2], shippingMethod: 'CVS_711_C2C' as const };
-      // 每筆另外同鍵重送一次（冪等重播不得重複收運費）
-      return [executeDraw(u.id, kk, body), executeDraw(u.id, kk, body)];
-    });
-    const rs = await Promise.all(calls);
-    assert.equal(rs.filter((r) => !r.replayed).length, N);
-    const charged = rs.filter((r) => !r.replayed).reduce((s, r) => s + r.response.shipping.feesToCharge, 0);
-    assert.equal(charged, 4);
-    assert.equal(await prepaidCount(u.id), 4);
-    assert.deepEqual((await db()`SELECT seq FROM shipping_prepayments WHERE user_id = ${u.id} ORDER BY seq`).map((x) => x.seq), [1, 2, 3, 4]);
-    assert.equal((await ledgerTypes(u.id, 'SHIPPING_PREPAID')).length, 4);
-    assert.equal((await walletOf(u.id)).coins, START - 60 * 5 - 4 * FEE_CVS);
-    assert.ok((await reconcileWallets(db(), u.id))[0]!.ok);
-    assert.equal((await verifyAuditChain(db())).ok, true);
   });
 });
 
 describe('POST /api/draws/quote', () => {
-  it('returns the shipping breakdown before payment and matches the actual draw charge', async () => {
+  it('returns the ticket cost (freight collect, no shipping) and matches the actual draw charge', async () => {
     const poolId = await publishPool(customPool());
     const u = await makeUser({ coins: 1000 });
     assert.equal((await quoteRoute(apiRequest('POST', '/api/draws/quote', { body: { poolId, setNo: 1, count: 1 } }), none)).status, 401);
-    type Q = { ticketCount: number; drawCoins: number; totalCoins: number; coinsBalance: number; sufficientFunds: boolean; shipping: { methodRequired: boolean; feesToCharge: number; amount: number; method: string | null; options: { method: string; amount: number }[]; setFees: Record<string, number>; worstCaseSmallItems: number; rule: string } };
-    const q0 = (await (await quoteRoute(apiRequest('POST', '/api/draws/quote', { token: u.token, body: { poolId, setNo: 1, count: 3 } }), none)).json()) as Q;
-    assert.equal(q0.shipping.methodRequired, true);
-    assert.equal(q0.shipping.feesToCharge, 1);
-    assert.equal(q0.sufficientFunds, false, 'method must be chosen first');
-    assert.deepEqual(q0.shipping.options, [
-      { method: 'HOME_DELIVERY', unitFee: FEE_HOME, amount: FEE_HOME },
-      { method: 'CVS_711_C2C', unitFee: FEE_CVS, amount: FEE_CVS },
-      { method: 'CVS_FAMI_C2C', unitFee: FEE_CVS, amount: FEE_CVS },
-    ]);
-    assert.deepEqual(q0.shipping.setFees, { HOME_DELIVERY: FEE_HOME, CVS_711_C2C: FEE_CVS, CVS_FAMI_C2C: FEE_CVS });
-    const res = await quoteRoute(apiRequest('POST', '/api/draws/quote', { token: u.token, body: { poolId, setNo: 1, count: 3, shippingMethod: 'HOME_DELIVERY' } }), none);
+    type Q = { ticketCount: number; drawCoins: number; totalCoins: number; coinsBalance: number; sufficientFunds: boolean; freightCollect: boolean; shippingNote: string };
+    const res = await quoteRoute(apiRequest('POST', '/api/draws/quote', { token: u.token, body: { poolId, setNo: 1, count: 3 } }), none);
     const q1 = (await res.json()) as Q;
-    assert.deepEqual([q1.drawCoins, q1.shipping.amount, q1.totalCoins, q1.sufficientFunds, q1.coinsBalance], [30, FEE_HOME, 30 + FEE_HOME, true, 1000]);
-    const d = (await executeDraw(u.id, key(), { poolId, setNo: 1, count: 3, shippingMethod: 'HOME_DELIVERY' })).response;
+    assert.deepEqual([q1.ticketCount, q1.drawCoins, q1.totalCoins, q1.sufficientFunds, q1.coinsBalance, q1.freightCollect], [3, 30, 30, true, 1000, true]);
+    assert.match(q1.shippingNote, /運費到付/);
+    const d = (await executeDraw(u.id, key(), { poolId, setNo: 1, count: 3 })).response;
     assert.equal(d.totalCoins, q1.totalCoins, 'quote == actual charge');
     assert.equal((await walletOf(u.id)).coins, 1000 - q1.totalCoins);
-    // 已預收：再試算 30 籤 → 最壞 (持有小獎) + 30 > 20 → 需再收 1 份（沿用宅配）
     const q2 = (await (await quoteRoute(apiRequest('POST', '/api/draws/quote', { token: u.token, body: { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 30) } }), none)).json()) as Q;
-    assert.equal(q2.shipping.method, 'HOME_DELIVERY');
-    assert.ok(q2.shipping.worstCaseSmallItems > 20 && q2.shipping.worstCaseSmallItems <= 33);
-    assert.equal(q2.shipping.feesToCharge, Math.floor(q2.shipping.worstCaseSmallItems / 20) + 1 - 1);
+    assert.deepEqual([q2.totalCoins, q2.sufficientFunds], [300, true]);
   });
 });
 

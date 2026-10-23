@@ -4,7 +4,6 @@ import { db, transaction } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
 import { notifyEvent } from '../notifications/outbox';
-import { lockUserSetShipping, refundRecycledSmallItems } from '../shipping/prepaid';
 
 /**
  * 寄存期限掃描（排程工作；可重複執行、可並行執行 → 結果冪等）。
@@ -12,14 +11,13 @@ import { lockUserSetShipping, refundRecycledSmallItems } from '../shipping/prepa
  * 規則（業主 2026-10）：
  *  - 獎品自入庫起免費寄存 STORAGE_FREE_DAYS（預設 30）天（到期時間於入庫時寫入 storage_expires_at）。
  *  - 到期前 STORAGE_WARN_DAYS_BEFORE（預設 7）天、以及到期當日（以台灣日期計）各發一次站內通知。
- *  - 到期後仍為「保管中」的獎品，依「該套 × 該獎項」回收值自動回收，並以「代幣 COINS」入帳
+ *  - 到期後仍為「保管中」的獎品，依「該套 × 該獎項」回收值自動回收，並以 CC幣入帳
  *    （帳本類型 EXPIRY_AUTO_CONVERT，另寫稽核紀錄與通知）。
  *  - 後台設定為「不可回收」的獎品（或沒有回收設定的直購商品）不自動轉換：標記並通知，留待客服處理。
  *
- * 業主規則：到期轉換的代幣一律「不可退款・無法轉換」（wallet_ledger.refundable = false，不計入可退款餘額；
+ * 業主規則：到期轉換的 CC幣一律「不可退款・無法轉換」（wallet_ledger.refundable = false，不計入可退款餘額；
  *   舊的 EXPIRY_COINS_REFUNDABLE 開關已移除）。以可退款代幣支付獎品價值會讓獎品可經由退款兌換現金，
  *   可能使付費抽賞被認定為賭博或違法有獎銷售。
- * 轉換的可回收小獎每件另退還 運費 ÷ N 代幣（不可退款；見 shipping/prepaid.ts refundRecycledSmallItems）。
  *
  * 冪等性：每一步都以「條件式更新 + 列鎖」完成（狀態必須仍為 STORED、通知標記必須仍為 NULL），
  * 第二次（或同時）執行不會重複入帳或重複通知；通知另有 dedupe_key 唯一索引。
@@ -31,15 +29,13 @@ export interface StorageSweepResult {
   warnedToday: number;
   warned7d: number;
   notifications: number;
-  /** 逐件運費退還（每件小獎 運費 ÷ N）合計代幣 */
-  shippingRefundCoins: number;
 }
 
 const TZ = 'Asia/Taipei';
 
 export async function runStorageSweep(now: Date = new Date()): Promise<StorageSweepResult> {
   const c = config();
-  const result: StorageSweepResult = { autoConverted: 0, coinsCredited: 0, expiredHeld: 0, warnedToday: 0, warned7d: 0, notifications: 0, shippingRefundCoins: 0 };
+  const result: StorageSweepResult = { autoConverted: 0, coinsCredited: 0, expiredHeld: 0, warnedToday: 0, warned7d: 0, notifications: 0 };
 
   // ── 1. 到期：自動轉代幣（可回收者）或標記保留（不可回收者）。每位會員一個交易。
   const users = await db()<{ userId: string }[]>`
@@ -60,13 +56,11 @@ export async function runStorageSweep(now: Date = new Date()): Promise<StorageSw
         FOR UPDATE OF wi`;
       const convert = items.filter((i) => i.recyclable === true);
       const hold = items.filter((i) => i.recyclable !== true && i.heldAt === null);
-      const out = { converted: 0, coins: 0, held: 0, notifications: 0, refundCoins: 0 };
+      const out = { converted: 0, coins: 0, held: 0, notifications: 0 };
 
       if (convert.length) {
         const batchId = randomUUID();
-        // 鎖順序：物品 → 運費 advisory lock（依 setId 排序）→ 錢包 → 稽核（與抽賞的 set → advisory → wallet 一致，避免死結）
-        const smallSets = [...new Set(convert.filter((i) => i.isSmall && i.setId).map((i) => i.setId!))].sort();
-        for (const sid of smallSets) await lockUserSetShipping(tx, userId, sid);
+        // 鎖順序：物品 → 錢包 → 稽核
         for (const i of convert) {
           await tx`UPDATE warehouse_items SET status = 'RECYCLED', recycled_coins = ${i.recycleValue!}, recycle_reason = 'STORAGE_EXPIRY',
                           recycled_at = ${now}, updated_at = now()
@@ -78,7 +72,6 @@ export async function runStorageSweep(now: Date = new Date()): Promise<StorageSw
           coinsAfter = (
             await postLedger(tx, {
               userId,
-              currency: 'COINS',
               amount: total,
               entryType: 'EXPIRY_AUTO_CONVERT',
               refType: 'storage_expiry_batch',
@@ -101,21 +94,6 @@ export async function runStorageSweep(now: Date = new Date()): Promise<StorageSw
             })
           ).inApp
         ) out.notifications++;
-        // 到期轉換的可回收小獎同樣逐件退還運費（運費 ÷ N，不可退款代幣）
-        const unitsBySet = new Map<string, number>();
-        for (const i of convert) if (i.isSmall && i.setId) unitsBySet.set(i.setId, (unitsBySet.get(i.setId) ?? 0) + 1);
-        const fr = await refundRecycledSmallItems(tx, userId, unitsBySet, { type: 'STORAGE_EXPIRY', id: batchId });
-        out.refundCoins = fr.refunds.reduce((a, r) => a + r.amount, 0);
-        if (out.refundCoins > 0) {
-          coinsAfter = fr.coinsAfter ?? coinsAfter;
-          await notifyEvent(tx, {
-            userId,
-            event: 'SHIPPING_FEE_REFUND',
-            data: { count: fr.refunds.reduce((a, r) => a + r.units, 0), coins: out.refundCoins },
-            payload: { refunds: fr.refunds },
-            dedupeOn: { expiryBatch: batchId },
-          });
-        }
         await appendAudit(tx, {
           actorType: 'SYSTEM',
           actorId: 'storage-sweep',
@@ -123,7 +101,7 @@ export async function runStorageSweep(now: Date = new Date()): Promise<StorageSw
           entityType: 'storage_expiry_batch',
           entityId: batchId,
           merchantId: convert[0]!.merchantId,
-          payload: { userId, items: payloadItems.map(({ id, coins }) => ({ id, coins })), totalCoins: total, currency: 'COINS', refundable: false, shippingRefundCoins: out.refundCoins, coinsAfter, sweepAt: now.toISOString() },
+          payload: { userId, items: payloadItems.map(({ id, coins }) => ({ id, coins })), totalCoins: total, currency: 'COINS', refundable: false, coinsAfter, sweepAt: now.toISOString() },
         });
         out.converted = convert.length;
         out.coins = total;
@@ -158,7 +136,6 @@ export async function runStorageSweep(now: Date = new Date()): Promise<StorageSw
     result.coinsCredited += r.coins;
     result.expiredHeld += r.held;
     result.notifications += r.notifications;
-    result.shippingRefundCoins += r.refundCoins;
   }
 
   // ── 2. 到期當日通知（台灣日期）；同時視為已發過 7 天前通知（避免補發過時提醒）

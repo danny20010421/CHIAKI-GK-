@@ -36,11 +36,12 @@ let k = 0;
 async function memberWithHistory(): Promise<{ u: TestUser; drawId: string; shipmentId: string; orderId: string }> {
   const poolId = await publishPool(smallPool({ setCount: 1 }));
   const u = await makeUser({ coins: 5000 });
-  const d = (await executeDraw(u.id, `cs-${process.pid}-${++k}`, { poolId, setNo: 1, ticketNos: [1, 2, 3], shippingMethod: 'CVS_711_C2C' })).response;
+  const d = (await executeDraw(u.id, `cs-${process.pid}-${++k}`, { poolId, setNo: 1, ticketNos: [1, 2, 3] })).response;
   const items = await listWarehouse(db(), u.id, 'STORED');
-  const s = await requestShipment(u.id, { itemIds: [items.find((i) => !i.bulky)!.id], method: 'CVS_711_C2C', recipientName: 'A', recipientPhone: '0912345678', cvsStoreId: '1234' });
+  const item = items.find((i) => i.shipMethod === 'c711')!;
+  const s = await requestShipment(u.id, { itemIds: [item.id], destinations: { c711: { recipientName: 'A', recipientPhone: '0912345678', cvsStoreId: '1234' } } });
   const o = await createBankTransferOrder(u.id, { packageCode: 'P500' });
-  return { u, drawId: d.drawId, shipmentId: s.shipmentId, orderId: o.orderId };
+  return { u, drawId: d.drawId, shipmentId: s.shipments[0]!.shipmentId, orderId: o.orderId };
 }
 
 describe('CS tickets', () => {
@@ -130,21 +131,22 @@ describe('CS tickets', () => {
     assert.ok(ap.body.approvalId);
     assert.equal((await act({ action: 'APPROVE_REFUND', kind: 'SHIPPING_CASH_REFUND', refundId: rr.id })).status, 400, 'shipping fees are refunded as coins only; no NT$ shipping refunds');
 
-    // 補償點數：門檻內直接入帳；超過門檻 → 第二人核准
-    const p0 = (await walletOf(u.id)).points;
-    const small = await j<{ result: { status: string } }>(await act({ action: 'GRANT_COMPENSATION', points: 100, memo: '出貨延誤補償' }));
+    // 補償 CC幣（不可退款）：門檻內直接入帳；超過門檻 → 第二人核准
+    const w0 = await walletOf(u.id);
+    const small = await j<{ result: { status: string } }>(await act({ action: 'GRANT_COMPENSATION', coins: 100, memo: '出貨延誤補償' }));
     assert.equal(small.body.result.status, 'GRANTED');
-    assert.equal((await walletOf(u.id)).points, p0 + 100);
-    assert.equal((await act({ action: 'GRANT_COMPENSATION', points: 100, memo: '補償測試' }, ops.token)).status, 403, 'OPS lacks cs.compensation.grant');
+    assert.deepEqual(await walletOf(u.id), { coins: w0.coins + 100, nonRefundableCoins: w0.nonRefundableCoins + 100 });
+    assert.equal((await act({ action: 'GRANT_COMPENSATION', coins: 100, memo: '補償測試' }, ops.token)).status, 403, 'OPS lacks cs.compensation.grant');
+    // 舊欄位名 points 仍可用（視為 CC幣）
     const big = await j<{ approvalId: string; result: { status: string } }>(await act({ action: 'GRANT_COMPENSATION', points: 800, memo: '大獎破損補償' }));
     assert.equal(big.body.result.status, 'PENDING_APPROVAL');
-    assert.equal((await walletOf(u.id)).points, p0 + 100, 'not credited before approval');
+    assert.equal((await walletOf(u.id)).coins, w0.coins + 100, 'not credited before approval');
     await expectAppError(approve(cs.principal, big.body.approvalId), 'SELF_APPROVAL');
     await expectAppError(approve(ops.principal, big.body.approvalId), 'FORBIDDEN');
     await approve(fin.principal, big.body.approvalId);
-    assert.equal((await walletOf(u.id)).points, p0 + 900);
-    const led = await db()`SELECT amount, entry_type, currency FROM wallet_ledger WHERE user_id = ${u.id} AND entry_type = 'CS_COMPENSATION' ORDER BY id`;
-    assert.deepEqual(led.map((l) => [l.amount, l.currency]), [[100, 'POINTS'], [800, 'POINTS']]);
+    assert.deepEqual(await walletOf(u.id), { coins: w0.coins + 900, nonRefundableCoins: w0.nonRefundableCoins + 900 });
+    const led = await db()`SELECT amount, entry_type, currency, refundable FROM wallet_ledger WHERE user_id = ${u.id} AND entry_type = 'CS_COMPENSATION' ORDER BY id`;
+    assert.deepEqual(led.map((l) => [l.amount, l.currency, l.refundable]), [[100, 'COINS', false], [800, 'COINS', false]]);
 
     const actions = await db()`SELECT action FROM cs_actions WHERE ticket_id = ${id} ORDER BY id`;
     assert.deepEqual(actions.map((a) => a.action), ['EXTEND_STORAGE', 'RESEND_SHIPMENT', 'APPROVE_REFUND', 'GRANT_COMPENSATION', 'GRANT_COMPENSATION']);

@@ -72,12 +72,20 @@ export async function requestRuleVersionPublish(actor: Principal, ruleVersionId:
   });
 }
 
-export const BalanceAdjustSchema = z.object({
-  userId: z.string().uuid(),
-  currency: z.enum(['COINS', 'POINTS']),
-  amount: z.number().int().refine((n) => n !== 0 && Math.abs(n) <= 10_000_000, 'non-zero, |amount| <= 10,000,000'),
-  memo: z.string().min(3).max(500),
-});
+/**
+ * 人工調整 CC幣（雙人覆核）。只有一種貨幣：currency 可省略或為 COINS；舊的 POINTS（平台點數）視為「不可退款 CC幣」。
+ * refundable：入帳是否計入可退款餘額（預設 true；扣款不適用）。
+ */
+export const BalanceAdjustSchema = z
+  .object({
+    userId: z.string().uuid(),
+    currency: z.enum(['COINS', 'POINTS']).default('COINS'),
+    amount: z.number().int().refine((n) => n !== 0 && Math.abs(n) <= 10_000_000, 'non-zero, |amount| <= 10,000,000'),
+    refundable: z.boolean().optional(),
+    memo: z.string().min(3).max(500),
+  })
+  .refine((v) => v.amount > 0 || v.refundable === undefined, 'refundable only applies to credits')
+  .transform(({ currency, ...v }) => ({ ...v, currency: 'COINS' as const, refundable: v.amount > 0 ? (currency === 'POINTS' ? false : (v.refundable ?? true)) : undefined }));
 
 export async function requestBalanceAdjust(actor: Principal, input: z.input<typeof BalanceAdjustSchema>) {
   requirePermission(actor, 'wallet.adjust.request');
@@ -126,17 +134,21 @@ export async function requestBankTransferConfirm(actor: Principal, orderId: stri
   });
 }
 
-export const CompensationSchema = z.object({
-  userId: z.string().uuid(),
-  points: z.number().int().positive().max(1_000_000),
-  memo: z.string().min(2).max(500),
-  ticketId: z.string().uuid().optional(),
-});
+/** 客服補償（CC幣，不可退款）。舊的待審 payload 以 points 表示，視為 coins。 */
+export const CompensationSchema = z.preprocess(
+  (x) => (x && typeof x === 'object' && !('coins' in x) && 'points' in x ? { ...(x as Record<string, unknown>), coins: (x as { points: unknown }).points } : x),
+  z.object({
+    userId: z.string().uuid(),
+    coins: z.number().int().positive().max(1_000_000),
+    memo: z.string().min(2).max(500),
+    ticketId: z.string().uuid().optional(),
+  }),
+);
 
-/** 客服補償點數（CS_COMPENSATION，入平台點數）。由 cs 模組依門檻決定直接入帳或走雙人覆核。 */
+/** 客服補償（CS_COMPENSATION → 不可退款 CC幣）。由 cs 模組依門檻決定直接入帳或走雙人覆核。 */
 export async function postCompensation(tx: Tx, v: z.infer<typeof CompensationSchema>, actorId: string, refType: string, refId: string) {
-  const r = await postLedger(tx, { userId: v.userId, currency: 'POINTS', amount: v.points, entryType: 'CS_COMPENSATION', refType, refId, memo: v.memo, createdBy: actorId });
-  return { userId: v.userId, points: v.points, ...r };
+  const r = await postLedger(tx, { userId: v.userId, amount: v.coins, entryType: 'CS_COMPENSATION', refType, refId, memo: v.memo, createdBy: actorId });
+  return { userId: v.userId, coins: v.coins, refundable: false, ...r };
 }
 
 // ───────────── 覆核 ─────────────
@@ -157,7 +169,7 @@ async function execute(tx: Tx, a: ApprovalRow, approverId: string): Promise<Reco
       const r = await postCompensation(tx, v, approverId, 'approval_request', a.id);
       if (v.ticketId) {
         await tx`INSERT INTO cs_messages (ticket_id, author_type, author_id, body, internal)
-                 VALUES (${v.ticketId}, 'SYSTEM', ${approverId}, ${`補償 ${v.points} 點已核准入帳（覆核 ${a.id}）`}, true)`;
+                 VALUES (${v.ticketId}, 'SYSTEM', ${approverId}, ${`補償 ${v.coins} CC幣已核准入帳（覆核 ${a.id}）`}, true)`;
       }
       return r;
     }
@@ -165,15 +177,15 @@ async function execute(tx: Tx, a: ApprovalRow, approverId: string): Promise<Reco
       const v = BalanceAdjustSchema.parse(payload);
       const r = await postLedger(tx, {
         userId: v.userId,
-        currency: v.currency,
         amount: v.amount,
         entryType: 'ADMIN_ADJUST',
         refType: 'approval_request',
         refId: a.id,
         memo: v.memo,
         createdBy: approverId,
+        ...(v.refundable !== undefined ? { refundable: v.refundable } : {}),
       });
-      return { userId: v.userId, currency: v.currency, amount: v.amount, ...r };
+      return { userId: v.userId, currency: v.currency, amount: v.amount, refundable: v.refundable ?? null, ...r };
     }
   }
 }

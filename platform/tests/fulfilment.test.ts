@@ -25,29 +25,32 @@ after(async () => {
 const none = undefined as never;
 let k = 0;
 async function shipmentFor(method: 'CVS_711_C2C' | 'HOME_DELIVERY' = 'CVS_711_C2C'): Promise<{ u: TestUser; shipmentId: string; itemIds: string[] }> {
-  // 等級 1 預設為大件（限宅配）；此處關閉，讓隨機籤號也能走超商出貨流程
+  // 寄送方式由獎項預設：此處全部獎項設為同一方式，讓隨機籤號只產生一張出貨單
+  const shipMethod = method === 'HOME_DELIVERY' ? 'home' : 'c711';
   const poolId = await publishPool(
     smallPool({
       setCount: 1,
       prizes: [
-        { rank: 'A', name: 'A賞', qtyPerSet: 1, bulky: false },
-        { rank: 'B', name: 'B賞', qtyPerSet: 1 },
-        { rank: 'C', name: 'C賞', qtyPerSet: 2, recycleValue: 300 },
-        { rank: 'D', name: 'D賞', qtyPerSet: 6, recycleValue: 150 },
+        { rank: 'A', name: 'A賞', qtyPerSet: 1, shipMethod },
+        { rank: 'B', name: 'B賞', qtyPerSet: 1, shipMethod },
+        { rank: 'C', name: 'C賞', qtyPerSet: 2, recycleValue: 300, shipMethod },
+        { rank: 'D', name: 'D賞', qtyPerSet: 6, recycleValue: 150, shipMethod },
       ],
     }),
   );
   const u = await makeUser({ coins: 5000 });
-  await executeDraw(u.id, `ful-${process.pid}-${++k}`, { poolId, setNo: 1, ticketNos: [1, 2], shippingMethod: method });
+  await executeDraw(u.id, `ful-${process.pid}-${++k}`, { poolId, setNo: 1, ticketNos: [1, 2] });
   const itemIds = (await listWarehouse(db(), u.id, 'STORED')).map((i) => i.id);
+  const recipient = { recipientName: '王小明', recipientPhone: '0912345678' };
   const s = await requestShipment(u.id, {
     itemIds,
-    method,
-    recipientName: '王小明',
-    recipientPhone: '0912345678',
-    ...(method === 'HOME_DELIVERY' ? { address: '台中市西屯區測試路 100 號' } : { cvsStoreId: '123456', cvsStoreName: '測試門市' }),
+    destinations:
+      method === 'HOME_DELIVERY'
+        ? { home: { ...recipient, address: '台中市西屯區測試路 100 號' } }
+        : { c711: { ...recipient, cvsStoreId: '123456', cvsStoreName: '測試門市' } },
   });
-  return { u, shipmentId: s.shipmentId, itemIds };
+  assert.equal(s.shipments.length, 1);
+  return { u, shipmentId: s.shipments[0]!.shipmentId, itemIds };
 }
 const status = (token: string, id: string, body: Record<string, unknown>) => statusRoute(apiRequest('POST', `/api/admin/shipments/${id}/status`, { token, body }), ctx({ id }));
 type MyShipment = { id: string; status: string; statusLabel: string; carrier: string | null; carrierLabel: string | null; trackingNo: string | null; trackingUrl: string | null };
