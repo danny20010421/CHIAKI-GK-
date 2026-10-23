@@ -16,6 +16,7 @@ import { notifyEvent } from '../notifications/outbox';
 import { getWallet } from '../wallet/wallet';
 import { assertSellable, assertTicketPickAllowed, TicketNosSchema } from './holds';
 import { pickTickets as pickProbTickets, PROB_SCHEME, ProbRng } from '../pool/prob';
+import { applyDrawSpend, type UpgradeGift } from '../vip/vip';
 
 export const DrawRequestSchema = z
   .object({
@@ -51,6 +52,9 @@ export interface DrawResultItem {
   tag: Tag | null;
   imageUrl: string | null;
   warehouseItemId: string;
+  /** 回收值（該套 × 該獎項，CC幣，不可退款）；賞池頁不公開，只在抽賞結果與會員倉庫顯示 */
+  recycleValue: number | null;
+  recyclable: boolean;
 }
 
 export interface DrawResponse {
@@ -70,6 +74,8 @@ export interface DrawResponse {
   guarantee: { misses: number; everyN: number; minLevel: number; reserveRemaining: number } | null;
   /** 機率賞：本筆的可驗證亂數參數（完售後公開 server seed 即可重算） */
   prob?: { scheme: string; seedHash: string; clientSeed: string; nonce: number };
+  /** VIP：本筆結算後的等級；跨過門檻時同一交易內發放升級禮（不可退款 CC幣，已計入 coinsAfter） */
+  vip: { previousLevel: number; level: number; levelName: string; upgraded: boolean; spend: number; gifts: UpgradeGift[]; giftCoins: number };
   createdAt: string;
 }
 
@@ -128,9 +134,10 @@ const SCOPE = 'draw';
  *  4. 鎖定籤 (tickets FOR UPDATE)，檢查未被抽出、未被他人保留
  *  5. 扣 CC幣（條件式 UPDATE + 帳本；先扣不可退款、再扣可退款）。運費到付，抽賞不收運費
  *  6. 標記籤已抽、寫入 draw / draw_results、入中獎倉庫
- *  7. 保底計數（獨立保底庫存，不改變籤的機率）、最後賞、完售與下一套開賣
+ *  7. 保底計數（獨立保底庫存，不改變籤的機率）、最後賞、完售與下一套開賣；
+ *     VIP 花費累計、升級與升級禮（不可退款 CC幣），入庫寄存期限加上 VIP 加碼天數；結果附回收值
  *  8. 稽核鏈（最後取得的鎖）＋ 儲存冪等回應
- * 鎖順序固定：set → tickets → wallet → pool_guarantees → guarantee_counters → audit_head，避免死結。
+ * 鎖順序固定：set → tickets → wallet → pool_guarantees → guarantee_counters → vip_members → audit_head，避免死結。
  */
 export async function executeDraw(
   userId: string,
@@ -318,13 +325,24 @@ export async function executeDraw(
       else await tx`UPDATE pools SET status = 'ENDED' WHERE id = ${poolId}`;
     }
 
-    // 7c. 中獎倉庫 + 結果列
-    // 寄存期限：自入庫起 STORAGE_FREE_DAYS 天（寫入當下的設定，之後改設定不追溯）
+    // 7c. VIP：記錄花費、升級與升級禮（錢包已鎖定；鎖順序 wallet → vip_members → 稽核）
+    const vip = await applyDrawSpend(tx, { userId, drawId, amount, merchantId: set.merchantId });
+    const giftCoins = vip.gifts.reduce((a, g) => a + g.coins, 0);
+
+    // 7d. 中獎倉庫 + 結果列
+    // 寄存期限：自入庫起 STORAGE_FREE_DAYS 天 + 結算後 VIP 等級的加碼天數（寫入當下的設定，之後改設定不追溯）
+    const storageDays = config().STORAGE_FREE_DAYS + vip.extraStorageDays;
+    const rv = new Map(
+      (
+        await tx<{ prizeId: string; recycleValue: number; recyclable: boolean }[]>`
+          SELECT prize_id, recycle_value, recyclable FROM set_prizes WHERE set_id = ${set.id} AND prize_id = ANY(${[...new Set(awards.map((a) => a.prizeId))]}::uuid[])`
+      ).map((r) => [r.prizeId, r]),
+    );
     const items = awards.map((a, i) => ({ ...a, seq: i + 1, id: randomUUID() }));
     await tx`
       INSERT INTO warehouse_items (id, merchant_id, user_id, source, pool_id, set_id, draw_id, ticket_no, prize_id, level_no, level_name, is_small, prize_name, storage_expires_at)
       SELECT u.id, ${set.merchantId}, ${userId}, u.source, ${poolId}, ${set.id}, ${drawId}, u.ticket_no, u.prize_id, u.level_no, u.level_name, u.is_small::boolean, u.prize_name,
-             now() + make_interval(days => ${config().STORAGE_FREE_DAYS})
+             now() + make_interval(days => ${storageDays})
       FROM unnest(${items.map((i) => i.id)}::uuid[], ${items.map((i) => i.kind)}::text[], ${items.map((i) => i.ticketNo)}::int[],
                   ${items.map((i) => i.prizeId)}::uuid[], ${items.map((i) => i.levelNo)}::int[], ${items.map((i) => i.levelName)}::text[],
                   ${items.map((i) => String(i.isSmall))}::text[], ${items.map((i) => i.prizeName)}::text[])
@@ -346,7 +364,7 @@ export async function executeDraw(
       amountCoins: amount,
       freightCollect: true,
       totalCoins: amount,
-      coinsAfter: balanceAfter,
+      coinsAfter: balanceAfter + giftCoins,
       results: items.map((i) => ({
         seq: i.seq,
         kind: i.kind,
@@ -360,15 +378,18 @@ export async function executeDraw(
         tag: i.tag,
         imageUrl: i.imageUrl,
         warehouseItemId: i.id,
+        recycleValue: rv.get(i.prizeId)?.recycleValue ?? null,
+        recyclable: rv.get(i.prizeId)?.recyclable ?? false,
       })),
       setSoldOut: remaining === 0,
       nextSetNo,
       guarantee: guaranteeState,
       ...(prob ? { prob: { scheme: PROB_SCHEME, seedHash: prob.seedHash, clientSeed: prob.clientSeed, nonce: prob.nonce } } : {}),
+      vip: { previousLevel: vip.previousLevel, level: vip.level, levelName: vip.levelName, upgraded: vip.upgraded, spend: vip.spend, gifts: vip.gifts, giftCoins },
       createdAt: new Date().toISOString(),
     };
 
-    // 7d. 通知（預設只走 Web Push；站內/其他管道依會員偏好）
+    // 7e. 通知（預設只走 Web Push；站內/其他管道依會員偏好）
     const best = [...response.results].sort((a, b) => levelRank(a.levelNo) - levelRank(b.levelNo))[0]!;
     await notifyEvent(tx, {
       userId,
@@ -380,6 +401,7 @@ export async function executeDraw(
     });
 
     // 8. 稽核 + 冪等回應
+    for (const a of vip.audits) await appendAudit(tx, a);
     await appendAudit(tx, {
       actorType: 'USER',
       actorId: userId,

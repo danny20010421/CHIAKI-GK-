@@ -20,7 +20,10 @@ export type LedgerEntryType =
   | 'BIND_REWARD' // 綁定/任務獎勵（不可退款）
   | 'REFUND_DEBIT'
   | 'ADMIN_ADJUST'
-  | 'POINTS_MERGED'; // 舊平台點數併入（只由 migration 寫入；不可退款）
+  | 'POINTS_MERGED' // 舊平台點數併入（只由 migration 寫入；不可退款）
+  | 'CHECKIN' // 每日簽到（不可退款）
+  | 'VIP_UPGRADE_GIFT' // VIP 升級禮（不可退款）
+  | 'VIP_BIRTHDAY_GIFT'; // VIP 生日禮（不可退款）
 
 /** 已停用（運費到付後不再寫入；歷史帳本列保留，資料庫 ledger_retired_entry_types 擋新列）。 */
 export const RETIRED_LEDGER_ENTRY_TYPES = ['SHIPPING_FEE', 'SHIPPING_PREPAID', 'SHIPPING_REFUND_COINS'] as const;
@@ -38,6 +41,9 @@ export const NONREFUNDABLE_COIN_SOURCES = [
   'TOPUP_BONUS',
   'CS_COMPENSATION',
   'POINTS_MERGED',
+  'CHECKIN',
+  'VIP_UPGRADE_GIFT',
+  'VIP_BIRTHDAY_GIFT',
 ] as const satisfies readonly LedgerEntryType[];
 export type NonRefundableSource = (typeof NONREFUNDABLE_COIN_SOURCES)[number];
 export const NONREFUNDABLE_LABEL = '不可退款・無法轉換，如有疑問請聯絡官方小編';

@@ -213,7 +213,7 @@ describe('live remaining & probabilities', () => {
     const aTicket = layout.find((t) => t.levelNo === 1)!.ticketNo;
     const dTickets = layout.filter((t) => t.levelNo === 4).slice(0, 2).map((t) => t.ticketNo);
     await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: [aTicket, ...dTickets] });
-    const board = await getSetBoard(db(), poolId, 1);
+    const board = await getSetBoard(db(), poolId, 1, null, { showOdds: true }); // 即時機率：VIP 解鎖（見 vip.test.ts）
     assert.equal(board.remaining, 7);
     const by = Object.fromEntries(board.prizes.map((p) => [p.levelName!.slice(0, 1), p]));
     assert.equal(by.A!.remaining, 0);

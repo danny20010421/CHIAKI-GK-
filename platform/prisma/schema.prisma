@@ -953,3 +953,93 @@ model ShipmentEvent {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   @@map("shipment_events")
 }
+
+// ───────────── VIP 會員等級與每日簽到（migration 20261103000000_vip_checkin_odds_gating） ─────────────
+
+model VipTier {
+  level              Int      @id
+  name               String
+  spendThreshold     BigInt   @map("spend_threshold")
+  upgradeGiftCoins   Int      @default(0) @map("upgrade_gift_coins")
+  birthdayGiftCoins  Int      @default(0) @map("birthday_gift_coins")
+  monthlyCouponsJson String   @default("[]") @map("monthly_coupons_json")
+  extraStorageDays   Int      @default(0) @map("extra_storage_days")
+  perksJson          String   @default("[]") @map("perks_json")
+  updatedBy          String?  @map("updated_by") @db.Uuid
+  updatedAt          DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("vip_tiers")
+}
+
+model VipMember {
+  userId          String   @id @map("user_id") @db.Uuid
+  level           Int      @default(0)
+  qualifyingSpend BigInt   @default(0) @map("qualifying_spend")
+  lifetimeSpend   BigInt   @default(0) @map("lifetime_spend")
+  levelSince      DateTime @default(now()) @map("level_since") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("vip_members")
+}
+
+model VipSpendEvent {
+  id         BigInt   @id @default(autoincrement())
+  userId     String   @map("user_id") @db.Uuid
+  drawId     String   @map("draw_id") @db.Uuid
+  kind       String
+  refId      String   @map("ref_id")
+  amount     BigInt
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  @@unique([kind, refId])
+  @@map("vip_spend_events")
+}
+
+model VipGiftGrant {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  kind        String
+  period      String
+  level       Int
+  coins       Int      @default(0)
+  couponsJson String   @default("[]") @map("coupons_json")
+  ledgerId    BigInt?  @map("ledger_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@unique([userId, kind, period])
+  @@map("vip_gift_grants")
+}
+
+model VipCoupon {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  grantId     String   @map("grant_id") @db.Uuid
+  discountPct Int      @map("discount_pct")
+  label       String
+  status      String   @default("ACTIVE")
+  validFrom   DateTime @map("valid_from") @db.Timestamptz(6)
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("vip_coupons")
+}
+
+model VipRating {
+  userId        String   @map("user_id") @db.Uuid
+  year          Int
+  fromLevel     Int      @map("from_level")
+  computedLevel Int      @map("computed_level")
+  toLevel       Int      @map("to_level")
+  windowSpend   BigInt   @map("window_spend")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@id([userId, year])
+  @@map("vip_ratings")
+}
+
+model MemberCheckin {
+  userId    String   @map("user_id") @db.Uuid
+  day       DateTime @db.Date
+  weekStart DateTime @map("week_start") @db.Date
+  seq       Int
+  coins     Int
+  ledgerId  BigInt   @map("ledger_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@id([userId, day])
+  @@unique([userId, weekStart, seq])
+  @@map("member_checkins")
+}

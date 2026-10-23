@@ -7,6 +7,7 @@ import { distinctTags, type Tag } from '../catalog/tags';
 import { drawPacksOut } from './admin';
 import { effectiveProbabilities, PROB_SCHEME, replayProbSet } from './prob';
 import { FREIGHT_COLLECT_NOTE, SHIP_METHOD_LABEL, SHIP_METHODS, type ShipMethod } from '../shipping/methods';
+import { oddsAccess } from '../vip/vip';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -114,8 +115,13 @@ export function showPrize(r: Pick<PrizeRow, 'kind' | 'levelNo' | 'levelName' | '
   };
 }
 
-export async function getPoolDetail(db: Db, idOrSlug: string) {
+/**
+ * 賞池詳情（公開）。不含回收值（回收值只在抽賞結果與會員自己的倉庫顯示）。
+ * oddsLocked / oddsUnlockLevel：即時機率（籤板 GET /api/pools/:id/sets/:no）只對 VIP 解鎖等級以上的會員顯示。
+ */
+export async function getPoolDetail(db: Db, idOrSlug: string, viewerId?: string | null) {
   const { id } = await resolvePublicPool(db, idOrSlug);
+  const access = await oddsAccess(db, viewerId);
   const [p] = await db<{
     id: string; slug: string; title: string; ip: string; description: string; sourceNote: string; condition: string; source: string; playType: string; drawPacks: string[]; offline: boolean;
     priceCoins: number; status: string; setCount: number; lastPrizeName: string | null; merchantId: string; shippingNote: string;
@@ -186,6 +192,9 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
           }
         : null,
     shippingPolicy: { mode: 'FREIGHT_COLLECT', freightCollect: true, note: `${FREIGHT_COLLECT_NOTE}；寄送方式依每個獎項預設，不同寄送方式的獎品會分開出貨` },
+    /** 即時機率是否對目前觀看者鎖定（VIP oddsUnlockLevel 以上解鎖）；剩餘/總數一律公開 */
+    oddsLocked: access.oddsLocked,
+    oddsUnlockLevel: access.oddsUnlockLevel,
     rules: { ruleVersionId: p.ruleVersionId, version: p.ruleVersion, rulesHash: p.rulesHash, content: JSON.parse(p.rulesJson) as PoolRules },
     sets,
   };
@@ -196,9 +205,13 @@ export type TicketState = 'AVAILABLE' | 'HELD' | 'TAKEN';
 /**
  * 單套即時狀態：剩餘數、即時機率（某賞剩餘 / 總剩餘）與籤板。
  * 未抽出的籤「絕不」回傳獎項；已抽出的籤顯示賞級（與實體一番賞相同）。
+ * 即時機率（probability）只在觀看者 VIP 等級 ≥ oddsUnlockLevel 時輸出，否則省略並回傳 oddsLocked: true；
+ * 剩餘/總數一律公開。opts.showOdds 可明確覆寫（內部用途/測試）。回收值不在此公開。
  */
-export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewerId?: string | null) {
+export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewerId?: string | null, opts: { showOdds?: boolean } = {}) {
   const { id: poolId } = await resolvePublicPool(db, idOrSlug);
+  const access = await oddsAccess(db, viewerId);
+  const showOdds = opts.showOdds ?? !access.oddsLocked;
   const [s] = await db<{ id: string; setNo: number; displayName: string | null; offline: boolean; playType: string; probSeedHash: string | null; probNonce: number; status: string; total: number; commitment: string; commitScheme: string; rulesHash: string; ruleVersion: number; lastPrizeName: string | null; lastPrizeAwarded: boolean; soldOutAt: Date | null; source: string; shippingNote: string }[]>`
     SELECT s.id, s.set_no, s.display_name, (s.offline OR p.offline) AS offline, s.status, s.total_tickets AS total, s.commitment, s.commit_scheme, rv.rules_hash, rv.version AS rule_version,
            p.play_type, s.prob_seed_hash, s.prob_nonce,
@@ -207,17 +220,17 @@ export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewe
     WHERE s.pool_id = ${poolId} AND s.set_no = ${setNo} AND s.deleted_at IS NULL`;
   if (!s) throw new AppError('NOT_FOUND', 'set not found');
 
-  const byPrize = await db<(PrizeRow & { total: number; remaining: number; recycleValue: number; recyclable: boolean })[]>`
+  const byPrize = await db<(PrizeRow & { total: number; remaining: number; recyclable: boolean })[]>`
     SELECT pr.id, pr.kind, pl.level_no, pl.name AS level_name, pl.is_small, pr.name, pr.qty_per_set, pr.tag, pr.bulky, pr.ship_method, pr.image_url,
-           count(t.*)::int AS total, count(t.*) FILTER (WHERE t.status = 'AVAILABLE')::int AS remaining, sp.recycle_value, sp.recyclable
+           count(t.*)::int AS total, count(t.*) FILTER (WHERE t.status = 'AVAILABLE')::int AS remaining, sp.recyclable
     FROM pool_prizes pr JOIN tickets t ON t.prize_id = pr.id AND t.set_id = ${s.id}
     LEFT JOIN pool_levels pl ON pl.id = pr.level_id
     LEFT JOIN set_prizes sp ON sp.set_id = ${s.id} AND sp.prize_id = pr.id
-    GROUP BY pr.id, pl.level_no, pl.name, pl.is_small, sp.recycle_value, sp.recyclable
+    GROUP BY pr.id, pl.level_no, pl.name, pl.is_small, sp.recyclable
     ORDER BY pl.level_no, pr.sort_order, pr.name`;
-  const [lastPrize] = await db<(PrizeRow & { recycleValue: number | null; recyclable: boolean | null })[]>`
+  const [lastPrize] = await db<(PrizeRow & { recyclable: boolean | null })[]>`
     SELECT pr.id, pr.kind, NULL::int AS level_no, NULL AS level_name, false AS is_small, pr.name, pr.qty_per_set, pr.tag, pr.bulky, pr.ship_method, pr.image_url,
-           sp.recycle_value, sp.recyclable
+           sp.recyclable
     FROM pool_prizes pr LEFT JOIN set_prizes sp ON sp.set_id = ${s.id} AND sp.prize_id = pr.id
     WHERE pr.pool_id = ${poolId} AND pr.kind = 'LAST'`;
   const totalRemaining = byPrize.reduce((a, b) => a + b.remaining, 0);
@@ -266,26 +279,26 @@ export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewe
     playType: s.playType,
     shippingNote: s.shippingNote,
     freightCollect: true,
-    /** 各等級剩餘與即時機率 */
+    /** 即時機率是否鎖定（VIP oddsUnlockLevel 以上解鎖）；鎖定時 levels/prizes 不含 probability */
+    oddsLocked: !showOdds,
+    oddsUnlockLevel: access.oddsUnlockLevel,
+    /** 各等級剩餘（與解鎖時的即時機率） */
     levels: [...levelMap.values()]
       .sort((a, b) => a.levelNo - b.levelNo)
       .map((l) => ({
         ...l,
         ...(isProb ? { odds: oddsMap.get(l.levelNo) ?? null } : {}),
-        probability: isProb ? round(byPrize.reduce((a, p, i) => a + (p.levelNo === l.levelNo ? effective[i]! : 0), 0)) : prob(l.remaining),
+        ...(showOdds ? { probability: isProb ? round(byPrize.reduce((a, p, i) => a + (p.levelNo === l.levelNo ? effective[i]! : 0), 0)) : prob(l.remaining) } : {}),
       })),
     // 籤板不輸出 prizeId（獎項 id 只出現在賞池詳情的規則內容），避免任何籤號↔獎項的關聯線索
     prizes: byPrize.map((p, i) => ({
       ...showPrize({ ...p, id: undefined }),
       total: p.total,
       remaining: p.remaining,
-      probability: prizeProb(i, p.remaining),
-      recycleValue: p.recycleValue,
+      ...(showOdds ? { probability: prizeProb(i, p.remaining) } : {}),
       recyclable: p.recyclable,
     })),
-    lastPrize: lastPrize
-      ? { ...showPrize({ ...lastPrize, id: undefined }), awarded: s.lastPrizeAwarded, recycleValue: lastPrize.recycleValue, recyclable: lastPrize.recyclable }
-      : null,
+    lastPrize: lastPrize ? { ...showPrize({ ...lastPrize, id: undefined }), awarded: s.lastPrizeAwarded, recyclable: lastPrize.recyclable } : null,
     tickets: tickets.map((t) => {
       const state: TicketState = t.status === 'TAKEN' ? 'TAKEN' : t.heldActive ? 'HELD' : 'AVAILABLE';
       // 已抽出的籤公開獎項（等級＋顯示名稱）；未抽出的籤絕不揭露

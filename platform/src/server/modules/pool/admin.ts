@@ -13,8 +13,8 @@ import { linkPoolIp } from '../catalog/ips';
 import { resolveBulky, TagSchema } from '../catalog/tags';
 import { DEFAULT_SHIPPING_NOTE, resolveShipMethod, ShipMethodSchema } from '../shipping/methods';
 
-/** 每套籤數上限（2026-10 第七批由 10,000 放寬為 20,000：雲頂終結谷每套 20,000 籤） */
-export const MAX_TICKETS_PER_SET = 20_000;
+/** 每套籤數上限（2026-10 第七批 10,000 → 20,000；第八批 → 30,000：雲頂終結谷新增 3 獎後每套 20,300 籤） */
+export const MAX_TICKETS_PER_SET = 30_000;
 export const RecycleValueSchema = z.number().int().min(0).max(10_000_000);
 export const PrizeNameSchema = z.string().trim().min(1).max(200);
 export const LevelNameSchema = z.string().trim().min(1, '等級名稱不可空白').max(50);

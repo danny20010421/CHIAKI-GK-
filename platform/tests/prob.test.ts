@@ -103,7 +103,7 @@ describe('PROB pools (DB)', () => {
 
   it('sample pool: 2000 tickets, public effective probabilities, seed hash published before sale, quick draw only with nonce + client seed', async () => {
     const poolId = await publishPool(PROB_SAMPLE_POOL);
-    const board = await getSetBoard(db(), poolId, 1);
+    const board = await getSetBoard(db(), poolId, 1, null, { showOdds: true }); // 即時機率：VIP 解鎖（見 vip.test.ts）
     assert.equal(board.total, 2000);
     assert.equal(board.playType, 'PROB');
     const seedHashPublished = (board.commitment as { prob?: { seedHash: string } }).prob!.seedHash;
@@ -157,7 +157,7 @@ describe('PROB pools (DB)', () => {
     const u = await makeUser({ coins: 10_000 });
     let first = true;
     for (let i = 0; i < 10; i++) {
-      const b = await getSetBoard(db(), poolId, 1);
+      const b = await getSetBoard(db(), poolId, 1, null, { showOdds: true });
       const big = b.prizes.find((p) => p.name === '大獎')!;
       if (big.remaining === 0) {
         assert.equal(big.probability, 0);

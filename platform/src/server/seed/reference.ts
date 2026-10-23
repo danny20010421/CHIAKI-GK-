@@ -1,5 +1,7 @@
 import type { Db } from '../db';
 import type { PoolDraftInput } from '../modules/pool/admin';
+import type { VipTier } from '../modules/vip/vip';
+import { canonicalJson } from '../lib/canonical';
 
 /**
  * 參考資料（冪等）。所有數值皆為「範例／待營運與法遵確認」：回收值、綁定獎勵 CC幣。
@@ -30,6 +32,11 @@ export async function seedReferenceData(d: Db, merchantId = 'chiaki'): Promise<v
   for (const t of REWARD_TASKS) {
     await d`INSERT INTO reward_tasks (code, merchant_id, title, reward_points, coupon_code) VALUES (${t.code}, ${merchantId}, ${t.title}, ${t.coins}, ${t.coupon})
             ON CONFLICT (code) DO NOTHING`;
+  }
+  for (const t of VIP_TIER_DEFAULTS) {
+    await d`INSERT INTO vip_tiers (level, name, spend_threshold, upgrade_gift_coins, birthday_gift_coins, monthly_coupons_json, extra_storage_days, perks_json)
+            VALUES (${t.level}, ${t.name}, ${t.spendThreshold}, ${t.upgradeGiftCoins}, ${t.birthdayGiftCoins}, ${canonicalJson(t.monthlyCoupons)}, ${t.extraStorageDays}, ${canonicalJson(t.perks)})
+            ON CONFLICT (level) DO NOTHING`;
   }
 }
 
@@ -64,9 +71,9 @@ export const PROB_SAMPLE_POOL: PoolDraftInput = {
 };
 
 /**
- * 「雲頂終結谷」機率賞（前台 id: nr；自製、PROB、IP 火影忍者）：每套 20,000 籤、每抽 200 CC幣。
+ * 「雲頂終結谷」機率賞（前台 id: nr；自製、PROB、IP 火影忍者）：每套 20,300 籤、每抽 200 CC幣。
  * 4 獎「火影墨影霓亂徽章」固定單抽機率 70%（抽完後滾入其餘獎項），其餘依剩餘籤數平均分配。
- * 前台以陣列順序為等級：大獎=1、2 獎=2、4 獎=3（非小獎）、5 獎=4。
+ * 等級：大獎=1、2 獎=2、3 獎=3（火影盲盒隨機款，2026-10 第八批新增）、4 獎=4（非小獎）、5 獎=5。
  */
 export const NR_POOL: PoolDraftInput = {
   slug: 'nr-valley-of-the-end',
@@ -82,13 +89,19 @@ export const NR_POOL: PoolDraftInput = {
     { levelNo: 2, name: '2 獎', items: [{ name: '雲頂終結谷 鳴人', qtyPerSet: 1, recycleValue: 18000, tag: 'GK', shipMethod: 'home' }] },
     {
       levelNo: 3,
+      name: '3 獎',
+      isSmall: false,
+      items: [{ name: '火影盲盒隨機款', qtyPerSet: 300, recycleValue: 500, tag: '景品盲盒', shipMethod: 'c711' }],
+    },
+    {
+      levelNo: 4,
       name: '4 獎',
       isSmall: false,
       odds: 0.7,
       items: [{ name: '火影墨影霓亂徽章（一枚）', qtyPerSet: 500, recycleValue: 250, tag: '其他', shipMethod: 'c711' }],
     },
     {
-      levelNo: 4,
+      levelNo: 5,
       name: '5 獎',
       items: [
         { name: '火影同人貼紙', qtyPerSet: 9498, recycleValue: 10, tag: '其他', shipMethod: 'c711' },
@@ -160,6 +173,20 @@ export const KG_POOL: PoolDraftInput = {
   lastPrize: { name: '六平千鑛', recycleValue: 0, recyclable: false, tag: 'PVC', shipMethod: 'home' },
   guarantee: null,
 };
+
+/**
+ * VIP 等級預設值（migration 20261103000000 已寫入 vip_tiers；後台可改）。seedReferenceData 只補缺漏的等級，不覆蓋後台設定。
+ * monthlyCoupons.discountPct：5 = 95折、10 = 9折、15 = 85折。perks 為該等級「新增」的權益（較高等級自動包含）。
+ */
+export const VIP_TIER_DEFAULTS: VipTier[] = [
+  { level: 0, name: '新手籤', spendThreshold: 0, upgradeGiftCoins: 0, birthdayGiftCoins: 0, monthlyCoupons: [], extraStorageDays: 0, perks: [] },
+  { level: 1, name: '銅籤', spendThreshold: 3000, upgradeGiftCoins: 30, birthdayGiftCoins: 50, monthlyCoupons: [{ discountPct: 5, qty: 1 }], extraStorageDays: 0, perks: [] },
+  { level: 2, name: '銀籤', spendThreshold: 10000, upgradeGiftCoins: 100, birthdayGiftCoins: 100, monthlyCoupons: [{ discountPct: 5, qty: 2 }], extraStorageDays: 0, perks: [{ code: 'EARLY_NOTICE', label: '新賞提前 1 小時通知' }] },
+  { level: 3, name: '金籤', spendThreshold: 30000, upgradeGiftCoins: 300, birthdayGiftCoins: 300, monthlyCoupons: [{ discountPct: 10, qty: 2 }], extraStorageDays: 15, perks: [{ code: 'LIVE_ODDS', label: '賞池頁即時機率顯示' }] },
+  { level: 4, name: '白金籤', spendThreshold: 80000, upgradeGiftCoins: 800, birthdayGiftCoins: 600, monthlyCoupons: [{ discountPct: 10, qty: 3 }], extraStorageDays: 15, perks: [{ code: 'PRIORITY_SHIPPING', label: '優先出貨' }] },
+  { level: 5, name: '鑽石籤', spendThreshold: 200000, upgradeGiftCoins: 2000, birthdayGiftCoins: 1200, monthlyCoupons: [{ discountPct: 10, qty: 3 }, { discountPct: 15, qty: 1 }], extraStorageDays: 30, perks: [{ code: 'DEDICATED_CS', label: '專屬客服' }] },
+  { level: 6, name: '黑金籤', spendThreshold: 500000, upgradeGiftCoins: 5000, birthdayGiftCoins: 3000, monthlyCoupons: [{ discountPct: 15, qty: 3 }], extraStorageDays: 30, perks: [{ code: 'EXCLUSIVE_EVENTS', label: '專屬活動與限定賞池' }] },
+];
 
 /** 開發/展示用種子賞池（scripts/seed.ts 依序建立並經雙人覆核發布） */
 export const SEED_POOLS: readonly PoolDraftInput[] = [PROB_SAMPLE_POOL, NR_POOL, BK_POOL, KG_POOL];

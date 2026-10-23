@@ -123,28 +123,33 @@ describe('pool publishing (DB)', () => {
     assert.equal(p.sets[0]!.total, 80);
   });
 
-  it('雲頂終結谷 (nr, CUSTOM PROB): 20,000 tickets/set, 4 獎 fixed odds 0.7, GK prizes ship home, the rest 7-11', async () => {
+  it('雲頂終結谷 (nr, CUSTOM PROB): 20,300 tickets/set, 3 獎 火影盲盒隨機款, 4 獎 fixed odds 0.7, GK prizes ship home, the rest 7-11', async () => {
     const poolId = await publishPool(NR_POOL);
     const p = await getPool(NR_POOL.slug);
     assert.deepEqual([p.priceCoins, p.source, p.playType, p.ip], [200, 'CUSTOM', 'PROB', '火影忍者']);
     assert.deepEqual(p.levels.map((l) => [l.levelNo, l.name, l.isSmall, l.odds, l.items.length]), [
       [1, '大獎', false, null, 1],
       [2, '2 獎', false, null, 1],
-      [3, '4 獎', false, 0.7, 1],
-      [4, '5 獎', true, null, 2],
+      [3, '3 獎', false, null, 1],
+      [4, '4 獎', false, 0.7, 1],
+      [5, '5 獎', true, null, 2],
     ]);
     assert.deepEqual(p.prizes.map((x) => [x.name, x.qtyPerSet, x.tag, x.shipMethod]), [
       ['雲頂終結谷 佐助', 1, 'GK', 'home'],
       ['雲頂終結谷 鳴人', 1, 'GK', 'home'],
+      ['火影盲盒隨機款', 300, '景品盲盒', 'c711'],
       ['火影墨影霓亂徽章（一枚）', 500, '其他', 'c711'],
       ['火影同人貼紙', 9498, '其他', 'c711'],
       ['隨機一番賞小獎', 10000, '一番賞', 'c711'],
     ]);
     assert.equal(p.lastPrize, null);
-    assert.deepEqual(p.sets.map((s) => [s.total, s.remaining]), [[20000, 20000]]);
+    assert.deepEqual(p.sets.map((s) => [s.total, s.remaining]), [[20300, 20300]]);
+    assert.equal(NR_POOL.levels.reduce((a, l) => a + l.items.reduce((b, i) => b + i.qtyPerSet, 0), 0), 20_300);
     const rv = await db()`SELECT pp.name, sp.recycle_value, sp.recyclable FROM set_prizes sp JOIN pool_prizes pp ON pp.id = sp.prize_id JOIN pool_sets s ON s.id = sp.set_id
                           WHERE s.pool_id = ${poolId} ORDER BY sp.recycle_value DESC`;
-    assert.deepEqual(rv.map((r) => [r.recycleValue, r.recyclable]), [[40000, true], [18000, true], [250, true], [100, true], [10, true]]);
+    assert.deepEqual(rv.map((r) => [r.recycleValue, r.recyclable]), [[40000, true], [18000, true], [500, true], [250, true], [100, true], [10, true]]);
+    const l = await layoutOf(poolId, 1);
+    assert.deepEqual([1, 2, 3, 4, 5].map((n) => l.filter((t) => t.levelNo === n).length), [1, 1, 300, 500, 19498]);
   });
 
   it('public endpoints never expose salt or unrevealed ticket→prize mapping', async () => {

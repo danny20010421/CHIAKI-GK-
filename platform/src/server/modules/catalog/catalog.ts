@@ -7,6 +7,7 @@ import { postLedger } from '../wallet/wallet';
 import { config } from '../../config';
 import { requirePermission, type Principal } from '../auth/rbac';
 import { resolveBulky, TagSchema, type Tag } from './tags';
+import { vipExtraStorageDays } from '../vip/vip';
 
 /** 直購商城：固定價格、無隨機性。購得商品進入中獎倉庫（source = PURCHASE）沿用出貨流程。 */
 export async function listProducts(d: Db) {
@@ -56,10 +57,12 @@ export async function purchaseProduct(userId: string, idempotencyKey: string, in
     if (!p) throw new AppError('CONFLICT', '庫存不足或商品已下架');
     const amount = p.priceCoins * v.qty;
     const { balanceAfter } = await postLedger(tx, { userId, currency: 'COINS', amount: -amount, entryType: 'PURCHASE_DEBIT', refType: 'purchase_order', refId: orderId, merchantId: p.merchantId });
+    // 寄存期限：STORAGE_FREE_DAYS + 目前 VIP 等級的加碼天數
+    const storageDays = config().STORAGE_FREE_DAYS + (await vipExtraStorageDays(tx, userId));
     for (let i = 0; i < v.qty; i++) {
       await tx`INSERT INTO warehouse_items (merchant_id, user_id, source, product_id, purchase_id, prize_name, storage_expires_at)
                VALUES (${p.merchantId}, ${userId}, 'PURCHASE', ${v.productId}, ${orderId}, ${p.name},
-                       now() + make_interval(days => ${config().STORAGE_FREE_DAYS}))`;
+                       now() + make_interval(days => ${storageDays}))`;
     }
     await appendAudit(tx, { actorType: 'USER', actorId: userId, action: 'PRODUCT_PURCHASED', entityType: 'purchase_order', entityId: orderId, payload: { productId: v.productId, qty: v.qty, amount } });
     return { orderId, amountCoins: amount, coinsAfter: balanceAfter, replayed: false };

@@ -34,6 +34,7 @@ export const PERMISSIONS = [
   'pool.delete', // 刪除/還原整個賞池（僅 SUPER_ADMIN）
   'forum.moderate', // 討論區審核：核准、退回、下架（須填原因）、處理檢舉
   'marketing.manage', // 首頁橫幅、優惠券
+  'vip.manage', // VIP 等級設定（門檻、禮物、優惠券、權益）
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -60,6 +61,7 @@ const MATRIX: Record<Role, readonly Permission[]> = {
     'pool.manage',
     'forum.moderate',
     'marketing.manage',
+    'vip.manage',
   ],
   FINANCE: [
     'refund.decide',
