@@ -4,7 +4,8 @@ import { AppError } from '../../errors';
 import { transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
-import { displayName, type Grade } from '../pool/grades';
+import { displayName } from '../pool/levels';
+import type { Tag } from '../catalog/tags';
 import { lockUserSetShipping, refundRecycledSmallItems, type ItemRefund } from '../shipping/prepaid';
 import { canonicalJson, sha256Hex } from '../../lib/canonical';
 import { notifyEvent } from '../notifications/outbox';
@@ -26,10 +27,16 @@ export interface WarehouseItem {
   setNo: number | null;
   ticketNo: number | null;
   prizeId: string | null;
-  rank: string | null;
-  grade: Grade | null;
+  /** 等級 1–8（抽出當下）；最後賞與商城商品為 null */
+  levelNo: number | null;
+  levelName: string | null;
+  /** 是否小獎（計入運費規則） */
+  isSmall: boolean;
   prizeName: string;
   displayName: string;
+  tag: Tag | null;
+  bulky: boolean;
+  imageUrl: string | null;
   status: ItemStatus;
   shipmentId: string | null;
   /** 目前此套此獎項的回收值（會員回收＝點數；到期自動轉換＝代幣） */
@@ -43,17 +50,18 @@ export interface WarehouseItem {
 }
 
 export async function listWarehouse(db: Db, userId: string, status?: ItemStatus): Promise<WarehouseItem[]> {
-  const rows = await db<(Omit<WarehouseItem, 'displayName' | 'recyclable'> & { poolSource: string | null; recyclable: boolean | null })[]>`
-    SELECT wi.id, wi.source, wi.pool_id, wi.set_id, s.set_no, wi.ticket_no, wi.prize_id, wi.rank, wi.grade, wi.prize_name, wi.status, wi.shipment_id,
+  const rows = await db<(Omit<WarehouseItem, 'displayName' | 'recyclable'> & { recyclable: boolean | null })[]>`
+    SELECT wi.id, wi.source, wi.pool_id, wi.set_id, s.set_no, wi.ticket_no, wi.prize_id, wi.level_no, wi.level_name, wi.is_small, wi.prize_name, wi.status, wi.shipment_id,
            sp.recycle_value, sp.recyclable, wi.recycled_points, wi.recycled_coins, wi.recycle_reason, wi.storage_expires_at, wi.created_at,
-           p.source AS pool_source
+           COALESCE(pp.tag, pr.tag) AS tag, COALESCE(pp.bulky, pr.bulky, false) AS bulky, pp.image_url
     FROM warehouse_items wi
-    LEFT JOIN pools p ON p.id = wi.pool_id
+    LEFT JOIN pool_prizes pp ON pp.id = wi.prize_id
+    LEFT JOIN products pr ON pr.id = wi.product_id
     LEFT JOIN pool_sets s ON s.id = wi.set_id
     LEFT JOIN set_prizes sp ON sp.set_id = wi.set_id AND sp.prize_id = wi.prize_id
     WHERE wi.user_id = ${userId} ${status ? db`AND wi.status = ${status}` : db``}
     ORDER BY wi.created_at DESC, wi.id`;
-  return rows.map(({ poolSource, ...r }) => ({ ...r, recyclable: r.recyclable ?? false, displayName: displayName(poolSource, r.rank, r.prizeName) }));
+  return rows.map((r) => ({ ...r, recyclable: r.recyclable ?? false, displayName: displayName(r.levelName, r.prizeName) }));
 }
 
 export const ItemIdsSchema = z
@@ -64,8 +72,8 @@ export const ItemIdsSchema = z
 
 /** 鎖定使用者自己的物品（依 id 排序以固定鎖順序），並要求全部為 STORED。 */
 export async function lockStoredItems(tx: Tx, userId: string, itemIds: string[]) {
-  const rows = await tx<{ id: string; status: ItemStatus; rank: string | null; grade: Grade | null; merchantId: string; prizeName: string; setId: string | null; prizeId: string | null; source: string }[]>`
-    SELECT id, status, rank, grade, merchant_id, prize_name, set_id, prize_id, source FROM warehouse_items
+  const rows = await tx<{ id: string; status: ItemStatus; levelNo: number | null; isSmall: boolean; merchantId: string; prizeName: string; setId: string | null; prizeId: string | null; source: string }[]>`
+    SELECT id, status, level_no, is_small, merchant_id, prize_name, set_id, prize_id, source FROM warehouse_items
     WHERE id = ANY(${itemIds}::uuid[]) AND user_id = ${userId} ORDER BY id FOR UPDATE`;
   if (rows.length !== itemIds.length) throw new AppError('NOT_FOUND', 'some items not found');
   const bad = rows.filter((r) => r.status !== 'STORED');
@@ -77,7 +85,7 @@ export interface RecycleResult {
   batchId: string;
   points: number;
   pointsAfter: number;
-  items: { id: string; prizeName: string; grade: Grade | null; points: number }[];
+  items: { id: string; prizeName: string; levelNo: number | null; isSmall: boolean; points: number }[];
   /** 逐件運費退還（每件小獎退 運費 ÷ N；不可退款代幣），依套 */
   shippingRefunds: ItemRefund[];
   shippingRefundCoins: number;
@@ -110,7 +118,7 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { id
     }
     const items = await lockStoredItems(tx, userId, ids);
     // 鎖順序：物品 → 運費 advisory lock → 錢包 → 稽核
-    const smallSets = [...new Set(items.filter((i) => i.grade === 'SMALL' && i.setId).map((i) => i.setId!))].sort();
+    const smallSets = [...new Set(items.filter((i) => i.isSmall && i.setId).map((i) => i.setId!))].sort();
     for (const sid of smallSets) await lockUserSetShipping(tx, userId, sid);
     const cfg = await tx<{ id: string; recycleValue: number; recyclable: boolean }[]>`
       SELECT wi.id, sp.recycle_value, sp.recyclable FROM warehouse_items wi
@@ -119,8 +127,8 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { id
     const cfgOf = new Map(cfg.map((c) => [c.id, c]));
     const priced = items.map((i) => {
       const c = cfgOf.get(i.id);
-      if (!c || !c.recyclable) throw new AppError('NOT_RECYCLABLE', `「${i.prizeName}」不可回收`, { itemId: i.id, prizeName: i.prizeName, grade: i.grade });
-      return { id: i.id, prizeName: i.prizeName, grade: i.grade, points: c.recycleValue, setId: i.setId };
+      if (!c || !c.recyclable) throw new AppError('NOT_RECYCLABLE', `「${i.prizeName}」不可回收`, { itemId: i.id, prizeName: i.prizeName, levelNo: i.levelNo });
+      return { id: i.id, prizeName: i.prizeName, levelNo: i.levelNo, isSmall: i.isSmall, points: c.recycleValue, setId: i.setId };
     });
     const total = priced.reduce((s, p) => s + p.points, 0);
     const batchId = randomUUID();
@@ -134,7 +142,7 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { id
       pointsAfter = (await tx<{ points: number }[]>`SELECT points FROM wallets WHERE user_id = ${userId}`)[0]!.points;
     }
     const unitsBySet = new Map<string, number>();
-    for (const p of priced) if (p.grade === 'SMALL' && p.setId) unitsBySet.set(p.setId, (unitsBySet.get(p.setId) ?? 0) + 1);
+    for (const p of priced) if (p.isSmall && p.setId) unitsBySet.set(p.setId, (unitsBySet.get(p.setId) ?? 0) + 1);
     const fr = await refundRecycledSmallItems(tx, userId, unitsBySet, { type: 'USER_RECYCLE', id: batchId });
     const refundCoins = fr.refunds.reduce((a, r) => a + r.amount, 0);
     if (refundCoins > 0) {
@@ -161,7 +169,7 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { id
       entityType: 'recycle_batch',
       entityId: batchId,
       payload: {
-        items: priced.map((p) => ({ id: p.id, grade: p.grade, points: p.points })),
+        items: priced.map((p) => ({ id: p.id, levelNo: p.levelNo, isSmall: p.isSmall, points: p.points })),
         totalPoints: total,
         shippingRefunds: fr.refunds.map((r) => ({ eventId: r.eventId, setId: r.setId, units: r.units, coins: r.amount })),
       },

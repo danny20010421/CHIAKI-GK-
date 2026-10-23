@@ -29,7 +29,9 @@ export const PERMISSIONS = [
   'security.manage', // 封鎖清單（IP/裝置）
   'catalog.ip.manage', // IP（作品）與分類管理
   'asset.manage', // 圖片素材上傳與連結
-  'catalog.product.manage', // 商城商品屬性（分類、大件）
+  'catalog.product.manage', // 商城商品屬性（標籤、大件）
+  'pool.manage', // 賞池/套：下架與重新上架、套名稱與備註、0 銷售重新產生籤表、新增套、刪除/還原套
+  'pool.delete', // 刪除/還原整個賞池（僅 SUPER_ADMIN）
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -53,6 +55,7 @@ const MATRIX: Record<Role, readonly Permission[]> = {
     'catalog.ip.manage',
     'asset.manage',
     'catalog.product.manage',
+    'pool.manage',
   ],
   FINANCE: [
     'refund.decide',

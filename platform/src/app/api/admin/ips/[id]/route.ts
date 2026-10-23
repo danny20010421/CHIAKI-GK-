@@ -5,7 +5,7 @@ import { deleteIp, updateIp, IpUpdateSchema } from '@/server/modules/catalog/ips
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** PATCH /api/admin/ips/:id — 修改 IP { slug?, name?, category?, aliases?, visible?, coverUrl? } */
+/** PATCH /api/admin/ips/:id — 修改 IP { slug?, name?, aliases?, visible?, coverUrl? } */
 export const PATCH = route(async (req: Request, ctx: RouteContext<{ id: string }>) => {
   const p = await requirePrincipal(req);
   const { id } = await ctx.params;

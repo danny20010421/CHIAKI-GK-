@@ -50,6 +50,8 @@ const EnvSchema = z.object({
   RATE_LIMIT_IP_REFILL_PER_SEC: z.coerce.number().positive().default(2),
   RATE_LIMIT_USER_CAPACITY: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_USER_REFILL_PER_SEC: z.coerce.number().positive().default(1),
+  // 免費試玩（GET/POST /api/play/:poolId）：每 IP 每分鐘次數上限
+  FREE_PLAY_PER_MIN: z.coerce.number().int().positive().default(30),
   MAX_BODY_BYTES: z.coerce.number().int().positive().default(64 * 1024),
   // 圖片素材上傳（base64 JSON）本文上限：最大 1500 KB 的檔案 base64 後約 2.0 MB
   ASSET_UPLOAD_MAX_BODY_BYTES: z.coerce.number().int().positive().default(2_200_000),

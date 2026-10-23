@@ -9,19 +9,21 @@ import { postLedger } from '../wallet/wallet';
 import { enforceRateLimit } from '../risk/risk';
 import { resolvePublicPool } from '../pool/queries';
 import type { PoolRules } from '../pool/rules';
-import { displayName, gradeAtLeast, type Grade } from '../pool/grades';
+import { displayName, LAST_PRIZE_LABEL, levelRank } from '../pool/levels';
+import type { Tag } from '../catalog/tags';
 import { ShippingMethodSchema } from '../shipping/fees';
 import { computeShippingCharge, lockUserSetShipping, type ShippingCharge } from '../shipping/prepaid';
 import { notifyEvent } from '../notifications/outbox';
 import { getWallet } from '../wallet/wallet';
-import { TicketNosSchema } from './holds';
+import { assertSellable, TicketNosSchema } from './holds';
 
 export const DrawRequestSchema = z
   .object({
     poolId: z.string().min(1).max(100), // id 或 slug
     setNo: z.number().int().positive(),
     ticketNos: TicketNosSchema.optional(),
-    count: z.number().int().positive().optional(), // 由伺服器以 CSPRNG 代選
+    // 快速抽：由伺服器以 CSPRNG 代選 N 張空籤；N 須在該賞池的 drawPacks（1、3、5、10、20、'all'）內
+    count: z.union([z.number().int().positive(), z.literal('all')]).optional(),
     // 運費按套預收：本次需收運費且此套尚無預收紀錄時必填；之後未填則沿用此套上次的方式
     shippingMethod: ShippingMethodSchema.optional(),
   })
@@ -36,13 +38,17 @@ export interface DrawResultItem {
   kind: AwardKind;
   ticketNo: number | null;
   prizeId: string;
-  /** 賞級；自製（CUSTOM）賞池為 null */
-  rank: string | null;
-  /** 等級：決定開獎特效、保底資格、運費計數 */
-  grade: Grade;
+  /** 等級 1–8（1 最高）；最後賞為 null */
+  levelNo: number | null;
+  /** 等級顯示名稱（抽出當下）；最後賞為「最後賞」 */
+  levelName: string;
+  /** 是否小獎（計入滿 20 件運費規則與逐件退還） */
+  isSmall: boolean;
   prizeName: string;
-  /** 對外顯示名稱：自製＝獎項名稱；官方/混合＝賞級 + 名稱 */
+  /** 對外顯示名稱：等級名稱 + 獎項名稱 */
   displayName: string;
+  tag: Tag | null;
+  imageUrl: string | null;
   warehouseItemId: string;
 }
 
@@ -61,7 +67,7 @@ export interface DrawResponse {
   results: DrawResultItem[];
   setSoldOut: boolean;
   nextSetNo: number | null;
-  guarantee: { misses: number; everyN: number; minGrade: Grade; reserveRemaining: number } | null;
+  guarantee: { misses: number; everyN: number; minLevel: number; reserveRemaining: number } | null;
   createdAt: string;
 }
 
@@ -69,9 +75,45 @@ interface Award {
   kind: AwardKind;
   ticketNo: number | null;
   prizeId: string;
-  rank: string | null;
-  grade: Grade;
+  levelNo: number | null;
+  levelName: string;
+  isSmall: boolean;
   prizeName: string;
+  tag: Tag | null;
+  imageUrl: string | null;
+}
+
+interface PrizeInfo {
+  levelNo: number | null;
+  levelName: string | null;
+  isSmall: boolean | null;
+  name: string;
+  tag: Tag | null;
+  imageUrl: string | null;
+}
+function awardOf(kind: AwardKind, ticketNo: number | null, prizeId: string, p: PrizeInfo): Award {
+  return {
+    kind,
+    ticketNo,
+    prizeId,
+    levelNo: kind === 'LAST' ? null : p.levelNo,
+    levelName: kind === 'LAST' ? LAST_PRIZE_LABEL : (p.levelName ?? ''),
+    isSmall: kind === 'LAST' ? false : (p.isSmall ?? false),
+    prizeName: p.name,
+    tag: p.tag,
+    imageUrl: p.imageUrl,
+  };
+}
+
+/** 快速抽包檢查：count 須在賞池的 drawPacks 內；'all' 解析為目前可抽張數 */
+export function resolvePackCount(count: number | 'all', drawPacks: string[], available: number): number {
+  if (!drawPacks.includes(String(count))) {
+    throw new AppError('DRAW_PACK_NOT_ALLOWED', '此賞池不提供這個抽數', { count, drawPacks: drawPacks.map((x) => (x === 'all' ? 'all' : Number(x))) });
+  }
+  const n = count === 'all' ? available : count;
+  if (n < 1 || n > available) throw new AppError('NOT_ENOUGH_TICKETS', '可選籤數不足', { available });
+  if (n > config().MAX_TICKETS_PER_DRAW) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_DRAW} tickets per draw`, { available });
+  return n;
 }
 
 const SCOPE = 'draw';
@@ -96,8 +138,8 @@ export async function executeDraw(
   if (!idempotencyKey) throw new AppError('IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key header is required');
   const key = IdempotencyKeySchema.parse(idempotencyKey);
   const req = DrawRequestSchema.parse(body);
-  const n = req.ticketNos?.length ?? req.count!;
-  if (n > config().MAX_TICKETS_PER_DRAW) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_DRAW} tickets per draw`);
+  if (req.ticketNos && req.ticketNos.length > config().MAX_TICKETS_PER_DRAW) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_DRAW} tickets per draw`);
+  if (typeof req.count === 'number' && req.count > config().MAX_TICKETS_PER_DRAW) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_DRAW} tickets per draw`);
   const requestHash = sha256Hex(canonicalJson(req));
 
   // 快速路徑：已完成的請求直接重播（不計入限流、不再進交易）
@@ -131,13 +173,15 @@ export async function executeDraw(
 
     // 3. 鎖定套
     const { id: poolId } = await resolvePublicPool(tx, req.poolId);
-    const [set] = await tx<{ id: string; status: string; merchantId: string; ruleVersionId: string; poolStatus: string; poolTitle: string; rulesJson: string; shipFeeHome: number; shipFeeCvs: number }[]>`
-      SELECT s.id, s.status, s.merchant_id, s.rule_version_id, p.status AS pool_status, p.title AS pool_title, rv.rules_json, s.ship_fee_home, s.ship_fee_cvs
+    const [set] = await tx<{ id: string; status: string; merchantId: string; ruleVersionId: string; poolStatus: string; poolTitle: string; rulesJson: string; shipFeeHome: number; shipFeeCvs: number; drawPacks: string[] }[]>`
+      SELECT s.id, s.status, s.merchant_id, s.rule_version_id, p.status AS pool_status, p.title AS pool_title, rv.rules_json, s.ship_fee_home, s.ship_fee_cvs, p.draw_packs
       FROM pool_sets s JOIN pools p ON p.id = s.pool_id JOIN pool_rule_versions rv ON rv.id = s.rule_version_id
       WHERE s.pool_id = ${poolId} AND s.set_no = ${req.setNo}
       FOR UPDATE OF s`;
     if (!set) throw new AppError('NOT_FOUND', 'set not found');
     if (set.poolStatus !== 'PUBLISHED' || set.status !== 'ON_SALE') throw new AppError('SET_NOT_ON_SALE', '本套目前不開放抽賞');
+    // 下架/刪除狀態：鎖到套之後另外讀取（後台變更會先鎖住套，因此這裡讀到的是最新狀態）
+    await assertSellable(tx, set.id);
     const rules = JSON.parse(set.rulesJson) as PoolRules; // 價格等以「該套綁定的不可變規則版本」為準
 
     // 4. 選籤 + 鎖籤
@@ -148,7 +192,7 @@ export async function executeDraw(
       const avail = await tx<{ ticketNo: number }[]>`
         SELECT ticket_no FROM tickets WHERE set_id = ${set.id} AND status = 'AVAILABLE'
           AND (held_by IS NULL OR held_by = ${userId} OR held_until <= now()) ORDER BY ticket_no`;
-      if (avail.length < n) throw new AppError('NOT_ENOUGH_TICKETS', '可選籤數不足', { available: avail.length });
+      const n = resolvePackCount(req.count!, set.drawPacks, avail.length);
       const pool = avail.map((a) => a.ticketNo);
       for (let i = 0; i < n; i++) {
         const j = i + randomInt(pool.length - i);
@@ -156,11 +200,11 @@ export async function executeDraw(
       }
       nos = pool.slice(0, n).sort((a, b) => a - b);
     }
-    const tickets = await tx<{ ticketNo: number; prizeId: string; status: string; heldByOther: boolean; rank: string | null; grade: Grade; name: string }[]>`
+    const tickets = await tx<({ ticketNo: number; prizeId: string; status: string; heldByOther: boolean } & PrizeInfo)[]>`
       SELECT t.ticket_no, t.prize_id, t.status,
              (t.held_by IS NOT NULL AND t.held_by <> ${userId} AND t.held_until > now()) AS held_by_other,
-             pr.rank, pr.grade, pr.name
-      FROM tickets t JOIN pool_prizes pr ON pr.id = t.prize_id
+             pl.level_no, pl.name AS level_name, pl.is_small, pr.name, pr.tag, pr.image_url
+      FROM tickets t JOIN pool_prizes pr ON pr.id = t.prize_id LEFT JOIN pool_levels pl ON pl.id = pr.level_id
       WHERE t.set_id = ${set.id} AND t.ticket_no = ANY(${nos}::int[])
       ORDER BY t.ticket_no
       FOR UPDATE OF t`;
@@ -228,15 +272,15 @@ export async function executeDraw(
       RETURNING ticket_no`;
     if (upd.length !== nos.length) throw new Error('invariant violated: ticket state changed under lock');
 
-    // 7a. 籤的結果 + 保底（以「等級」判定：min_grade 以上視為命中）
+    // 7a. 籤的結果 + 保底（以「等級」判定：等級號 ≤ min_level 視為命中）
     const awards: Award[] = [];
-    const ticketAward = (t: (typeof tickets)[number]): Award => ({ kind: 'TICKET', ticketNo: t.ticketNo, prizeId: t.prizeId, rank: t.rank, grade: t.grade, prizeName: t.name });
+    const ticketAward = (t: (typeof tickets)[number]): Award => awardOf('TICKET', t.ticketNo, t.prizeId, t);
     let guaranteeState: DrawResponse['guarantee'] = null;
     if (rules.guarantee) {
-      const [g] = await tx<{ everyN: number; minGrade: Grade; reserveTotal: number; reserveUsed: number; reservePrizeId: string; reserveRank: string | null; reserveGrade: Grade; reserveName: string }[]>`
-        SELECT g.every_n, g.min_grade, g.reserve_total, g.reserve_used, g.reserve_prize_id,
-               pr.rank AS reserve_rank, pr.grade AS reserve_grade, pr.name AS reserve_name
-        FROM pool_guarantees g JOIN pool_prizes pr ON pr.id = g.reserve_prize_id
+      const [g] = await tx<({ everyN: number; minLevel: number; reserveTotal: number; reserveUsed: number; reservePrizeId: string } & PrizeInfo)[]>`
+        SELECT g.every_n, g.min_level, g.reserve_total, g.reserve_used, g.reserve_prize_id,
+               pl.level_no, pl.name AS level_name, pl.is_small, pr.name, pr.tag, pr.image_url
+        FROM pool_guarantees g JOIN pool_prizes pr ON pr.id = g.reserve_prize_id LEFT JOIN pool_levels pl ON pl.id = pr.level_id
         WHERE g.pool_id = ${poolId} FOR UPDATE OF g`;
       if (!g) throw new Error('guarantee config missing');
       await tx`INSERT INTO guarantee_counters (user_id, pool_id) VALUES (${userId}, ${poolId}) ON CONFLICT DO NOTHING`;
@@ -246,20 +290,20 @@ export async function executeDraw(
       let used = g.reserveUsed;
       for (const t of tickets) {
         awards.push(ticketAward(t));
-        if (gradeAtLeast(t.grade, g.minGrade)) {
+        if (t.levelNo !== null && t.levelNo <= g.minLevel) {
           misses = 0; // 抽中門檻等級以上 → 計數歸零
         } else {
           misses++;
           if (misses >= g.everyN && used < g.reserveTotal) {
             used++;
             misses = 0;
-            awards.push({ kind: 'GUARANTEE', ticketNo: null, prizeId: g.reservePrizeId, rank: g.reserveRank, grade: g.reserveGrade, prizeName: g.reserveName });
+            awards.push(awardOf('GUARANTEE', null, g.reservePrizeId, g));
           }
         }
       }
       await tx`UPDATE guarantee_counters SET misses = ${misses}, updated_at = now() WHERE user_id = ${userId} AND pool_id = ${poolId}`;
       if (used !== g.reserveUsed) await tx`UPDATE pool_guarantees SET reserve_used = ${used} WHERE pool_id = ${poolId}`;
-      guaranteeState = { misses, everyN: g.everyN, minGrade: g.minGrade, reserveRemaining: g.reserveTotal - used };
+      guaranteeState = { misses, everyN: g.everyN, minLevel: g.minLevel, reserveRemaining: g.reserveTotal - used };
     } else {
       for (const t of tickets) awards.push(ticketAward(t));
     }
@@ -271,15 +315,15 @@ export async function executeDraw(
     let nextSetNo: number | null = null;
     if (remaining === 0) {
       if (rules.lastPrize) {
-        const [lp] = await tx<{ id: string; rank: string | null; grade: Grade; name: string }[]>`
-          SELECT id, rank, grade, name FROM pool_prizes WHERE pool_id = ${poolId} AND kind = 'LAST'`;
+        const [lp] = await tx<({ id: string } & PrizeInfo)[]>`
+          SELECT id, NULL::int AS level_no, NULL AS level_name, false AS is_small, name, tag, image_url FROM pool_prizes WHERE pool_id = ${poolId} AND kind = 'LAST'`;
         if (!lp) throw new Error('last prize row missing');
-        awards.push({ kind: 'LAST', ticketNo: null, prizeId: lp.id, rank: lp.rank, grade: lp.grade, prizeName: lp.name });
+        awards.push(awardOf('LAST', null, lp.id, lp));
       }
       await tx`UPDATE pool_sets SET status = 'SOLD_OUT', sold_out_at = now(), last_prize_user_id = ${rules.lastPrize ? userId : null} WHERE id = ${set.id}`;
       const [next] = await tx<{ setNo: number }[]>`
         UPDATE pool_sets SET status = 'ON_SALE', on_sale_at = now()
-        WHERE id = (SELECT id FROM pool_sets WHERE pool_id = ${poolId} AND status = 'QUEUED' ORDER BY set_no LIMIT 1)
+        WHERE id = (SELECT id FROM pool_sets WHERE pool_id = ${poolId} AND status = 'QUEUED' AND deleted_at IS NULL AND NOT offline ORDER BY set_no LIMIT 1)
         RETURNING set_no`;
       if (next) nextSetNo = next.setNo;
       else await tx`UPDATE pools SET status = 'ENDED' WHERE id = ${poolId}`;
@@ -289,20 +333,20 @@ export async function executeDraw(
     // 寄存期限：自入庫起 STORAGE_FREE_DAYS 天（寫入當下的設定，之後改設定不追溯）
     const items = awards.map((a, i) => ({ ...a, seq: i + 1, id: randomUUID() }));
     await tx`
-      INSERT INTO warehouse_items (id, merchant_id, user_id, source, pool_id, set_id, draw_id, ticket_no, prize_id, rank, grade, prize_name, storage_expires_at)
-      SELECT u.id, ${set.merchantId}, ${userId}, u.source, ${poolId}, ${set.id}, ${drawId}, u.ticket_no, u.prize_id, u.rank, u.grade, u.prize_name,
+      INSERT INTO warehouse_items (id, merchant_id, user_id, source, pool_id, set_id, draw_id, ticket_no, prize_id, level_no, level_name, is_small, prize_name, storage_expires_at)
+      SELECT u.id, ${set.merchantId}, ${userId}, u.source, ${poolId}, ${set.id}, ${drawId}, u.ticket_no, u.prize_id, u.level_no, u.level_name, u.is_small::boolean, u.prize_name,
              now() + make_interval(days => ${config().STORAGE_FREE_DAYS})
       FROM unnest(${items.map((i) => i.id)}::uuid[], ${items.map((i) => i.kind)}::text[], ${items.map((i) => i.ticketNo)}::int[],
-                  ${items.map((i) => i.prizeId)}::uuid[], ${items.map((i) => i.rank)}::text[], ${items.map((i) => i.grade)}::text[],
-                  ${items.map((i) => i.prizeName)}::text[])
-           AS u(id, source, ticket_no, prize_id, rank, grade, prize_name)`;
+                  ${items.map((i) => i.prizeId)}::uuid[], ${items.map((i) => i.levelNo)}::int[], ${items.map((i) => i.levelName)}::text[],
+                  ${items.map((i) => String(i.isSmall))}::text[], ${items.map((i) => i.prizeName)}::text[])
+           AS u(id, source, ticket_no, prize_id, level_no, level_name, is_small, prize_name)`;
     await tx`
-      INSERT INTO draw_results (draw_id, seq, kind, ticket_no, prize_id, rank, grade, prize_name, warehouse_item_id)
-      SELECT ${drawId}, u.seq, u.kind, u.ticket_no, u.prize_id, u.rank, u.grade, u.prize_name, u.item_id
+      INSERT INTO draw_results (draw_id, seq, kind, ticket_no, prize_id, level_no, level_name, is_small, prize_name, warehouse_item_id)
+      SELECT ${drawId}, u.seq, u.kind, u.ticket_no, u.prize_id, u.level_no, u.level_name, u.is_small::boolean, u.prize_name, u.item_id
       FROM unnest(${items.map((i) => i.seq)}::int[], ${items.map((i) => i.kind)}::text[], ${items.map((i) => i.ticketNo)}::int[],
-                  ${items.map((i) => i.prizeId)}::uuid[], ${items.map((i) => i.rank)}::text[], ${items.map((i) => i.grade)}::text[],
-                  ${items.map((i) => i.prizeName)}::text[], ${items.map((i) => i.id)}::uuid[])
-           AS u(seq, kind, ticket_no, prize_id, rank, grade, prize_name, item_id)`;
+                  ${items.map((i) => i.prizeId)}::uuid[], ${items.map((i) => i.levelNo)}::int[], ${items.map((i) => i.levelName)}::text[],
+                  ${items.map((i) => String(i.isSmall))}::text[], ${items.map((i) => i.prizeName)}::text[], ${items.map((i) => i.id)}::uuid[])
+           AS u(seq, kind, ticket_no, prize_id, level_no, level_name, is_small, prize_name, item_id)`;
 
     const response: DrawResponse = {
       drawId,
@@ -319,10 +363,13 @@ export async function executeDraw(
         kind: i.kind,
         ticketNo: i.ticketNo,
         prizeId: i.prizeId,
-        rank: i.rank,
-        grade: i.grade,
+        levelNo: i.levelNo,
+        levelName: i.levelName,
+        isSmall: i.isSmall,
         prizeName: i.prizeName,
-        displayName: displayName(rules.source, i.rank, i.prizeName),
+        displayName: displayName(i.levelName, i.prizeName),
+        tag: i.tag,
+        imageUrl: i.imageUrl,
         warehouseItemId: i.id,
       })),
       setSoldOut: remaining === 0,
@@ -332,8 +379,7 @@ export async function executeDraw(
     };
 
     // 7d. 通知（預設只走 Web Push；站內/其他管道依會員偏好）
-    const gradeOrder: Record<Grade, number> = { GRAND: 0, MID: 1, SMALL: 2 };
-    const best = [...response.results].sort((a, b) => gradeOrder[a.grade] - gradeOrder[b.grade])[0]!;
+    const best = [...response.results].sort((a, b) => levelRank(a.levelNo) - levelRank(b.levelNo))[0]!;
     await notifyEvent(tx, {
       userId,
       merchantId: set.merchantId,
@@ -359,7 +405,7 @@ export async function executeDraw(
         amountCoins: amount,
         shippingPrepaid: { method: ship.method, fees: ship.feesToCharge, unitFee: ship.unitFee, amount: ship.amount, feesPaidAfter: ship.feesPaidAfter },
         coinsAfter: balanceAfter,
-        results: items.map((i) => ({ kind: i.kind, ticketNo: i.ticketNo, prizeId: i.prizeId, grade: i.grade })),
+        results: items.map((i) => ({ kind: i.kind, ticketNo: i.ticketNo, prizeId: i.prizeId, levelNo: i.levelNo })),
       },
     });
     await tx`UPDATE idempotency_keys SET response_json = ${JSON.stringify(response)} WHERE user_id = ${userId} AND scope = ${SCOPE} AND key = ${key}`;
@@ -382,17 +428,24 @@ function shippingSummary(c: ShippingCharge, prepaymentIds: string[]): DrawShippi
  */
 export async function quoteDraw(userId: string, body: unknown) {
   const req = DrawRequestSchema.parse(body);
-  const n = req.ticketNos?.length ?? req.count!;
-  if (n > config().MAX_TICKETS_PER_DRAW) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_DRAW} tickets per draw`);
+  if (req.ticketNos && req.ticketNos.length > config().MAX_TICKETS_PER_DRAW) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_DRAW} tickets per draw`);
   const d = db();
   const { id: poolId } = await resolvePublicPool(d, req.poolId);
-  const [set] = await d<{ id: string; status: string; poolStatus: string; rulesJson: string; shipFeeHome: number; shipFeeCvs: number }[]>`
-    SELECT s.id, s.status, p.status AS pool_status, rv.rules_json, s.ship_fee_home, s.ship_fee_cvs
+  const [set] = await d<{ id: string; status: string; poolStatus: string; rulesJson: string; shipFeeHome: number; shipFeeCvs: number; drawPacks: string[] }[]>`
+    SELECT s.id, s.status, p.status AS pool_status, rv.rules_json, s.ship_fee_home, s.ship_fee_cvs, p.draw_packs
     FROM pool_sets s JOIN pools p ON p.id = s.pool_id JOIN pool_rule_versions rv ON rv.id = s.rule_version_id
     WHERE s.pool_id = ${poolId} AND s.set_no = ${req.setNo}`;
   if (!set) throw new AppError('NOT_FOUND', 'set not found');
   if (set.poolStatus !== 'PUBLISHED' || set.status !== 'ON_SALE') throw new AppError('SET_NOT_ON_SALE', '本套目前不開放抽賞');
+  await assertSellable(d, set.id);
   const rules = JSON.parse(set.rulesJson) as PoolRules;
+  let n = req.ticketNos?.length ?? 0;
+  if (req.count !== undefined) {
+    const [a] = await d<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM tickets WHERE set_id = ${set.id} AND status = 'AVAILABLE'
+        AND (held_by IS NULL OR held_by = ${userId} OR held_until <= now())`;
+    n = resolvePackCount(req.count, set.drawPacks, a!.n);
+  }
   const ship = await computeShippingCharge(d, { userId, set, ticketCount: n, requestedMethod: req.shippingMethod ?? null, smallItemsPerFee: smallItemsPerFee(rules) });
   const wallet = await getWallet(d, userId);
   const drawCoins = rules.priceCoins * n;
@@ -406,7 +459,7 @@ export async function quoteDraw(userId: string, body: unknown) {
     shipping: {
       ...ship,
       setFees: { HOME_DELIVERY: set.shipFeeHome, CVS_711_C2C: set.shipFeeCvs, CVS_FAMI_C2C: set.shipFeeCvs },
-      rule: `運費按套預收：本套首次付費抽賞時收取一份；需要份數 = floor((本套抽到過的全部小獎 + 本次籤數) / ${ship.smallItemsPerFee}) + 1（滿 ${ship.smallItemsPerFee} 件即再收一份；大獎/中獎不計；已回收、已出貨的小獎仍計入）。回收小獎時每件退還 運費 ÷ N 代幣（不可退款）。`,
+      rule: `運費按套預收：本套首次付費抽賞時收取一份；需要份數 = floor((本套抽到過的全部小獎 + 本次籤數) / ${ship.smallItemsPerFee}) + 1（滿 ${ship.smallItemsPerFee} 件即再收一份；只計「小獎」等級；已回收、已出貨的小獎仍計入）。回收小獎時每件退還 運費 ÷ N 代幣（不可退款）。`,
     },
     totalCoins,
     coinsBalance: wallet.coins,
@@ -418,7 +471,7 @@ export async function getDraw(userId: string, drawId: string) {
   const [d] = await db()<{ id: string; source: string }[]>`
     SELECT d.id, p.source FROM draws d JOIN pools p ON p.id = d.pool_id WHERE d.id = ${drawId} AND d.user_id = ${userId}`;
   if (!d) throw new AppError('NOT_FOUND', 'draw not found');
-  const results = await db()<{ seq: number; kind: string; ticketNo: number | null; rank: string | null; grade: Grade; prizeName: string; warehouseItemId: string }[]>`
-    SELECT seq, kind, ticket_no, rank, grade, prize_name, warehouse_item_id FROM draw_results WHERE draw_id = ${drawId} ORDER BY seq`;
-  return { drawId, results: results.map((r) => ({ ...r, displayName: displayName(d.source, r.rank, r.prizeName) })) };
+  const results = await db()<{ seq: number; kind: string; ticketNo: number | null; levelNo: number | null; levelName: string | null; isSmall: boolean; prizeName: string; warehouseItemId: string }[]>`
+    SELECT seq, kind, ticket_no, level_no, level_name, is_small, prize_name, warehouse_item_id FROM draw_results WHERE draw_id = ${drawId} ORDER BY seq`;
+  return { drawId, results: results.map((r) => ({ ...r, displayName: displayName(r.levelName, r.prizeName) })) };
 }

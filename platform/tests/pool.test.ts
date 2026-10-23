@@ -15,12 +15,12 @@ import { apiRequest, ctx, expectAppError, layoutOf, makeUser, publishPool, setup
 describe('commitment scheme (pure)', () => {
   it('canonical serialization is order-independent and verify detects any change', () => {
     const layout = generateLayout([
-      { id: 'p-a', rank: 'A', qtyPerSet: 1 },
-      { id: 'p-h', rank: 'H', qtyPerSet: 9 },
+      { id: 'p-a', levelNo: 1, qtyPerSet: 1 },
+      { id: 'p-h', levelNo: 8, qtyPerSet: 9 },
     ]);
     assert.equal(layout.length, 10);
     assert.deepEqual(layout.map((l) => l.ticketNo), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    assert.equal(layout.filter((l) => l.rank === 'A').length, 1);
+    assert.equal(layout.filter((l) => l.levelNo === 1).length, 1);
     const input = { poolId: 'pool', setNo: 1, rulesHash: 'r'.repeat(64), layout };
     const salt = 'ab'.repeat(32);
     const c = computeCommitment(input, salt);
@@ -29,13 +29,26 @@ describe('commitment scheme (pure)', () => {
     assert.ok(!verifyCommitment(input, 'cd'.repeat(32), c), 'wrong salt');
     assert.ok(!verifyCommitment({ ...input, setNo: 2 }, salt, c), 'bound to set number');
     assert.ok(!verifyCommitment({ ...input, rulesHash: 's'.repeat(64) }, salt, c), 'bound to rule version');
+    assert.match(canonicalLayout(input), /"scheme":"chiaki-commit-v2"/);
+    assert.match(canonicalLayout(input), /\[\d+,(1|8),"p-[ah]"\]/, 'v2 entries are [ticketNo, levelNo, prizeId]');
+    const swapped = layout.map((l) => ({ ...l, levelNo: l.levelNo === 1 ? 8 : 1 }));
+    assert.ok(!verifyCommitment({ ...input, layout: swapped }, salt, c), 'bound to level numbers');
   });
 
-  it('CSPRNG shuffle produces every rank at every position over many runs (sanity)', () => {
+  it('legacy chiaki-commit-v1 sets ([ticketNo, rank, prizeId]) still verify', () => {
+    const layout = [{ ticketNo: 1, rank: 'A', prizeId: 'p-a' }, { ticketNo: 2, rank: 'B', prizeId: 'p-b' }];
+    const input = { scheme: 'chiaki-commit-v1' as const, poolId: 'pool', setNo: 1, rulesHash: 'r'.repeat(64), layout };
+    const salt = 'ef'.repeat(32);
+    const expected = sha256Hex(`${canonicalJson({ scheme: 'chiaki-commit-v1', poolId: 'pool', setNo: 1, rulesHash: 'r'.repeat(64), tickets: [[1, 'A', 'p-a'], [2, 'B', 'p-b']] })}\n${salt}`);
+    assert.equal(computeCommitment(input, salt), expected);
+    assert.ok(verifyCommitment(input, salt, expected));
+  });
+
+  it('CSPRNG shuffle produces every level at every position over many runs (sanity)', () => {
     const seenA = new Set<number>();
     for (let i = 0; i < 400; i++) {
-      const l = generateLayout([{ id: 'a', rank: 'A', qtyPerSet: 1 }, { id: 'h', rank: 'H', qtyPerSet: 9 }]);
-      seenA.add(l.find((x) => x.rank === 'A')!.ticketNo);
+      const l = generateLayout([{ id: 'a', levelNo: 1, qtyPerSet: 1 }, { id: 'h', levelNo: 8, qtyPerSet: 9 }]);
+      seenA.add(l.find((x) => x.levelNo === 1)!.ticketNo);
     }
     assert.equal(seenA.size, 10);
   });
@@ -55,18 +68,22 @@ describe('pool publishing (DB)', () => {
     await env.teardown();
   });
 
-  it('spec sample pool (CUSTOM, no ranks): 10 sets × 100 tickets, qty 1,1,1,6,6,15,20,50, grades GRAND/MID/MID/SMALL…, 300 coins/draw', async () => {
+  it('spec sample pool (CUSTOM): 10 sets × 100 tickets, qty 1,1,1,6,6,15,20,50 on levels 1–8 (4–8 small), 300 coins/draw', async () => {
     const poolId = await publishPool(GK_FIRST_POOL);
     const res = await poolRoute(apiRequest('GET', `/api/pools/chiaki-gk-01`), ctx({ id: 'chiaki-gk-01' }));
-    const p = (await res.json()) as { id: string; priceCoins: number; source: string; playType: string; merchantId: string; shippingNote: string; sets: { setNo: number; status: string; total: number; remaining: number; commitment: string; shippingFees: Record<string, number> }[]; prizes: { rank: string | null; grade: string; name: string; displayName: string; qtyPerSet: number }[] };
+    const p = (await res.json()) as { id: string; priceCoins: number; source: string; playType: string; merchantId: string; shippingNote: string; sets: { setNo: number; status: string; total: number; remaining: number; commitment: string; shippingFees: Record<string, number> }[]; prizes: { levelNo: number; levelName: string; isSmall: boolean; name: string; displayName: string; qtyPerSet: number; tag: string | null; bulky: boolean }[]; tags: string[]; drawPacks: (number | string)[] };
     assert.equal(p.id, poolId);
     assert.equal(p.priceCoins, 300);
     assert.equal(p.source, 'CUSTOM');
     assert.equal(p.playType, 'STANDARD');
     assert.equal(p.merchantId, 'chiaki');
     assert.deepEqual(p.prizes.map((x) => x.qtyPerSet), [1, 1, 1, 6, 6, 15, 20, 50]);
-    assert.deepEqual(p.prizes.map((x) => x.grade), ['GRAND', 'MID', 'MID', 'SMALL', 'SMALL', 'SMALL', 'SMALL', 'SMALL']);
-    assert.ok(p.prizes.every((x) => x.rank === null && x.displayName === x.name && !/^[A-H]賞/.test(x.name)), 'custom: no rank letters; displayName = prize name');
+    assert.deepEqual(p.prizes.map((x) => x.levelNo), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.deepEqual(p.prizes.map((x) => x.isSmall), [false, false, false, true, true, true, true, true]);
+    assert.ok(p.prizes.every((x) => x.displayName === `${x.levelName} ${x.name}`), 'displayName = level name + item name');
+    assert.deepEqual(p.prizes.map((x) => x.bulky), [true, true, true, false, false, false, false, false], 'GK tag / level 1 → bulky by default');
+    assert.deepEqual(p.tags, ['GK', '卡牌', '其他']);
+    assert.deepEqual(p.drawPacks, [1, 5, 10]);
     assert.equal(p.shippingNote, '平台商品依平台公告時程');
     assert.deepEqual(p.sets[0]!.shippingFees, { HOME_DELIVERY: 150, CVS_711_C2C: 70, CVS_FAMI_C2C: 70 });
     assert.equal(p.sets.length, 10);
@@ -77,7 +94,7 @@ describe('pool publishing (DB)', () => {
       const l = await layoutOf(poolId, setNo);
       const count = (name: string) => l.filter((t) => t.name === name).length;
       assert.deepEqual(p.prizes.map((x) => count(x.name)), [1, 1, 1, 6, 6, 15, 20, 50]);
-      assert.equal(l.filter((t) => t.grade === 'SMALL').length, 97);
+      assert.equal(l.filter((t) => t.isSmall).length, 97);
     }
     const listRes = await listRoute(apiRequest('GET', '/api/pools?playType=STANDARD'), undefined as never);
     const list = (await listRes.json()) as { pools: { id: string; shippingNote: string; currentSet: { setNo: number; remaining: number } }[] };
@@ -100,7 +117,7 @@ describe('pool publishing (DB)', () => {
       assert.ok(!/salt/i.test(b), 'no salt field at all');
     }
     const board = JSON.parse(bodies[1]!) as { tickets: Record<string, unknown>[] };
-    assert.ok(board.tickets.every((t) => !('rank' in t) && !('prizeId' in t)), 'no prize info for unrevealed tickets');
+    assert.ok(board.tickets.every((t) => !('levelNo' in t) && !('prizeId' in t) && !('displayName' in t)), 'no prize info for unrevealed tickets');
     // 規則內容中的 prizeId 是獎項定義（公開），但籤號 → 獎項的對應不得出現
     assert.ok(!bodies[1]!.includes(prizeIds[0]!));
     const rv = await revealRoute(apiRequest('GET', `/api/pools/${poolId}/sets/1/reveal`), ctx({ id: poolId, no: '1' }));
@@ -127,7 +144,7 @@ describe('pool publishing (DB)', () => {
     await assert.rejects(db()`UPDATE pool_rule_versions SET rules_json = '{}' WHERE id = ${v1!.id}`, /immutable/);
     await assert.rejects(db()`DELETE FROM pool_rule_versions WHERE id = ${v1!.id}`, /immutable/);
     await assert.rejects(db()`UPDATE pool_sets SET commitment = 'x' WHERE pool_id = ${poolId}`, /immutable/);
-    const [pa] = await db()`SELECT id FROM pool_prizes WHERE pool_id = ${poolId} AND rank = 'A'`;
+    const [pa] = await db()`SELECT id FROM pool_prizes WHERE pool_id = ${poolId} AND name = 'A賞'`;
     await assert.rejects(
       db()`UPDATE tickets SET prize_id = ${pa!.id} WHERE set_id IN (SELECT id FROM pool_sets WHERE pool_id = ${poolId}) AND prize_id <> ${pa!.id}`,
       /layout is immutable/,
@@ -151,7 +168,7 @@ describe('pool publishing (DB)', () => {
   it('SOLO pools need exactly one main prize', async () => {
     const ops = await makeUser({ roles: ['OPS'] });
     await assert.rejects(createPoolDraft(ops.principal, smallPool({ playType: 'SOLO' })), /exactly one main prize/);
-    const { poolId } = await createPoolDraft(ops.principal, smallPool({ playType: 'SOLO', prizes: [{ rank: 'A', name: 'A', qtyPerSet: 1 }, { rank: 'P', name: '參加獎', qtyPerSet: 49 }] }));
+    const { poolId } = await createPoolDraft(ops.principal, smallPool({ playType: 'SOLO', prizes: [{ rank: 'A', name: 'A', qtyPerSet: 1 }, { rank: 'H', name: '參加獎', qtyPerSet: 49 }] }));
     assert.ok(poolId);
   });
 

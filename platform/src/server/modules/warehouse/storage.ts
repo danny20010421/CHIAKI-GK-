@@ -50,8 +50,8 @@ export async function runStorageSweep(now: Date = new Date()): Promise<StorageSw
   for (const { userId } of users) {
     const r = await transaction(async (tx) => {
       // 鎖定順序與會員回收/出貨相同：物品（依 id）→ 錢包 → 稽核
-      const items = await tx<{ id: string; merchantId: string; prizeName: string; grade: string | null; setId: string | null; recycleValue: number | null; recyclable: boolean | null; heldAt: Date | null; expiresAt: Date }[]>`
-        SELECT wi.id, wi.merchant_id, wi.prize_name, wi.grade, wi.set_id, sp.recycle_value, sp.recyclable,
+      const items = await tx<{ id: string; merchantId: string; prizeName: string; isSmall: boolean; levelNo: number | null; setId: string | null; recycleValue: number | null; recyclable: boolean | null; heldAt: Date | null; expiresAt: Date }[]>`
+        SELECT wi.id, wi.merchant_id, wi.prize_name, wi.is_small, wi.level_no, wi.set_id, sp.recycle_value, sp.recyclable,
                wi.storage_expired_hold_at AS held_at, wi.storage_expires_at AS expires_at
         FROM warehouse_items wi
         LEFT JOIN set_prizes sp ON sp.set_id = wi.set_id AND sp.prize_id = wi.prize_id
@@ -65,7 +65,7 @@ export async function runStorageSweep(now: Date = new Date()): Promise<StorageSw
       if (convert.length) {
         const batchId = randomUUID();
         // 鎖順序：物品 → 運費 advisory lock（依 setId 排序）→ 錢包 → 稽核（與抽賞的 set → advisory → wallet 一致，避免死結）
-        const smallSets = [...new Set(convert.filter((i) => i.grade === 'SMALL' && i.setId).map((i) => i.setId!))].sort();
+        const smallSets = [...new Set(convert.filter((i) => i.isSmall && i.setId).map((i) => i.setId!))].sort();
         for (const sid of smallSets) await lockUserSetShipping(tx, userId, sid);
         for (const i of convert) {
           await tx`UPDATE warehouse_items SET status = 'RECYCLED', recycled_coins = ${i.recycleValue!}, recycle_reason = 'STORAGE_EXPIRY',
@@ -89,7 +89,7 @@ export async function runStorageSweep(now: Date = new Date()): Promise<StorageSw
             })
           ).balanceAfter;
         }
-        const payloadItems = convert.map((i) => ({ id: i.id, prizeName: i.prizeName, grade: i.grade, coins: i.recycleValue! }));
+        const payloadItems = convert.map((i) => ({ id: i.id, prizeName: i.prizeName, levelNo: i.levelNo, coins: i.recycleValue! }));
         if (
           (
             await notifyEvent(tx, {
@@ -103,7 +103,7 @@ export async function runStorageSweep(now: Date = new Date()): Promise<StorageSw
         ) out.notifications++;
         // 到期轉換的可回收小獎同樣逐件退還運費（運費 ÷ N，不可退款代幣）
         const unitsBySet = new Map<string, number>();
-        for (const i of convert) if (i.grade === 'SMALL' && i.setId) unitsBySet.set(i.setId, (unitsBySet.get(i.setId) ?? 0) + 1);
+        for (const i of convert) if (i.isSmall && i.setId) unitsBySet.set(i.setId, (unitsBySet.get(i.setId) ?? 0) + 1);
         const fr = await refundRecycledSmallItems(tx, userId, unitsBySet, { type: 'STORAGE_EXPIRY', id: batchId });
         out.refundCoins = fr.refunds.reduce((a, r) => a + r.amount, 0);
         if (out.refundCoins > 0) {
@@ -137,7 +137,7 @@ export async function runStorageSweep(now: Date = new Date()): Promise<StorageSw
               userId,
               event: 'STORAGE_EXPIRED_HOLD',
               data: { count: hold.length },
-              payload: { items: hold.map((i) => ({ id: i.id, prizeName: i.prizeName, grade: i.grade })) },
+              payload: { items: hold.map((i) => ({ id: i.id, prizeName: i.prizeName, levelNo: i.levelNo })) },
               dedupeOn: { hold: hold.map((i) => i.id).sort() },
             })
           ).inApp

@@ -3,7 +3,7 @@ import type { PoolDraftInput } from '../modules/pool/admin';
 
 /**
  * 參考資料（冪等）。所有數值皆為「範例／待營運與法遵確認」：運費、回收值、綁定獎勵點數。
- * 回收值已改為「每套 × 每獎項」設定（見各賞池 prizes[].recycleValue，發布後可逐套調整），不再有全域賞級費率表。
+ * 回收值已改為「每套 × 每獎項」設定（見各賞池 levels[].items[].recycleValue，發布後可逐套調整），不再有全域賞級費率表。
  */
 
 /**
@@ -35,9 +35,8 @@ export async function seedReferenceData(d: Db, merchantId = 'chiaki'): Promise<v
 }
 
 /**
- * 規格指定的範例賞池（自製 CUSTOM：沒有 A–H 賞級，獎項以名稱識別）：
- * 10 套 × 100 籤；數量 1,1,1,6,6,15,20,50；300 代幣/抽。
- * 等級：第 1 項 GRAND（大獎）、第 2–3 項 MID（中獎）、其餘 SMALL（小獎）。
+ * 規格指定的範例賞池（自製 CUSTOM）：10 套 × 100 籤；數量 1,1,1,6,6,15,20,50；300 代幣/抽。
+ * 等級 1–8 各一個獎項（A賞–H賞）；等級 4–8 為小獎（計入滿 20 件運費規則與逐件退還）。
  * 回收值（會員回收＝平台點數；寄存到期＝代幣）與運費皆為範例值，待業主確認。
  */
 export const GK_FIRST_POOL: PoolDraftInput = {
@@ -50,24 +49,25 @@ export const GK_FIRST_POOL: PoolDraftInput = {
   playType: 'STANDARD',
   priceCoins: 300,
   setCount: 10,
-  lastPrizeName: null,
-  prizes: [
-    { name: 'CHIAKI 原創 GK 雕像 典藏版（名稱待填）', grade: 'GRAND', qtyPerSet: 1, recycleValue: 0, recyclable: false },
-    { name: 'CHIAKI 原創 GK 半身像（名稱待填）', grade: 'MID', qtyPerSet: 1, recycleValue: 1500 },
-    { name: 'CHIAKI 原創 GK 胸像（名稱待填）', grade: 'MID', qtyPerSet: 1, recycleValue: 900 },
-    { name: '壓克力立牌（名稱待填）', grade: 'SMALL', qtyPerSet: 6, recycleValue: 150 },
-    { name: '金屬徽章（名稱待填）', grade: 'SMALL', qtyPerSet: 6, recycleValue: 100 },
-    { name: '透明收藏卡（名稱待填）', grade: 'SMALL', qtyPerSet: 15, recycleValue: 60 },
-    { name: '貼紙組（名稱待填）', grade: 'SMALL', qtyPerSet: 20, recycleValue: 40 },
-    { name: '明信片（名稱待填）', grade: 'SMALL', qtyPerSet: 50, recycleValue: 20 },
+  levels: [
+    { levelNo: 1, name: 'A賞', items: [{ name: 'CHIAKI 原創 GK 雕像 典藏版（名稱待填）', qtyPerSet: 1, recycleValue: 0, recyclable: false, tag: 'GK' }] },
+    { levelNo: 2, name: 'B賞', items: [{ name: 'CHIAKI 原創 GK 半身像（名稱待填）', qtyPerSet: 1, recycleValue: 1500, tag: 'GK' }] },
+    { levelNo: 3, name: 'C賞', items: [{ name: 'CHIAKI 原創 GK 胸像（名稱待填）', qtyPerSet: 1, recycleValue: 900, tag: 'GK' }] },
+    { levelNo: 4, name: 'D賞', items: [{ name: '壓克力立牌（名稱待填）', qtyPerSet: 6, recycleValue: 150, tag: '其他' }] },
+    { levelNo: 5, name: 'E賞', items: [{ name: '金屬徽章（名稱待填）', qtyPerSet: 6, recycleValue: 100, tag: '其他' }] },
+    { levelNo: 6, name: 'F賞', items: [{ name: '透明收藏卡（名稱待填）', qtyPerSet: 15, recycleValue: 60, tag: '卡牌' }] },
+    { levelNo: 7, name: 'G賞', items: [{ name: '貼紙組（名稱待填）', qtyPerSet: 20, recycleValue: 40, tag: '其他' }] },
+    { levelNo: 8, name: 'H賞', items: [{ name: '明信片（名稱待填）', qtyPerSet: 50, recycleValue: 20, tag: '其他' }] },
   ],
+  lastPrize: null,
   guarantee: null,
+  drawPacks: [1, 5, 10],
   shippingFeeHome: 150,
   shippingFeeCvs: 70,
   shippingNote: '平台商品依平台公告時程',
 };
 
-/** 保底挑戰範例（自製）：每 10 抽未抽中「中獎」以上 → 保底中獎一個（獨立保底庫存 3 個）。 */
+/** 保底挑戰範例（自製）：每 10 抽未抽中等級 1–3 → 保底 B賞 一個（獨立保底庫存 3 個）。 */
 export const GUARANTEE_SAMPLE_POOL: PoolDraftInput = {
   slug: 'chiaki-black-gold-guarantee',
   title: 'CHIAKI ORIGINAL 保底挑戰 ～黑金典藏～（範例）',
@@ -76,16 +76,16 @@ export const GUARANTEE_SAMPLE_POOL: PoolDraftInput = {
   playType: 'GUARANTEE',
   priceCoins: 280,
   setCount: 1,
-  lastPrizeName: '黑金 Last 特別版（名稱待填）',
-  lastPrizeGrade: 'GRAND',
-  prizes: [
-    { name: '黑金典藏 雕像（名稱待填）', grade: 'GRAND', qtyPerSet: 1, recycleValue: 0, recyclable: false },
-    { name: '黑金 半身像（名稱待填）', grade: 'MID', qtyPerSet: 4, recycleValue: 800 },
-    { name: '黑金 收藏盒（名稱待填）', grade: 'MID', qtyPerSet: 10, recycleValue: 300 },
-    { name: '黑金 壓克力立牌（名稱待填）', grade: 'SMALL', qtyPerSet: 25, recycleValue: 100 },
-    { name: '黑金 收藏卡（名稱待填）', grade: 'SMALL', qtyPerSet: 40, recycleValue: 40 },
+  levels: [
+    { levelNo: 1, name: 'A賞', items: [{ name: '黑金典藏 雕像（名稱待填）', qtyPerSet: 1, recycleValue: 0, recyclable: false, tag: 'GK' }] },
+    { levelNo: 2, name: 'B賞', items: [{ name: '黑金 半身像（名稱待填）', qtyPerSet: 4, recycleValue: 800, tag: 'GK' }] },
+    { levelNo: 3, name: 'C賞', items: [{ name: '黑金 收藏盒（名稱待填）', qtyPerSet: 10, recycleValue: 300, tag: '其他' }] },
+    { levelNo: 4, name: 'D賞', items: [{ name: '黑金 壓克力立牌（名稱待填）', qtyPerSet: 25, recycleValue: 100, tag: '其他' }] },
+    { levelNo: 5, name: 'E賞', items: [{ name: '黑金 收藏卡（名稱待填）', qtyPerSet: 40, recycleValue: 40, tag: '卡牌' }] },
   ],
-  guarantee: { everyN: 10, minGrade: 'MID', reservePrizeName: '黑金 半身像（保底專用庫存）', reserveGrade: 'MID', reserveTotal: 3, reserveRecycleValue: 800 },
+  lastPrize: { name: '黑金 Last 特別版（名稱待填）', tag: 'GK' },
+  guarantee: { everyN: 10, minLevel: 3, reserveLevelNo: 2, reservePrizeName: '黑金 半身像（保底專用庫存）', reserveTotal: 3, reserveRecycleValue: 800, reserveTag: 'GK' },
+  drawPacks: [1, 3, 5, 10, 'all'],
   shippingFeeHome: 180,
   shippingFeeCvs: 80,
 };

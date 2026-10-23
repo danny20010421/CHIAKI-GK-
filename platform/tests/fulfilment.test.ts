@@ -25,7 +25,18 @@ after(async () => {
 const none = undefined as never;
 let k = 0;
 async function shipmentFor(method: 'CVS_711_C2C' | 'HOME_DELIVERY' = 'CVS_711_C2C'): Promise<{ u: TestUser; shipmentId: string; itemIds: string[] }> {
-  const poolId = await publishPool(smallPool({ setCount: 1 }));
+  // 等級 1 預設為大件（限宅配）；此處關閉，讓隨機籤號也能走超商出貨流程
+  const poolId = await publishPool(
+    smallPool({
+      setCount: 1,
+      prizes: [
+        { rank: 'A', name: 'A賞', qtyPerSet: 1, bulky: false },
+        { rank: 'B', name: 'B賞', qtyPerSet: 1 },
+        { rank: 'C', name: 'C賞', qtyPerSet: 2, recycleValue: 300 },
+        { rank: 'D', name: 'D賞', qtyPerSet: 6, recycleValue: 150 },
+      ],
+    }),
+  );
   const u = await makeUser({ coins: 5000 });
   await executeDraw(u.id, `ful-${process.pid}-${++k}`, { poolId, setNo: 1, ticketNos: [1, 2], shippingMethod: method });
   const itemIds = (await listWarehouse(db(), u.id, 'STORED')).map((i) => i.id);

@@ -38,7 +38,7 @@ async function memberWithHistory(): Promise<{ u: TestUser; drawId: string; shipm
   const u = await makeUser({ coins: 5000 });
   const d = (await executeDraw(u.id, `cs-${process.pid}-${++k}`, { poolId, setNo: 1, ticketNos: [1, 2, 3], shippingMethod: 'CVS_711_C2C' })).response;
   const items = await listWarehouse(db(), u.id, 'STORED');
-  const s = await requestShipment(u.id, { itemIds: [items[0]!.id], method: 'CVS_711_C2C', recipientName: 'A', recipientPhone: '0912345678', cvsStoreId: '1234' });
+  const s = await requestShipment(u.id, { itemIds: [items.find((i) => !i.bulky)!.id], method: 'CVS_711_C2C', recipientName: 'A', recipientPhone: '0912345678', cvsStoreId: '1234' });
   const o = await createBankTransferOrder(u.id, { packageCode: 'P500' });
   return { u, drawId: d.drawId, shipmentId: s.shipmentId, orderId: o.orderId };
 }

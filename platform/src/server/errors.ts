@@ -33,7 +33,10 @@ export type ErrorCode =
   | 'MFA_REQUIRED'
   | 'REAUTH_REQUIRED'
   | 'ASSET_REJECTED'
-  | 'BULKY_HOME_DELIVERY_ONLY';
+  | 'BULKY_HOME_DELIVERY_ONLY'
+  | 'STRUCTURE_LOCKED'
+  | 'DRAW_PACK_NOT_ALLOWED'
+  | 'HAS_SALES';
 
 const STATUS: Record<ErrorCode, number> = {
   VALIDATION: 400,
@@ -71,6 +74,9 @@ const STATUS: Record<ErrorCode, number> = {
   REAUTH_REQUIRED: 401,
   ASSET_REJECTED: 422,
   BULKY_HOME_DELIVERY_ONLY: 422,
+  STRUCTURE_LOCKED: 409,
+  DRAW_PACK_NOT_ALLOWED: 422,
+  HAS_SALES: 409,
 };
 
 /** 可預期的業務錯誤：會轉成乾淨的 JSON 錯誤回應，且交易一律 rollback。 */

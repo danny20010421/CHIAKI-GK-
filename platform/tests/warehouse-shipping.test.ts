@@ -20,13 +20,25 @@ after(async () => {
 });
 
 async function winItems(coins = 5000) {
-  const poolId = await publishPool(smallPool({ setCount: 1, lastPrizeName: null }));
+  // 等級 1 預設為大件（限宅配）；此處 A賞 明確設為非大件，以便測試超商出貨流程
+  const poolId = await publishPool(
+    smallPool({
+      setCount: 1,
+      lastPrizeName: null,
+      prizes: [
+        { rank: 'A', name: 'A賞', qtyPerSet: 1, bulky: false },
+        { rank: 'B', name: 'B賞', qtyPerSet: 1 },
+        { rank: 'C', name: 'C賞', qtyPerSet: 2, recycleValue: 300 },
+        { rank: 'D', name: 'D賞', qtyPerSet: 6, recycleValue: 150 },
+      ],
+    }),
+  );
   const u = await makeUser({ coins });
   const layout = await layoutOf(poolId, 1);
-  const pick = (rank: string) => layout.filter((t) => t.rank === rank).map((t) => t.ticketNo);
+  const pick = (rank: string) => layout.filter((t) => t.levelNo === rank.charCodeAt(0) - 64).map((t) => t.ticketNo);
   await executeDraw(u.id, key(), { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [...pick('A'), ...pick('C'), ...pick('D').slice(0, 3)] });
   const items = await listWarehouse(db(), u.id);
-  const of = (rank: string) => items.filter((i) => i.rank === rank).map((i) => i.id);
+  const of = (rank: string) => items.filter((i) => i.levelNo === rank.charCodeAt(0) - 64).map((i) => i.id);
   return { u, of, items, poolId };
 }
 
@@ -108,7 +120,7 @@ describe('direct-buy catalog', () => {
     await expectAppError(purchaseProduct(u.id, 'buy-key-0002', { productId: p!.id, qty: 1 }), 'CONFLICT');
     const bought = (await listWarehouse(db(), u.id)).filter((i) => i.source === 'PURCHASE');
     assert.equal(bought.length, 2);
-    assert.ok(bought.every((i) => i.grade === null && i.rank === null && i.recyclable === false && i.storageExpiresAt instanceof Date));
+    assert.ok(bought.every((i) => i.levelNo === null && !i.isSmall && i.recyclable === false && i.storageExpiresAt instanceof Date));
     // 直購商品沒有預收運費 → 依物流方式運費表收費
     await transactionTopUp(u.id, 200);
     const s = await requestShipment(u.id, { itemIds: bought.map((i) => i.id), method: 'CVS_FAMI_C2C', recipientName: 'A', recipientPhone: '0912345678', cvsStoreId: '9876' });

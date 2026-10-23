@@ -5,7 +5,7 @@ import { canonicalJson } from '../../lib/canonical';
 import { db, transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { hasPermission, requirePermission, type Permission, type Principal } from '../auth/rbac';
-import { publishPool, publishRuleVersion } from '../pool/admin';
+import { assertPublishable, publishPool, publishRuleVersion } from '../pool/admin';
 import { executeRefund } from '../wallet/refunds';
 import { postLedger } from '../wallet/wallet';
 import { executeBankTransferConfirm } from '../payment/payments';
@@ -55,8 +55,9 @@ export async function createApproval(tx: Tx, actor: Principal, type: ApprovalTyp
 export async function requestPoolPublish(actor: Principal, poolId: string) {
   requirePermission(actor, 'pool.publish.request');
   return transaction(async (tx) => {
-    const upd = await tx`UPDATE pools SET status = 'PENDING_PUBLISH' WHERE id = ${poolId} AND status = 'DRAFT' RETURNING id`;
+    const upd = await tx`UPDATE pools SET status = 'PENDING_PUBLISH' WHERE id = ${poolId} AND status = 'DRAFT' AND deleted_at IS NULL RETURNING id`;
     if (!upd.length) throw new AppError('INVALID_STATE', 'pool must be DRAFT to request publish');
+    await assertPublishable(tx, poolId);
     return createApproval(tx, actor, 'PUBLISH_POOL', poolId, {});
   });
 }

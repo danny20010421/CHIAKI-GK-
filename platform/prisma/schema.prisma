@@ -253,9 +253,12 @@ model DrawResult {
   prizeId         String? @map("prize_id") @db.Uuid
   rank            String?
   tier            Int?
-  grade           String
+  grade           String?
   prizeName       String  @map("prize_name")
   warehouseItemId String  @map("warehouse_item_id") @db.Uuid
+  levelNo         Int?    @map("level_no")
+  levelName       String? @map("level_name")
+  isSmall         Boolean @default(false) @map("is_small")
   @@unique([drawId, seq])
   @@map("draw_results")
 }
@@ -292,7 +295,6 @@ model Ip {
   coverUrl   String?  @map("cover_url")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
-  category String?
   aliases String[] @default([])
   @@unique([merchantId, name])
   @@map("ips")
@@ -406,13 +408,17 @@ model Pool {
   shipFeeHome          BigInt    @default(150) @map("ship_fee_home")
   shipFeeCvs           BigInt    @default(70) @map("ship_fee_cvs")
   ipId String? @map("ip_id") @db.Uuid
+  drawPacks String[] @default(["1", "5", "10"]) @map("draw_packs")
+  offline      Boolean   @default(false)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deleteReason String?   @map("delete_reason")
   @@map("pools")
 }
 
 model PoolGuarantee {
   poolId           String  @id @map("pool_id") @db.Uuid
   everyN           Int     @map("every_n")
-  minGrade         String  @map("min_grade")
+  minLevel         Int     @map("min_level")
   reserveRank      String? @map("reserve_rank")
   reservePrizeName String  @map("reserve_prize_name")
   reserveTotal     Int     @map("reserve_total")
@@ -429,12 +435,44 @@ model PoolPrize {
   qtyPerSet    Int     @map("qty_per_set")
   sortOrder    Int     @default(0) @map("sort_order")
   kind         String  @default("TICKET")
-  grade        String
+  grade        String?
   recycleValue BigInt  @default(0) @map("recycle_value")
   recyclable   Boolean @default(false)
-  category String?
   bulky Boolean @default(false)
+  levelId  String? @map("level_id") @db.Uuid
+  imageUrl String? @map("image_url")
+  tag      String?
   @@map("pool_prizes")
+}
+
+/// 0 銷售時重新產生籤表而被取代的承諾（append-only；舊 salt 與籤表可公開驗證）
+model PoolSetCommitHistory {
+  id           BigInt   @id @default(autoincrement())
+  poolId       String   @map("pool_id") @db.Uuid
+  setId        String   @map("set_id") @db.Uuid
+  setNo        Int      @map("set_no")
+  commitScheme String   @map("commit_scheme")
+  commitment   String
+  commitSalt   String   @map("commit_salt")
+  rulesHash    String   @map("rules_hash")
+  layoutJson   String   @map("layout_json")
+  reason       String
+  supersededBy String?  @map("superseded_by") @db.Uuid
+  supersededAt DateTime @default(now()) @map("superseded_at") @db.Timestamptz(6)
+  @@map("pool_set_commit_history")
+}
+
+/// 獎項等級 1–8（等級 1 最高）；is_small：計入「滿 20 件運費」與逐件運費退還
+model PoolLevel {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  poolId    String   @map("pool_id") @db.Uuid
+  levelNo   Int      @map("level_no")
+  name      String
+  isSmall   Boolean  @map("is_small")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@unique([poolId, levelNo])
+  @@map("pool_levels")
 }
 
 model PoolRuleVersion {
@@ -469,6 +507,11 @@ model PoolSet {
   shipFeeHome     BigInt    @default(150) @map("ship_fee_home")
   shipFeeCvs      BigInt    @default(70) @map("ship_fee_cvs")
   shipRefundDiv Int @default(20) @map("ship_refund_div")
+  offline      Boolean   @default(false)
+  displayName  String?   @map("display_name")
+  internalNote String    @default("") @map("internal_note")
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deleteReason String?   @map("delete_reason")
   @@unique([poolId, setNo])
   @@map("pool_sets")
 }
@@ -484,8 +527,8 @@ model Product {
   stock      Int
   status     String   @default("ACTIVE")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  category String?
   bulky Boolean @default(false)
+  tag   String?
   @@map("products")
 }
 
@@ -841,5 +884,8 @@ model WarehouseItem {
   storageExpiredHoldAt DateTime? @map("storage_expired_hold_at") @db.Timestamptz(6)
   recycledCoins        BigInt?   @map("recycled_coins")
   recycleReason        String?   @map("recycle_reason")
+  levelNo              Int?      @map("level_no")
+  levelName            String?   @map("level_name")
+  isSmall              Boolean   @default(false) @map("is_small")
   @@map("warehouse_items")
 }

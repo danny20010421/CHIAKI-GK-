@@ -6,29 +6,29 @@ import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
 import { config } from '../../config';
 import { requirePermission, type Principal } from '../auth/rbac';
-import { ProductCategorySchema, resolveBulky, type ProductCategory } from './categories';
+import { resolveBulky, TagSchema, type Tag } from './tags';
 
 /** 直購商城：固定價格、無隨機性。購得商品進入中獎倉庫（source = PURCHASE）沿用出貨流程。 */
 export async function listProducts(d: Db) {
-  return d`SELECT id, sku, name, ip, source, price_coins, stock, merchant_id, category, bulky FROM products WHERE status = 'ACTIVE' ORDER BY created_at DESC`;
+  return d`SELECT id, sku, name, ip, source, price_coins, stock, merchant_id, tag, bulky FROM products WHERE status = 'ACTIVE' ORDER BY created_at DESC`;
 }
 
 export const ProductAttributesSchema = z
-  .object({ category: ProductCategorySchema.nullable().optional(), bulky: z.boolean().optional() })
-  .refine((v) => v.category !== undefined || v.bulky !== undefined, 'nothing to update');
+  .object({ tag: TagSchema.nullable().optional(), bulky: z.boolean().optional() })
+  .refine((v) => v.tag !== undefined || v.bulky !== undefined, 'nothing to update');
 
-/** 商城商品屬性：商品分類、大件・限宅配（只改分類時大件依分類預設：GK → 是） */
+/** 商城商品屬性：標籤（GK、PVC、一番賞、景品盲盒、卡牌、娃娃、其他）、大件・限宅配（只改標籤時大件依標籤預設：GK → 是） */
 export async function updateProductAttributes(actor: Principal, productId: string, input: z.input<typeof ProductAttributesSchema>) {
   requirePermission(actor, 'catalog.product.manage');
   const v = ProductAttributesSchema.parse(input);
   return transaction(async (tx) => {
-    const [cur] = await tx<{ category: ProductCategory | null; bulky: boolean }[]>`SELECT category, bulky FROM products WHERE id = ${productId} FOR UPDATE`;
+    const [cur] = await tx<{ tag: Tag | null; bulky: boolean }[]>`SELECT tag, bulky FROM products WHERE id = ${productId} FOR UPDATE`;
     if (!cur) throw new AppError('NOT_FOUND', 'product not found');
-    const category = v.category === undefined ? cur.category : v.category;
-    const bulky = v.bulky ?? (v.category !== undefined ? resolveBulky(category, undefined) : cur.bulky);
-    await tx`UPDATE products SET category = ${category}, bulky = ${bulky} WHERE id = ${productId}`;
-    await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'PRODUCT_ATTRIBUTES_UPDATED', entityType: 'product', entityId: productId, payload: { before: cur, after: { category, bulky } } });
-    return { productId, category, bulky };
+    const tag = v.tag === undefined ? cur.tag : v.tag;
+    const bulky = v.bulky ?? (v.tag !== undefined ? resolveBulky(tag, undefined) : cur.bulky);
+    await tx`UPDATE products SET tag = ${tag}, bulky = ${bulky} WHERE id = ${productId}`;
+    await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'PRODUCT_ATTRIBUTES_UPDATED', entityType: 'product', entityId: productId, payload: { before: cur, after: { tag, bulky } } });
+    return { productId, tag, bulky };
   });
 }
 
@@ -57,8 +57,8 @@ export async function purchaseProduct(userId: string, idempotencyKey: string, in
     const amount = p.priceCoins * v.qty;
     const { balanceAfter } = await postLedger(tx, { userId, currency: 'COINS', amount: -amount, entryType: 'PURCHASE_DEBIT', refType: 'purchase_order', refId: orderId, merchantId: p.merchantId });
     for (let i = 0; i < v.qty; i++) {
-      await tx`INSERT INTO warehouse_items (merchant_id, user_id, source, product_id, purchase_id, rank, prize_name, storage_expires_at)
-               VALUES (${p.merchantId}, ${userId}, 'PURCHASE', ${v.productId}, ${orderId}, NULL, ${p.name},
+      await tx`INSERT INTO warehouse_items (merchant_id, user_id, source, product_id, purchase_id, prize_name, storage_expires_at)
+               VALUES (${p.merchantId}, ${userId}, 'PURCHASE', ${v.productId}, ${orderId}, ${p.name},
                        now() + make_interval(days => ${config().STORAGE_FREE_DAYS}))`;
     }
     await appendAudit(tx, { actorType: 'USER', actorId: userId, action: 'PRODUCT_PURCHASED', entityType: 'purchase_order', entityId: orderId, payload: { productId: v.productId, qty: v.qty, amount } });

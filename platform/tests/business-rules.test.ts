@@ -23,7 +23,7 @@ import { PATCH as setConfigRoute } from '../src/app/api/admin/pools/[id]/sets/[n
 import { PATCH as poolSettingsRoute } from '../src/app/api/admin/pools/[id]/route';
 import { POST as sweepRoute } from '../src/app/api/admin/jobs/storage-sweep/route';
 import { GET as poolRoute } from '../src/app/api/pools/[id]/route';
-import { apiRequest, ctx, customPool, expectAppError, FEE_CVS, FEE_HOME, layoutOf, ledgerOf, makeUser, publishPool, setupTestDb, walletOf } from './helpers';
+import { apiRequest, ctx, customPool, expectAppError, FEE_CVS, FEE_HOME, layoutOf, ledgerOf, makeUser, pickTickets, publishPool, setupTestDb, walletOf } from './helpers';
 
 let env: Awaited<ReturnType<typeof setupTestDb>>;
 let k = 0;
@@ -45,34 +45,36 @@ async function ticketsByGrade(poolId: string, setNo = 1) {
   const l = await layoutOf(poolId, setNo);
   const avail = l.filter((t) => t.status === 'AVAILABLE');
   return {
-    GRAND: avail.filter((t) => t.grade === 'GRAND').map((t) => t.ticketNo),
-    MID: avail.filter((t) => t.grade === 'MID').map((t) => t.ticketNo),
-    SMALL: avail.filter((t) => t.grade === 'SMALL').map((t) => t.ticketNo),
+    GRAND: avail.filter((t) => t.levelNo === 1).map((t) => t.ticketNo),
+    MID: avail.filter((t) => t.levelNo > 1 && !t.isSmall).map((t) => t.ticketNo),
+    SMALL: avail.filter((t) => t.isSmall).map((t) => t.ticketNo),
   };
 }
 
-describe('rule 1 — custom pools have no ranks: displayName & grade in API output', () => {
-  it('draw results, set board, warehouse expose displayName (= name) and grade; never a rank letter', async () => {
+describe('rule 1 — prize levels in API output (every pool type)', () => {
+  it('draw results, set board, warehouse expose levelNo + levelName + displayName (level name + item name)', async () => {
     const poolId = await publishPool(customPool());
     const u = await makeUser({ coins: 5000 });
     const t = await ticketsByGrade(poolId);
     const res = await drawRoute(apiRequest('POST', '/api/draws', { token: u.token, headers: { 'idempotency-key': key() }, body: { poolId, setNo: 1, ticketNos: [t.GRAND[0], t.MID[0], t.SMALL[0]], shippingMethod: 'CVS_711_C2C' } }), none);
     assert.equal(res.status, 201);
-    const body = (await res.json()) as { results: { rank: string | null; grade: string; displayName: string; prizeName: string }[] };
-    const order = { GRAND: 0, MID: 1, SMALL: 2 } as Record<string, number>;
-    const got = body.results.map((r) => [r.rank, r.grade, r.displayName] as const).sort((a, b) => order[a[1]]! - order[b[1]]!);
-    assert.deepEqual(got, [[null, 'GRAND', '原創雕像'], [null, 'MID', '半身像'], [null, 'SMALL', '壓克力立牌']]);
+    const body = (await res.json()) as { results: { levelNo: number; levelName: string; isSmall: boolean; displayName: string; prizeName: string; rank?: string; grade?: string }[] };
+    const got = body.results.map((r) => [r.levelNo, r.levelName, r.isSmall, r.displayName] as const).sort((a, b) => a[0] - b[0]);
+    assert.deepEqual(got, [[1, '大獎', false, '大獎 原創雕像'], [2, '中獎', false, '中獎 半身像'], [3, '小獎', true, '小獎 壓克力立牌']]);
+    assert.ok(body.results.every((r) => !('rank' in r) && !('grade' in r)), 'old rank/grade model removed');
     const board = await getSetBoard(db(), poolId, 1);
-    assert.ok(board.prizes.every((p) => p.rank === null && p.displayName === p.name));
-    const taken = board.tickets.filter((x) => x.state === 'TAKEN') as { grade?: string; displayName?: string; rank?: string }[];
+    assert.deepEqual(board.prizes.map((p) => [p.levelNo, p.levelName, p.displayName]), [[1, '大獎', '大獎 原創雕像'], [2, '中獎', '中獎 半身像'], [3, '小獎', '小獎 壓克力立牌']]);
+    assert.deepEqual(board.levels.map((l) => [l.levelNo, l.total, l.remaining]), [[1, 1, 0], [2, 2, 1], [3, 37, 36]]);
+    const taken = board.tickets.filter((x) => x.state === 'TAKEN') as { levelNo?: number; displayName?: string }[];
     assert.equal(taken.length, 3);
-    assert.ok(taken.every((x) => x.grade && x.displayName && !('rank' in x)));
-    const wh = (await (await warehouseRoute(apiRequest('GET', '/api/me/warehouse', { token: u.token }), none)).json()) as { items: { grade: string; displayName: string; rank: string | null; storageExpiresAt: string; recycleValue: number | null }[] };
-    assert.deepEqual(wh.items.map((i) => i.grade).sort(), ['GRAND', 'MID', 'SMALL']);
-    assert.ok(wh.items.every((i) => i.rank === null && i.displayName && i.storageExpiresAt));
-    const pool = (await (await poolRoute(apiRequest('GET', `/api/pools/${poolId}`), ctx({ id: poolId }))).json()) as { shippingNote: string; prizes: { displayName: string; grade: string }[] };
+    assert.ok(taken.every((x) => x.levelNo && x.displayName));
+    const wh = (await (await warehouseRoute(apiRequest('GET', '/api/me/warehouse', { token: u.token }), none)).json()) as { items: { levelNo: number; isSmall: boolean; displayName: string; storageExpiresAt: string; recycleValue: number | null }[] };
+    assert.deepEqual(wh.items.map((i) => i.levelNo).sort(), [1, 2, 3]);
+    assert.ok(wh.items.every((i) => i.displayName && i.storageExpiresAt));
+    const pool = (await (await poolRoute(apiRequest('GET', `/api/pools/${poolId}`), ctx({ id: poolId }))).json()) as { shippingNote: string; prizes: { displayName: string }[]; levels: { levelNo: number; name: string; isSmall: boolean; items: unknown[] }[] };
     assert.equal(pool.shippingNote, '平台商品依平台公告時程');
-    assert.deepEqual(pool.prizes.map((p) => p.displayName), ['原創雕像', '半身像', '壓克力立牌']);
+    assert.deepEqual(pool.prizes.map((p) => p.displayName), ['大獎 原創雕像', '中獎 半身像', '小獎 壓克力立牌']);
+    assert.deepEqual(pool.levels.map((l) => [l.levelNo, l.name, l.isSmall, l.items.length]), [[1, '大獎', false, 1], [2, '中獎', false, 1], [3, '小獎', true, 1]]);
   });
 });
 
@@ -99,17 +101,17 @@ describe('rule 2 — recycle value is per prize per set (admin), user recycling 
     await executeDraw(u.id, key(), { poolId, setNo: 1, count: 10, shippingMethod: 'CVS_711_C2C' }); // 整套 → 第 2 套開賣
     await executeDraw(u.id, key(), { poolId, setNo: 2, ticketNos: (await ticketsByGrade(poolId, 2)).SMALL.slice(0, 1), shippingMethod: 'CVS_711_C2C' });
     const items = await listWarehouse(db(), u.id, 'STORED');
-    const set1Small = items.filter((i) => i.setNo === 1 && i.grade === 'SMALL');
-    const set2Small = items.filter((i) => i.setNo === 2 && i.grade === 'SMALL');
+    const set1Small = items.filter((i) => i.setNo === 1 && i.isSmall);
+    const set2Small = items.filter((i) => i.setNo === 2 && i.isSmall);
     assert.ok(set1Small.every((i) => i.recycleValue === 77) && set2Small.every((i) => i.recycleValue === 50));
     const p0 = (await walletOf(u.id)).points;
     const r = await recycleItems(u.id, [set1Small[0]!.id, set2Small[0]!.id]);
     assert.equal(r.points, 77 + 50, 'set 1 value 77, set 2 keeps default 50');
     assert.equal((await walletOf(u.id)).points, p0 + 127);
     assert.equal((await ledgerTypes(u.id, 'RECYCLE_CREDIT')).length, 1);
-    const grand = items.find((i) => i.grade === 'GRAND')!;
+    const grand = items.find((i) => i.levelNo === 1)!;
     await expectAppError(recycleItems(u.id, [grand.id]), 'NOT_RECYCLABLE');
-    const set1Mid = items.find((i) => i.setNo === 1 && i.grade === 'MID')!;
+    const set1Mid = items.find((i) => i.setNo === 1 && i.levelNo === 2)!;
     await expectAppError(recycleItems(u.id, [set1Mid.id]), 'NOT_RECYCLABLE');
     const [audit] = await db()`SELECT payload_json FROM audit_log WHERE action = 'SET_CONFIG_UPDATED' ORDER BY seq DESC LIMIT 1`;
     assert.match(audit!.payloadJson as string, /"recycleValue":77/);
@@ -127,7 +129,7 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     const days = (expiresAt.getTime() - items[0]!.createdAt.getTime()) / 86_400_000;
     assert.ok(Math.abs(days - 30) < 0.01, `30-day free storage, got ${days}`);
     // 一件小獎在到期前已出貨申請 → 不受到期轉換影響
-    const shipped = items.find((i) => i.grade === 'SMALL')!;
+    const shipped = items.find((i) => i.isSmall)!;
     await requestShipment(u.id, { itemIds: [shipped.id], method: 'CVS_711_C2C', recipientName: 'A', recipientPhone: '0912345678', cvsStoreId: '1234' });
 
     // 掃描是全域的（本檔其他測試的會員也會被處理），因此以下以「本會員」的資料驗證
@@ -174,7 +176,7 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     const after2 = await listWarehouse(db(), u.id);
     assert.equal(after2.filter((i) => i.recycleReason === 'STORAGE_EXPIRY' && i.status === 'RECYCLED').length, 4);
     assert.ok(after2.filter((i) => i.recycleReason === 'STORAGE_EXPIRY').every((i) => i.recycledCoins !== null && i.recycledPoints === null));
-    assert.equal(after2.find((i) => i.grade === 'GRAND')!.status, 'STORED', 'non-recyclable prize is held for CS, not destroyed');
+    assert.equal(after2.find((i) => i.levelNo === 1)!.status, 'STORED', 'non-recyclable prize is held for CS, not destroyed');
     assert.equal(after2.find((i) => i.id === shipped.id)!.status, 'SHIP_REQUESTED');
     const [audit] = await db()`SELECT count(*)::int AS n FROM audit_log WHERE action = 'STORAGE_EXPIRY_AUTO_CONVERT' AND payload_json LIKE ${'%' + u.id + '%'}`;
     assert.equal(audit!.n, 1);
@@ -265,7 +267,7 @@ describe('rule 4 — shipping prepaid per set (按套收取)', () => {
   it('home delivery uses the set home fee; one draw of many tickets can charge several fees at once', async () => {
     const poolId = await publishPool(customPool({ prizes: [{ name: '小獎', grade: 'SMALL', qtyPerSet: 50 }] }));
     const u = await makeUser({ coins: 5000 });
-    const r = (await executeDraw(u.id, key(), { poolId, setNo: 1, count: 45, shippingMethod: 'HOME_DELIVERY' })).response;
+    const r = (await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 45), shippingMethod: 'HOME_DELIVERY' })).response;
     assert.deepEqual([r.shipping.feesToCharge, r.shipping.unitFee, r.shipping.amount], [3, FEE_HOME, 3 * FEE_HOME]);
     assert.equal(r.totalCoins, 450 + 3 * FEE_HOME);
     assert.deepEqual((await db()`SELECT seq FROM shipping_prepayments WHERE user_id = ${u.id} ORDER BY seq`).map((x) => x.seq), [1, 2, 3]);
@@ -276,7 +278,7 @@ describe('rule 4 — shipping prepaid per set (按套收取)', () => {
     const t = await ticketsByGrade(poolId);
     const a = await makeUser({ coins: 5000 });
     await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(0, 18), shippingMethod: 'CVS_711_C2C' });
-    const smalls = (await listWarehouse(db(), a.id, 'STORED')).filter((i) => i.grade === 'SMALL');
+    const smalls = (await listWarehouse(db(), a.id, 'STORED')).filter((i) => i.isSmall);
     const rec = await recycleItems(a.id, smalls.slice(0, 5).map((i) => i.id));
     assert.equal(rec.shippingRefundCoins, Math.floor((FEE_CVS * 5) / 20), 'recycling refunds fee ÷ 20 per item');
     const r = (await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: t.SMALL.slice(18, 24) })).response; // 抽到過 18 + 6 = 24 → floor(24/20)+1 = 2
@@ -373,7 +375,7 @@ describe('POST /api/draws/quote', () => {
     assert.equal(d.totalCoins, q1.totalCoins, 'quote == actual charge');
     assert.equal((await walletOf(u.id)).coins, 1000 - q1.totalCoins);
     // 已預收：再試算 30 籤 → 最壞 (持有小獎) + 30 > 20 → 需再收 1 份（沿用宅配）
-    const q2 = (await (await quoteRoute(apiRequest('POST', '/api/draws/quote', { token: u.token, body: { poolId, setNo: 1, count: 30 } }), none)).json()) as Q;
+    const q2 = (await (await quoteRoute(apiRequest('POST', '/api/draws/quote', { token: u.token, body: { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 30) } }), none)).json()) as Q;
     assert.equal(q2.shipping.method, 'HOME_DELIVERY');
     assert.ok(q2.shipping.worstCaseSmallItems > 20 && q2.shipping.worstCaseSmallItems <= 33);
     assert.equal(q2.shipping.feesToCharge, Math.floor(q2.shipping.worstCaseSmallItems / 20) + 1 - 1);

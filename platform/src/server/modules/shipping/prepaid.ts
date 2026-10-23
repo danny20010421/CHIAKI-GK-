@@ -60,7 +60,7 @@ export async function lockUserSetShipping(tx: Tx, userId: string, setId: string)
 /** 該會員在該套抽到過的小獎件數（任何狀態：保管中、出貨中、已出貨、已回收皆計入） */
 export async function countDrawnSmallItems(db: Db, userId: string, setId: string): Promise<number> {
   const [r] = await db<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM warehouse_items WHERE user_id = ${userId} AND set_id = ${setId} AND grade = 'SMALL'`;
+    SELECT count(*)::int AS n FROM warehouse_items WHERE user_id = ${userId} AND set_id = ${setId} AND is_small`;
   return r!.n;
 }
 

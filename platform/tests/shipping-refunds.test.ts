@@ -16,7 +16,7 @@ import { verifyAuditChain } from '../src/server/modules/audit/audit';
 import * as myShippingRefunds from '../src/app/api/me/shipping-refunds/route';
 import { GET as breakdownRoute } from '../src/app/api/me/wallet/breakdown/route';
 import { POST as recycleRoute } from '../src/app/api/me/recycle/route';
-import { apiRequest, customPool, expectAppError, FEE_CVS, ledgerOf, makeUser, publishPool, setupTestDb } from './helpers';
+import { apiRequest, customPool, expectAppError, FEE_CVS, ledgerOf, makeUser, pickTickets, publishPool, setupTestDb } from './helpers';
 
 let env: Awaited<ReturnType<typeof setupTestDb>>;
 let k = 0;
@@ -32,9 +32,9 @@ after(async () => {
 /** 只有小獎的自製賞池（每抽 10、小獎回收值 50）；宅配運費可指定（150–300） */
 const smallOnly = (home = 150, qty = 80) => customPool({ shippingFeeHome: home, prizes: [{ name: '小獎', grade: 'SMALL', qtyPerSet: qty, recycleValue: 50 }] });
 const setIdOf = async (poolId: string) => ((await db()`SELECT id FROM pool_sets WHERE pool_id = ${poolId} AND set_no = 1`) as unknown as [{ id: string }])[0].id;
-const smallsOf = async (userId: string) => (await listWarehouse(db(), userId, 'STORED')).filter((i) => i.grade === 'SMALL');
-const draw = (userId: string, poolId: string, count: number, method: 'HOME_DELIVERY' | 'CVS_711_C2C' = 'HOME_DELIVERY') =>
-  executeDraw(userId, key(), { poolId, setNo: 1, count, shippingMethod: method }).then((r) => r.response);
+const smallsOf = async (userId: string) => (await listWarehouse(db(), userId, 'STORED')).filter((i) => i.isSmall);
+const draw = async (userId: string, poolId: string, count: number, method: 'HOME_DELIVERY' | 'CVS_711_C2C' = 'HOME_DELIVERY') =>
+  executeDraw(userId, key(), { poolId, setNo: 1, ...([1, 3, 5, 10, 20].includes(count) ? { count } : { ticketNos: await pickTickets(poolId, count) }), shippingMethod: method }).then((r) => r.response);
 const refundLedger = async (userId: string) => (await ledgerOf(userId)).filter((l) => l.entryType === 'SHIPPING_REFUND_COINS');
 const accOf = async (userId: string, setId: string) =>
   (await db()<{ feeCoins: number; divisor: number; refundedUnits: number; refundedAmount: number }[]>`
@@ -100,8 +100,8 @@ describe('per-item shipping refund on recycle', () => {
     const u = await makeUser({ coins: 5000 });
     await draw(u.id, poolId, 40);
     const items = await listWarehouse(db(), u.id, 'STORED');
-    const mid = items.find((i) => i.grade === 'MID')!;
-    const small = items.find((i) => i.grade === 'SMALL')!;
+    const mid = items.find((i) => i.levelNo === 2)!;
+    const small = items.find((i) => i.isSmall)!;
     const r = await recycleItems(u.id, [mid.id, small.id]);
     assert.deepEqual([r.shippingRefundCoins, r.shippingRefunds[0]!.units], [8, 1], 'MID recycled for points only; 1 SMALL → 160/20');
   });

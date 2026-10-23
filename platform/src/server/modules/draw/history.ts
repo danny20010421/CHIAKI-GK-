@@ -3,7 +3,7 @@ import { AppError } from '../../errors';
 import { db, transaction, type Db } from '../../db';
 import { canonicalJson, sha256Hex } from '../../lib/canonical';
 import { appendAudit } from '../audit/audit';
-import { displayName, type Grade } from '../pool/grades';
+import { displayName } from '../pool/levels';
 
 /**
  * 抽賞紀錄保存與會員可見範圍（業主規則：會員只能看到近 3 個月）。
@@ -53,7 +53,7 @@ export interface MemberDrawRow {
   amountCoins: number;
   shippingCoins: number;
   createdAt: Date;
-  results: { seq: number; kind: string; ticketNo: number | null; grade: Grade; displayName: string }[];
+  results: { seq: number; kind: string; ticketNo: number | null; levelNo: number | null; levelName: string | null; isSmall: boolean; displayName: string }[];
 }
 
 /** 會員：近 3 個月的抽賞紀錄（新到舊、分頁） */
@@ -65,8 +65,8 @@ export async function listMemberDraws(d: Db, userId: string, opts: { limit?: num
     WHERE h.user_id = ${userId} ${opts.before ? d`AND h.created_at < ${opts.before}` : d``} ${opts.drawId ? d`AND h.id = ${opts.drawId}` : d``}
     ORDER BY h.created_at DESC, h.id LIMIT ${limit}`;
   const results = draws.length
-    ? await d<{ drawId: string; seq: number; kind: string; ticketNo: number | null; rank: string | null; grade: Grade; prizeName: string }[]>`
-        SELECT draw_id, seq, kind, ticket_no, rank, grade, prize_name FROM draw_results WHERE draw_id = ANY(${draws.map((x) => x.id)}::uuid[]) ORDER BY draw_id, seq`
+    ? await d<{ drawId: string; seq: number; kind: string; ticketNo: number | null; levelNo: number | null; levelName: string | null; isSmall: boolean; prizeName: string }[]>`
+        SELECT draw_id, seq, kind, ticket_no, level_no, level_name, is_small, prize_name FROM draw_results WHERE draw_id = ANY(${draws.map((x) => x.id)}::uuid[]) ORDER BY draw_id, seq`
     : [];
   return {
     visibleDays: MEMBER_VISIBLE_DAYS,
@@ -79,7 +79,7 @@ export async function listMemberDraws(d: Db, userId: string, opts: { limit?: num
       amountCoins: x.amountCoins,
       shippingCoins: x.shippingCoins,
       createdAt: x.createdAt,
-      results: results.filter((r) => r.drawId === x.id).map((r) => ({ seq: r.seq, kind: r.kind, ticketNo: r.ticketNo, grade: r.grade, displayName: displayName(x.source, r.rank, r.prizeName) })),
+      results: results.filter((r) => r.drawId === x.id).map((r) => ({ seq: r.seq, kind: r.kind, ticketNo: r.ticketNo, levelNo: r.levelNo, levelName: r.levelName, isSmall: r.isSmall, displayName: displayName(r.levelName, r.prizeName) })),
     })),
   };
 }

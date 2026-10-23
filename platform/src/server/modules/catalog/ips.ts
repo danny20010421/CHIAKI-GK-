@@ -5,16 +5,13 @@ import { appendAudit } from '../audit/audit';
 import { requirePermission, type Principal } from '../auth/rbac';
 
 /**
- * IP（作品）目錄（業主規則，2026-10 第三批）：
- *  - 固定分類（日系動漫為主，5 類）：經典少年、新世代人氣、機甲・特攝、遊戲・角色、原創。
- *  - 別名 aliases（例：「原神」的 Genshin、げんしん）供搜尋；GET /api/ips?category=&q= 以名稱或別名、不分大小寫的「包含」比對。
+ * IP（作品）目錄：IP 只代表「哪部作品」，沒有分類（業主 2026-10 第四批移除 IP 分類）。
+ *  - 名稱、別名、是否顯示、排序。
+ *  - 別名 aliases（例：「原神」的 Genshin、げんしん）供搜尋；GET /api/ips?q= 以名稱或別名、不分大小寫的「包含」比對。
  *  - 排序模式（app_settings ip.sort_mode）：
  *      AUTO（預設）＝依名稱字數（以 Array.from 計算字元數，中英文與 emoji 皆算 1）由少到多，再依繁體中文排序（Intl.Collator zh-TW）；
  *      MANUAL＝後台手動排序（POST /api/admin/ips/reorder 一次送出全部 IP 的順序，單一交易原子更新）。
  */
-export const IP_CATEGORIES = ['經典少年', '新世代人氣', '機甲・特攝', '遊戲・角色', '原創'] as const;
-export type IpCategory = (typeof IP_CATEGORIES)[number];
-export const IpCategorySchema = z.enum(IP_CATEGORIES, { errorMap: () => ({ message: `IP 分類須為：${IP_CATEGORIES.join('、')}` }) });
 export const SORT_MODES = ['AUTO', 'MANUAL'] as const;
 export type SortMode = (typeof SORT_MODES)[number];
 
@@ -31,7 +28,6 @@ const AliasesSchema = z
 export const IpCreateSchema = z.object({
   slug: SlugSchema,
   name: z.string().trim().min(1).max(100),
-  category: IpCategorySchema.nullable().default(null),
   aliases: AliasesSchema.default([]),
   visible: z.boolean().default(true),
   coverUrl: CoverSchema.nullable().default(null),
@@ -40,7 +36,6 @@ export const IpUpdateSchema = z
   .object({
     slug: SlugSchema.optional(),
     name: z.string().trim().min(1).max(100).optional(),
-    category: IpCategorySchema.nullable().optional(),
     aliases: AliasesSchema.optional(),
     visible: z.boolean().optional(),
     coverUrl: CoverSchema.nullable().optional(),
@@ -56,7 +51,6 @@ export interface IpRow {
   id: string;
   slug: string;
   name: string;
-  category: IpCategory | null;
   aliases: string[];
   sortOrder: number;
   visible: boolean;
@@ -97,32 +91,28 @@ async function audit(tx: Tx, actor: Principal, action: string, entityId: string,
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
-async function queryIps(d: Db, f: { category?: IpCategory; q?: string; visibleOnly: boolean }): Promise<IpRow[]> {
+async function queryIps(d: Db, f: { q?: string; visibleOnly: boolean }): Promise<IpRow[]> {
   const pattern = f.q ? `%${escapeLike(f.q)}%` : null;
   return d<IpRow[]>`
-    SELECT i.id, i.slug, i.name, i.category, i.aliases, i.sort_order, i.visible, i.cover_url,
+    SELECT i.id, i.slug, i.name, i.aliases, i.sort_order, i.visible, i.cover_url,
            (SELECT count(*)::int FROM pools p WHERE p.ip_id = i.id ${f.visibleOnly ? d`AND p.status = 'PUBLISHED'` : d``}) AS pool_count
     FROM ips i
     WHERE true
       ${f.visibleOnly ? d`AND i.visible` : d``}
-      ${f.category ? d`AND i.category = ${f.category}` : d``}
       ${pattern ? d`AND (i.name ILIKE ${pattern} OR EXISTS (SELECT 1 FROM unnest(i.aliases) a WHERE a ILIKE ${pattern}))` : d``}`;
 }
 
 export const PublicIpQuerySchema = z.object({
-  category: IpCategorySchema.optional(),
   q: z.string().trim().max(50).optional().transform((s) => (s ? s : undefined)),
 });
 
-/** 公開：大廳篩選與搜尋（只含顯示中的 IP；附上架中賞池數與各分類數量） */
+/** 公開：大廳篩選與搜尋（只含顯示中的 IP；附上架中賞池數） */
 export async function publicIps(d: Db, input: z.input<typeof PublicIpQuerySchema> = {}) {
   const f = PublicIpQuerySchema.parse(input);
   const mode = await getSortMode(d);
   const rows = sortIps(await queryIps(d, { ...f, visibleOnly: true }), mode);
-  const counts = await d<{ category: string; n: number }[]>`SELECT category, count(*)::int AS n FROM ips WHERE visible AND category IS NOT NULL GROUP BY category`;
   return {
     sortMode: mode,
-    categories: IP_CATEGORIES.map((c) => ({ category: c, count: counts.find((x) => x.category === c)?.n ?? 0 })),
     ips: rows.map(({ sortOrder: _s, visible: _v, ...r }) => r),
   };
 }
@@ -139,8 +129,8 @@ export async function createIp(actor: Principal, input: z.input<typeof IpCreateS
   const v = IpCreateSchema.parse(input);
   return transaction(async (tx) => {
     const [r] = await tx<{ id: string }[]>`
-      INSERT INTO ips (slug, name, category, aliases, visible, cover_url, sort_order)
-      VALUES (${v.slug}, ${v.name}, ${v.category}, ${v.aliases}, ${v.visible}, ${v.coverUrl}, (SELECT COALESCE(max(sort_order), 0) + 1 FROM ips))
+      INSERT INTO ips (slug, name, aliases, visible, cover_url, sort_order)
+      VALUES (${v.slug}, ${v.name}, ${v.aliases}, ${v.visible}, ${v.coverUrl}, (SELECT COALESCE(max(sort_order), 0) + 1 FROM ips))
       RETURNING id`;
     await audit(tx, actor, 'IP_CREATED', r!.id, v);
     return { id: r!.id };
@@ -157,7 +147,6 @@ export async function updateIp(actor: Principal, id: string, input: z.input<type
       UPDATE ips SET
         slug = COALESCE(${v.slug ?? null}, slug),
         name = COALESCE(${v.name ?? null}, name),
-        category = ${v.category === undefined ? tx`category` : v.category},
         aliases = ${v.aliases === undefined ? tx`aliases` : tx`${v.aliases}::text[]`},
         visible = COALESCE(${v.visible ?? null}, visible),
         cover_url = ${v.coverUrl === undefined ? tx`cover_url` : v.coverUrl},

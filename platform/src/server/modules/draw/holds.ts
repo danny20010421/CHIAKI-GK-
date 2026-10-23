@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AppError } from '../../errors';
 import { config } from '../../config';
-import { transaction, type Tx } from '../../db';
+import { transaction, type Db, type Tx } from '../../db';
 import { enforceRateLimit } from '../risk/risk';
 import { resolvePublicPool } from '../pool/queries';
 
@@ -21,7 +21,17 @@ export async function requireOnSaleSet(tx: Tx, poolId: string, setNo: number) {
     WHERE s.pool_id = ${poolId} AND s.set_no = ${setNo}`;
   if (!s) throw new AppError('NOT_FOUND', 'set not found');
   if (s.poolStatus !== 'PUBLISHED' || s.status !== 'ON_SALE') throw new AppError('SET_NOT_ON_SALE', '本套目前不開放');
+  await assertSellable(tx, s.id);
   return s;
+}
+
+/** 賞池或套已下架/已刪除 → 不可鎖籤、不可抽 */
+export async function assertSellable(d: Db | Tx, setId: string): Promise<void> {
+  const [r] = await d<{ offline: boolean; deleted: boolean }[]>`
+    SELECT (s.offline OR p.offline) AS offline, (s.deleted_at IS NOT NULL OR p.deleted_at IS NOT NULL) AS deleted
+    FROM pool_sets s JOIN pools p ON p.id = s.pool_id WHERE s.id = ${setId}`;
+  if (!r || r.deleted) throw new AppError('NOT_FOUND', 'set not found');
+  if (r.offline) throw new AppError('SET_NOT_ON_SALE', '本套已下架，暫停販售');
 }
 
 async function explainFailure(tx: Tx, setId: string, userId: string, nos: number[]): Promise<never> {

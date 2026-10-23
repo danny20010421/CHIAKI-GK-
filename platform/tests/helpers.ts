@@ -82,13 +82,88 @@ let slugSeq = 0;
 /** 測試賞池預設運費（宅配 / 超商 C2C） */
 export const FEE_HOME = 150;
 export const FEE_CVS = 70;
+/** 測試賞池預設開放全部快速抽包（正式預設為 1、5、10） */
+export const ALL_PACKS = [1, 3, 5, 10, 20, 'all'] as const;
+
+type LegacyGrade = 'GRAND' | 'MID' | 'SMALL';
+const OLD_CATEGORY_TO_TAG: Record<string, string> = { GK: 'GK', PVC: 'PVC', 景品: '景品盲盒', 盒玩扭蛋: '景品盲盒', 卡牌: '卡牌', 絨毛: '娃娃' };
+/** 測試用的精簡寫法：rank（A–H → 等級 1–8）或 grade（GRAND/MID/SMALL → 等級 1/2/3），由 toDraft 轉成等級模型 */
+export interface TestPrize {
+  rank?: string;
+  grade?: LegacyGrade;
+  name: string;
+  qtyPerSet: number;
+  recycleValue?: number;
+  recyclable?: boolean;
+  tag?: string | null;
+  category?: string | null;
+  bulky?: boolean;
+  imageUrl?: string | null;
+}
+export type TestPoolInput = Omit<Partial<PoolDraftInput>, 'guarantee'> & {
+  prizes?: TestPrize[];
+  lastPrizeName?: string | null;
+  lastPrizeRecycleValue?: number;
+  lastPrizeRecyclable?: boolean;
+  lastPrizeTag?: string | null;
+  lastPrizeBulky?: boolean;
+  guarantee?:
+    | (Record<string, unknown> & { everyN: number; reservePrizeName: string; reserveTotal: number; minGrade?: LegacyGrade; minLevel?: number; reserveRank?: string; reserveGrade?: LegacyGrade; reserveLevelNo?: number })
+    | null;
+};
+
+const GRADE_ORDER: Record<LegacyGrade, number> = { GRAND: 0, MID: 1, SMALL: 2 };
+const defaultGradeForRank = (r: string): LegacyGrade => (r === 'A' ? 'GRAND' : r === 'B' || r === 'C' ? 'MID' : 'SMALL');
+const levelOf = (p: { rank?: string; grade?: LegacyGrade }) =>
+  p.rank ? p.rank.charCodeAt(0) - 64 : p.grade === 'GRAND' ? 1 : p.grade === 'MID' ? 2 : 3;
+const tagOf = (p: { tag?: string | null; category?: string | null }) =>
+  (p.tag !== undefined ? p.tag : p.category ? (OLD_CATEGORY_TO_TAG[p.category] ?? '其他') : null) as never;
+
+/** 舊式（rank/grade）測試定義 → 等級 1–8 草稿 */
+export function toDraft(input: TestPoolInput): PoolDraftInput {
+  const { prizes, lastPrizeName, lastPrizeRecycleValue, lastPrizeRecyclable, lastPrizeTag, lastPrizeBulky, guarantee, ...rest } = input;
+  const out: PoolDraftInput = { ...(rest as PoolDraftInput) };
+  const grades = new Map<number, LegacyGrade>();
+  if (prizes && !rest.levels) {
+    const levels = new Map<number, { levelNo: number; name: string; items: NonNullable<PoolDraftInput['levels']>[number]['items']; small: boolean[] }>();
+    for (const p of prizes) {
+      const no = levelOf(p);
+      const g = p.grade ?? (p.rank ? defaultGradeForRank(p.rank) : 'SMALL');
+      const name = p.rank ? `${p.rank}賞` : no === 1 ? '大獎' : no === 2 ? '中獎' : '小獎';
+      const l = levels.get(no) ?? { levelNo: no, name, items: [], small: [] };
+      l.items.push({ name: p.name, qtyPerSet: p.qtyPerSet, recycleValue: p.recycleValue, recyclable: p.recyclable, tag: tagOf(p), bulky: p.bulky, imageUrl: p.imageUrl });
+      l.small.push(g === 'SMALL');
+      levels.set(no, l);
+      const cur = grades.get(no);
+      if (!cur || GRADE_ORDER[g] < GRADE_ORDER[cur]) grades.set(no, g);
+    }
+    out.levels = [...levels.values()].map((l) => ({ levelNo: l.levelNo, name: l.name, isSmall: l.small.every(Boolean), items: l.items }));
+  }
+  if (lastPrizeName !== undefined && rest.lastPrize === undefined) {
+    out.lastPrize = lastPrizeName
+      ? { name: lastPrizeName, recycleValue: lastPrizeRecycleValue, recyclable: lastPrizeRecyclable, tag: (lastPrizeTag ?? null) as never, bulky: lastPrizeBulky }
+      : null;
+  }
+  if (guarantee !== undefined) {
+    if (guarantee === null) out.guarantee = null;
+    else {
+      const { minGrade, reserveRank, reserveGrade, ...g } = guarantee;
+      const levelNos = [...grades.keys()].sort((a, b) => a - b);
+      const minLevel = g.minLevel ?? Math.max(...levelNos.filter((n) => GRADE_ORDER[grades.get(n)!] <= GRADE_ORDER[minGrade ?? 'MID']));
+      const reserveLevelNo =
+        g.reserveLevelNo ?? (reserveRank ? reserveRank.charCodeAt(0) - 64 : levelNos.find((n) => grades.get(n) === (reserveGrade ?? 'MID')) ?? levelNos[0]!);
+      out.guarantee = { ...(g as object), minLevel, reserveLevelNo } as never;
+    }
+  }
+  return out;
+}
 
 /**
- * 小型測試賞池（官方 OFFICIAL：有賞級）：預設 2 套 × 10 籤（A1 B1 C2 D6），每抽 100。
- * 等級採預設對應：A → GRAND、B/C → MID、D → SMALL。回收值：C 300、D 150（A/B 不可回收）。
+ * 小型測試賞池（官方 OFFICIAL）：預設 2 套 × 10 籤（A1 B1 C2 D6 → 等級 1–4；D 為小獎），每抽 100。
+ * 回收值：C 300、D 150（A/B 不可回收）。
  */
-export function smallPool(overrides: Partial<PoolDraftInput> = {}): PoolDraftInput {
-  return {
+export function smallPool(overrides: TestPoolInput = {}): PoolDraftInput {
+  return toDraft({
     slug: `test-pool-${process.pid}-${++slugSeq}`,
     title: '測試賞池',
     source: 'OFFICIAL',
@@ -103,19 +178,20 @@ export function smallPool(overrides: Partial<PoolDraftInput> = {}): PoolDraftInp
       { rank: 'D', name: 'D賞', qtyPerSet: 6, recycleValue: 150 },
     ],
     guarantee: null,
+    drawPacks: [...ALL_PACKS],
     shippingFeeHome: FEE_HOME,
     shippingFeeCvs: FEE_CVS,
     ...overrides,
-  };
+  });
 }
 
 let customSeq = 0;
 /**
- * 自製（CUSTOM）測試賞池：沒有賞級，獎項以名稱識別、等級由後台指定。
- * 預設 1 套 × 40 籤：大獎 1、中獎 2、小獎 37（全部可回收：小獎 50、中獎 400）。
+ * 自製（CUSTOM）測試賞池：預設 1 套 × 40 籤：大獎（等級 1）1、中獎（等級 2）2、小獎（等級 3，小獎）37
+ * （全部可回收：小獎 50、中獎 400）。
  */
-export function customPool(overrides: Partial<PoolDraftInput> = {}): PoolDraftInput {
-  return {
+export function customPool(overrides: TestPoolInput = {}): PoolDraftInput {
+  return toDraft({
     slug: `custom-pool-${process.pid}-${++customSeq}`,
     title: '自製測試賞池',
     source: 'CUSTOM',
@@ -129,10 +205,20 @@ export function customPool(overrides: Partial<PoolDraftInput> = {}): PoolDraftIn
       { name: '壓克力立牌', grade: 'SMALL', qtyPerSet: 37, recycleValue: 50 },
     ],
     guarantee: null,
+    drawPacks: [...ALL_PACKS],
     shippingFeeHome: FEE_HOME,
     shippingFeeCvs: FEE_CVS,
     ...overrides,
-  };
+  });
+}
+
+/** 測試用：隨機挑 n 張目前可抽的籤號（取代任意張數的 count 抽法） */
+export async function pickTickets(poolId: string, n: number, setNo = 1): Promise<number[]> {
+  const rows = await db()<{ ticketNo: number }[]>`
+    SELECT t.ticket_no FROM tickets t JOIN pool_sets s ON s.id = t.set_id
+    WHERE s.pool_id = ${poolId} AND s.set_no = ${setNo} AND t.status = 'AVAILABLE' ORDER BY random() LIMIT ${n}`;
+  if (rows.length < n) throw new Error(`only ${rows.length} free tickets`);
+  return rows.map((r) => r.ticketNo).sort((a, b) => a - b);
 }
 
 /** 依正式流程建立並發布：OPS 建草稿＋申請 → 另一位 SUPER_ADMIN 核准。 */
@@ -147,9 +233,9 @@ export async function publishPool(draft: PoolDraftInput): Promise<string> {
 
 /** 測試專用：直接從資料庫讀出籤表（正式 API 不提供）。 */
 export async function layoutOf(poolId: string, setNo: number) {
-  return db()<{ ticketNo: number; rank: string | null; grade: 'GRAND' | 'MID' | 'SMALL'; name: string; prizeId: string; status: string }[]>`
-    SELECT t.ticket_no, pr.rank, pr.grade, pr.name, t.prize_id, t.status FROM tickets t
-    JOIN pool_sets s ON s.id = t.set_id JOIN pool_prizes pr ON pr.id = t.prize_id
+  return db()<{ ticketNo: number; levelNo: number; levelName: string; isSmall: boolean; name: string; prizeId: string; status: string }[]>`
+    SELECT t.ticket_no, pl.level_no, pl.name AS level_name, pl.is_small, pr.name, t.prize_id, t.status FROM tickets t
+    JOIN pool_sets s ON s.id = t.set_id JOIN pool_prizes pr ON pr.id = t.prize_id JOIN pool_levels pl ON pl.id = pr.level_id
     WHERE s.pool_id = ${poolId} AND s.set_no = ${setNo} ORDER BY t.ticket_no`;
 }
 

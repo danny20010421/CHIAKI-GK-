@@ -36,9 +36,10 @@ describe('draw transaction', () => {
     const layout = await layoutOf(poolId, 1);
     for (const r of response.results) {
       assert.equal(r.kind, 'TICKET');
-      assert.equal(r.rank, layout.find((t) => t.ticketNo === r.ticketNo)!.rank, 'result equals pre-committed layout');
-      assert.equal(r.grade, layout.find((t) => t.ticketNo === r.ticketNo)!.grade);
-      assert.equal(r.displayName, `${r.rank}賞 ${r.prizeName}`, 'official pool: rank label + name');
+      const l = layout.find((t) => t.ticketNo === r.ticketNo)!;
+      assert.equal(r.prizeId, l.prizeId, 'result equals pre-committed layout');
+      assert.deepEqual([r.levelNo, r.levelName, r.isSmall], [l.levelNo, l.levelName, l.isSmall]);
+      assert.equal(r.displayName, r.prizeName, 'level name equals item name here → shown once');
     }
     assert.equal((await walletOf(u.id)).coins, 800 - FEE_CVS);
     const items = await db()`SELECT id FROM warehouse_items WHERE user_id = ${u.id} AND status = 'STORED'`;
@@ -100,10 +101,10 @@ describe('draw transaction', () => {
     const poolId = await publishPool(smallPool());
     const u = await makeUser({ coins: 5000 });
     await executeDraw(u.id, key(), { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [1, 2, 3] });
-    const { response } = await executeDraw(u.id, key(), { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, count: 4 });
-    assert.equal(response.ticketNos.length, 4);
+    const { response } = await executeDraw(u.id, key(), { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, count: 5 });
+    assert.equal(response.ticketNos.length, 5);
     assert.ok(response.ticketNos.every((n) => n > 3));
-    await expectAppError(executeDraw(u.id, key(), { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, count: 4 }), 'NOT_ENOUGH_TICKETS');
+    await expectAppError(executeDraw(u.id, key(), { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, count: 5 }), 'NOT_ENOUGH_TICKETS');
   });
 
   it('drawing a taken ticket fails cleanly', async () => {
@@ -176,16 +177,19 @@ describe('sell-out, Last賞, reveal & verify', () => {
     assert.equal(last.response.nextSetNo, 2);
     assert.deepEqual(last.response.results.map((r) => r.kind), ['TICKET', 'LAST']);
     assert.equal(last.response.results[1]!.prizeName, 'Last賞（測試）');
+    assert.deepEqual([last.response.results[1]!.levelNo, last.response.results[1]!.levelName], [null, '最後賞'], 'LAST stays outside the 1–8 levels');
     const lastItems = await db()`SELECT user_id FROM warehouse_items WHERE pool_id = ${poolId} AND source = 'LAST'`;
     assert.deepEqual(lastItems.map((r) => r.userId), [b.id], 'exactly one Last prize, to the drawer of the final ticket');
 
     const rv = await revealSet(db(), poolId, 1);
     assert.equal(rv.verified, true);
+    assert.equal(rv.scheme, 'chiaki-commit-v2');
     assert.equal(rv.layout.length, 10);
+    assert.ok(rv.layout.every((t) => typeof t.levelNo === 'number'), 'v2 commits [ticketNo, levelNo, prizeId]');
     assert.equal(verifyCommitment({ poolId, setNo: 1, rulesHash: rv.rulesHash, layout: rv.layout }, rv.salt, rv.commitment), true);
     const tampered = rv.layout.map((t) => ({ ...t }));
-    const ai = tampered.findIndex((t) => t.rank === 'A');
-    const di = tampered.findIndex((t) => t.rank === 'D');
+    const ai = tampered.findIndex((t) => t.levelNo === 1);
+    const di = tampered.findIndex((t) => t.levelNo === 4);
     [tampered[ai]!.ticketNo, tampered[di]!.ticketNo] = [tampered[di]!.ticketNo, tampered[ai]!.ticketNo];
     assert.equal(verifyCommitment({ poolId, setNo: 1, rulesHash: rv.rulesHash, layout: tampered }, rv.salt, rv.commitment), false);
 
@@ -206,16 +210,16 @@ describe('sell-out, Last賞, reveal & verify', () => {
 });
 
 describe('live remaining & probabilities', () => {
-  it('computed from DB: remaining of rank / total remaining', async () => {
+  it('computed from DB: remaining of level / total remaining', async () => {
     const poolId = await publishPool(smallPool());
     const a = await makeUser({ coins: 5000 });
     const layout = await layoutOf(poolId, 1);
-    const aTicket = layout.find((t) => t.rank === 'A')!.ticketNo;
-    const dTickets = layout.filter((t) => t.rank === 'D').slice(0, 2).map((t) => t.ticketNo);
+    const aTicket = layout.find((t) => t.levelNo === 1)!.ticketNo;
+    const dTickets = layout.filter((t) => t.levelNo === 4).slice(0, 2).map((t) => t.ticketNo);
     await executeDraw(a.id, key(), { poolId, shippingMethod: 'CVS_711_C2C', setNo: 1, ticketNos: [aTicket, ...dTickets] });
     const board = await getSetBoard(db(), poolId, 1);
     assert.equal(board.remaining, 7);
-    const by = Object.fromEntries(board.prizes.map((p) => [p.rank, p]));
+    const by = Object.fromEntries(board.prizes.map((p) => [p.levelName!.slice(0, 1), p]));
     assert.equal(by.A!.remaining, 0);
     assert.equal(by.A!.probability, 0);
     assert.equal(by.D!.remaining, 4);
@@ -223,10 +227,11 @@ describe('live remaining & probabilities', () => {
     assert.equal(by.C!.probability, Math.round((2 / 7) * 1e6) / 1e6);
     const sum = board.prizes.reduce((s, p) => s + p.remaining, 0);
     assert.equal(sum, board.remaining);
-    // 已抽出的籤顯示賞級；未抽出的籤不揭露
+    assert.deepEqual(board.levels.map((l) => [l.levelNo, l.remaining, l.probability]), [[1, 0, 0], [2, 1, Math.round((1 / 7) * 1e6) / 1e6], [3, 2, Math.round((2 / 7) * 1e6) / 1e6], [4, 4, Math.round((4 / 7) * 1e6) / 1e6]]);
+    // 已抽出的籤顯示等級；未抽出的籤不揭露
     for (const t of board.tickets) {
-      if (t.state === 'TAKEN') assert.ok('rank' in t);
-      else assert.ok(!('rank' in t));
+      if (t.state === 'TAKEN') assert.ok('levelNo' in t && 'displayName' in t);
+      else assert.ok(!('levelNo' in t) && !('displayName' in t));
     }
   });
 });

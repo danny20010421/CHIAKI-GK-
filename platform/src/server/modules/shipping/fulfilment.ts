@@ -183,10 +183,10 @@ export async function pickList(actor: Principal, filter: { status?: 'REQUESTED' 
   requirePermission(actor, 'shipment.manage');
   const d = db();
   const rows = await d<
-    { shipmentId: string; status: ShipmentStatus; method: string; recipientName: string; recipientPhone: string; address: string | null; cvsStoreId: string | null; cvsStoreName: string | null; createdAt: Date; attempt: number; itemId: string; prizeName: string; grade: string | null; poolTitle: string | null; setNo: number | null; ticketNo: number | null }[]
+    { shipmentId: string; status: ShipmentStatus; method: string; recipientName: string; recipientPhone: string; address: string | null; cvsStoreId: string | null; cvsStoreName: string | null; createdAt: Date; attempt: number; itemId: string; prizeName: string; levelNo: number | null; levelName: string | null; poolTitle: string | null; setNo: number | null; ticketNo: number | null }[]
   >`
     SELECT s.id AS shipment_id, s.status, s.method, s.recipient_name, s.recipient_phone, s.address, s.cvs_store_id, s.cvs_store_name, s.created_at, s.attempt,
-           wi.id AS item_id, wi.prize_name, wi.grade, p.title AS pool_title, ps.set_no, wi.ticket_no
+           wi.id AS item_id, wi.prize_name, wi.level_no, wi.level_name, p.title AS pool_title, ps.set_no, wi.ticket_no
     FROM shipments s
     JOIN warehouse_items wi ON wi.shipment_id = s.id
     LEFT JOIN pools p ON p.id = wi.pool_id
@@ -209,7 +209,7 @@ export async function pickList(actor: Principal, filter: { status?: 'REQUESTED' 
       };
       map.set(r.shipmentId, s);
     }
-    s.items.push({ itemId: r.itemId, prizeName: r.prizeName, grade: r.grade, poolTitle: r.poolTitle, setNo: r.setNo, ticketNo: r.ticketNo });
+    s.items.push({ itemId: r.itemId, prizeName: r.prizeName, levelNo: r.levelNo, levelName: r.levelName, poolTitle: r.poolTitle, setNo: r.setNo, ticketNo: r.ticketNo });
   }
   const shipments = [...map.values()];
   return { generatedAt: new Date().toISOString(), shipmentCount: shipments.length, itemCount: rows.length, shipments };

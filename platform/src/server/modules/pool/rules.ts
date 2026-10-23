@@ -1,16 +1,27 @@
 import { canonicalJson, sha256Hex } from '../../lib/canonical';
-import type { Grade } from './grades';
 
 export type PoolSource = 'OFFICIAL' | 'CUSTOM' | 'MIXED';
 export type PlayType = 'STANDARD' | 'GUARANTEE' | 'SOLO';
 
+export interface RulesPrize {
+  prizeId: string;
+  name: string;
+  qtyPerSet: number;
+  /** v3 */
+  levelNo?: number;
+  /** v1/v2（舊快照） */
+  rank?: string | null;
+  grade?: string;
+  tier?: number;
+}
+
 /**
  * 規則快照：發布後不可變；rulesHash 也被綁進每一套的承諾雜湊。
- * v2（業主 2026-10 規則）：獎項以等級 grade 為準、自製賞池無賞級（rank = null）、
- * 保底門檻為 minGrade、加入運費預收政策。v1 舊版快照仍可被讀取（抽賞只使用共同欄位）。
+ * v3（業主 2026-10 第四批）：獎項等級 1–8（levels：等級號、顯示名稱、是否小獎、獎項），保底門檻為 minLevel。
+ * v1/v2 舊版快照仍可被讀取與驗證（抽賞只使用共同欄位）。
  */
 export interface PoolRules {
-  schema: 'chiaki-rules-v1' | 'chiaki-rules-v2';
+  schema: 'chiaki-rules-v1' | 'chiaki-rules-v2' | 'chiaki-rules-v3';
   poolId: string;
   version: number;
   title: string;
@@ -21,16 +32,20 @@ export interface PoolRules {
   ticketsPerSet: number;
   drawMethod: 'FIXED_LIST_WITHOUT_REPLACEMENT';
   holdSeconds: number;
-  prizes: { prizeId: string; rank: string | null; grade?: Grade; tier?: number; name: string; qtyPerSet: number }[];
-  lastPrize: { prizeId?: string; name: string; grade?: Grade; rule: 'AWARDED_TO_DRAWER_OF_FINAL_TICKET_OF_EACH_SET' } | null;
+  /** v3 */
+  levels?: { levelNo: number; name: string; isSmall: boolean; prizes: { prizeId: string; name: string; qtyPerSet: number }[] }[];
+  prizes: RulesPrize[];
+  lastPrize: { prizeId?: string; name: string; grade?: string; rule: 'AWARDED_TO_DRAWER_OF_FINAL_TICKET_OF_EACH_SET' } | null;
   guarantee: {
     everyN: number;
-    minGrade?: Grade;
+    minLevel?: number;
+    minGrade?: string;
     minTier?: number;
     reservePrizeId?: string;
-    reserveRank: string | null;
+    reserveRank?: string | null;
+    reserveLevelNo?: number;
     reservePrizeName: string;
-    reserveGrade?: Grade;
+    reserveGrade?: string;
     reserveTotal: number;
     rule: string;
   } | null;
