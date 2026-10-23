@@ -16,6 +16,8 @@ export const POST = route(
       const r = await handleEcpayNotify(raw, { ip: requestIp(req) });
       return text(r.body, r.status);
     } catch (e) {
+      // 測試網站（SITE_TEST_MODE）：拒絕任何付款通知
+      if ((e as { code?: string }).code === 'TEST_SITE') return text(`0|${(e as Error).message}`, 403);
       console.error('[ecpay notify] error', e);
       return text('0|Server Error', 500);
     }

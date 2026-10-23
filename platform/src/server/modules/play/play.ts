@@ -8,6 +8,7 @@ import { recordSecurityEvent } from '../../security/events';
 import { resolvePublicPool } from '../pool/queries';
 import { displayName, LAST_PRIZE_LABEL } from '../pool/levels';
 import type { Tag } from '../catalog/tags';
+import { generateServerSeed, pickFromCounts, ProbRng } from '../pool/prob';
 
 /**
  * 免費試玩（GET/POST /api/play/:poolId?count=1|5|10）。
@@ -56,8 +57,8 @@ export interface PlayResult {
 export async function freePlay(d: Db, idOrSlug: string, rawCount: unknown) {
   const count = PlayCountSchema.parse(rawCount ?? undefined);
   const { id: poolId } = await resolvePublicPool(d, idOrSlug);
-  const [set] = await d<{ id: string; setNo: number }[]>`
-    SELECT s.id, s.set_no FROM pool_sets s JOIN pools p ON p.id = s.pool_id
+  const [set] = await d<{ id: string; setNo: number; playType: string }[]>`
+    SELECT s.id, s.set_no, p.play_type FROM pool_sets s JOIN pools p ON p.id = s.pool_id
     WHERE s.pool_id = ${poolId} AND s.status = 'ON_SALE' AND p.status = 'PUBLISHED' AND NOT p.offline AND NOT s.offline AND s.deleted_at IS NULL
     ORDER BY s.set_no LIMIT 1`;
   if (!set) throw new AppError('SET_NOT_ON_SALE', '目前沒有開賣中的套，無法試玩');
@@ -72,11 +73,22 @@ export async function freePlay(d: Db, idOrSlug: string, rawCount: unknown) {
   const left = buckets.map((b) => b.remaining);
   let total = remainingBefore;
   const results: PlayResult[] = [];
+  // 機率賞：與正式抽賞同一套規則（固定機率等級／其餘平均），以一次性的隨機種子模擬
+  const probOdds =
+    set.playType === 'PROB'
+      ? new Map((await d<{ levelNo: number; odds: number | null }[]>`SELECT level_no, odds FROM pool_levels WHERE pool_id = ${poolId}`).map((o) => [o.levelNo, o.odds]))
+      : null;
+  const probRng = probOdds ? new ProbRng(generateServerSeed(), 'free-play', 0) : null;
+  const probItems = buckets.map((b, k) => ({ k, levelNo: b.levelNo!, remaining: b.remaining }));
   for (let i = 0; i < n; i++) {
-    let r = randomInt(total);
     let k = 0;
-    while (r >= left[k]!) r -= left[k++]!;
-    left[k]!--;
+    if (probOdds) {
+      k = pickFromCounts(probItems, probOdds, probRng!).k;
+    } else {
+      let r = randomInt(total);
+      while (r >= left[k]!) r -= left[k++]!;
+      left[k]!--;
+    }
     total--;
     const b = buckets[k]!;
     results.push({

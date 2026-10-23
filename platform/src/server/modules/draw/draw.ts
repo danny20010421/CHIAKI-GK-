@@ -15,7 +15,8 @@ import { ShippingMethodSchema } from '../shipping/fees';
 import { computeShippingCharge, lockUserSetShipping, type ShippingCharge } from '../shipping/prepaid';
 import { notifyEvent } from '../notifications/outbox';
 import { getWallet } from '../wallet/wallet';
-import { assertSellable, TicketNosSchema } from './holds';
+import { assertSellable, assertTicketPickAllowed, TicketNosSchema } from './holds';
+import { pickTickets as pickProbTickets, PROB_SCHEME, ProbRng } from '../pool/prob';
 
 export const DrawRequestSchema = z
   .object({
@@ -26,8 +27,11 @@ export const DrawRequestSchema = z
     count: z.union([z.number().int().positive(), z.literal('all')]).optional(),
     // 運費按套預收：本次需收運費且此套尚無預收紀錄時必填；之後未填則沿用此套上次的方式
     shippingMethod: ShippingMethodSchema.optional(),
+    // 機率賞：會員可自訂 client seed（可驗證亂數的一部分）；未給則使用 Idempotency-Key
+    clientSeed: z.string().min(1).max(128).optional(),
   })
   .refine((v) => (v.ticketNos ? 1 : 0) + (v.count ? 1 : 0) === 1, 'provide exactly one of ticketNos or count');
+
 export type DrawRequest = z.infer<typeof DrawRequestSchema>;
 
 export const IdempotencyKeySchema = z.string().regex(/^[A-Za-z0-9_\-:.]{8,128}$/, 'Idempotency-Key must be 8-128 chars [A-Za-z0-9_-:.]');
@@ -68,6 +72,8 @@ export interface DrawResponse {
   setSoldOut: boolean;
   nextSetNo: number | null;
   guarantee: { misses: number; everyN: number; minLevel: number; reserveRemaining: number } | null;
+  /** 機率賞：本筆的可驗證亂數參數（完售後公開 server seed 即可重算） */
+  prob?: { scheme: string; seedHash: string; clientSeed: string; nonce: number };
   createdAt: string;
 }
 
@@ -138,6 +144,7 @@ export async function executeDraw(
   if (!idempotencyKey) throw new AppError('IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key header is required');
   const key = IdempotencyKeySchema.parse(idempotencyKey);
   const req = DrawRequestSchema.parse(body);
+  if (req.ticketNos) assertTicketPickAllowed();
   if (req.ticketNos && req.ticketNos.length > config().MAX_TICKETS_PER_DRAW) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_DRAW} tickets per draw`);
   if (typeof req.count === 'number' && req.count > config().MAX_TICKETS_PER_DRAW) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_DRAW} tickets per draw`);
   const requestHash = sha256Hex(canonicalJson(req));
@@ -186,7 +193,22 @@ export async function executeDraw(
 
     // 4. 選籤 + 鎖籤
     let nos: number[];
-    if (req.ticketNos) {
+    let prob: { clientSeed: string; nonce: number; seedHash: string } | null = null;
+    if (rules.playType === 'PROB') {
+      // 機率賞：只能快速抽；以可驗證種子流依規則逐張抽選（套已鎖定 → 狀態一致、nonce 連續）
+      if (req.ticketNos) throw new AppError('VALIDATION', '機率賞只能快速抽（count）');
+      const [ps] = await tx<{ seed: string; nonce: number; seedHash: string }[]>`SELECT prob_server_seed AS seed, prob_nonce AS nonce, prob_seed_hash AS seed_hash FROM pool_sets WHERE id = ${set.id}`;
+      const remaining = await tx<{ ticketNo: number; levelNo: number }[]>`
+        SELECT t.ticket_no, pl.level_no FROM tickets t JOIN pool_prizes pr ON pr.id = t.prize_id JOIN pool_levels pl ON pl.id = pr.level_id
+        WHERE t.set_id = ${set.id} AND t.status = 'AVAILABLE' ORDER BY t.ticket_no`;
+      const odds = await tx<{ levelNo: number; odds: number | null }[]>`
+        SELECT l.level_no, l.odds FROM pool_levels l JOIN pool_sets s ON s.pool_id = l.pool_id WHERE s.id = ${set.id}`;
+      const n = resolvePackCount(req.count!, set.drawPacks, remaining.length);
+      prob = { clientSeed: req.clientSeed ?? key, nonce: ps!.nonce + 1, seedHash: ps!.seedHash };
+      const picked = pickProbTickets(remaining, new Map(odds.map((o) => [o.levelNo, o.odds])), new ProbRng(ps!.seed, prob.clientSeed, prob.nonce), n);
+      nos = picked.map((t) => t.ticketNo).sort((a, b) => a - b);
+      await tx`UPDATE pool_sets SET prob_nonce = ${prob.nonce} WHERE id = ${set.id}`;
+    } else if (req.ticketNos) {
       nos = [...req.ticketNos].sort((a, b) => a - b);
     } else {
       const avail = await tx<{ ticketNo: number }[]>`
@@ -235,8 +257,10 @@ export async function executeDraw(
     }
     const drawId = randomUUID();
     await tx`
-      INSERT INTO draws (id, merchant_id, user_id, pool_id, set_id, rule_version_id, idempotency_key, ticket_count, unit_price, amount_coins, shipping_coins)
-      VALUES (${drawId}, ${set.merchantId}, ${userId}, ${poolId}, ${set.id}, ${set.ruleVersionId}, ${key}, ${nos.length}, ${unitPrice}, ${amount}, ${ship.amount})`;
+      INSERT INTO draws (id, merchant_id, user_id, pool_id, set_id, rule_version_id, idempotency_key, ticket_count, unit_price, amount_coins, shipping_coins,
+                         prob_client_seed, prob_nonce)
+      VALUES (${drawId}, ${set.merchantId}, ${userId}, ${poolId}, ${set.id}, ${set.ruleVersionId}, ${key}, ${nos.length}, ${unitPrice}, ${amount}, ${ship.amount},
+              ${prob?.clientSeed ?? null}, ${prob?.nonce ?? null})`;
     let { balanceAfter } = await postLedger(tx, {
       userId,
       currency: 'COINS',
@@ -375,6 +399,7 @@ export async function executeDraw(
       setSoldOut: remaining === 0,
       nextSetNo,
       guarantee: guaranteeState,
+      ...(prob ? { prob: { scheme: PROB_SCHEME, seedHash: prob.seedHash, clientSeed: prob.clientSeed, nonce: prob.nonce } } : {}),
       createdAt: new Date().toISOString(),
     };
 
@@ -428,6 +453,7 @@ function shippingSummary(c: ShippingCharge, prepaymentIds: string[]): DrawShippi
  */
 export async function quoteDraw(userId: string, body: unknown) {
   const req = DrawRequestSchema.parse(body);
+  if (req.ticketNos) assertTicketPickAllowed();
   if (req.ticketNos && req.ticketNos.length > config().MAX_TICKETS_PER_DRAW) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_DRAW} tickets per draw`);
   const d = db();
   const { id: poolId } = await resolvePublicPool(d, req.poolId);
@@ -439,6 +465,7 @@ export async function quoteDraw(userId: string, body: unknown) {
   if (set.poolStatus !== 'PUBLISHED' || set.status !== 'ON_SALE') throw new AppError('SET_NOT_ON_SALE', '本套目前不開放抽賞');
   await assertSellable(d, set.id);
   const rules = JSON.parse(set.rulesJson) as PoolRules;
+  if (rules.playType === 'PROB' && req.ticketNos) throw new AppError('VALIDATION', '機率賞只能快速抽（count）');
   let n = req.ticketNos?.length ?? 0;
   if (req.count !== undefined) {
     const [a] = await d<{ n: number }[]>`

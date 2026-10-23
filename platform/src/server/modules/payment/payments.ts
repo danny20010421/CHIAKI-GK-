@@ -20,8 +20,20 @@ function findPackage(code: string) {
   return p;
 }
 
+export const TEST_SITE_MESSAGE = '此為測試網站，不進行商業行為';
+
+/**
+ * 測試網站保護：SITE_TEST_MODE（預設開）時所有金流端點（綠界結帳、綠界付款通知、銀行轉帳訂單）一律 403，
+ * 除非另外開啟 PAYMENT_SANDBOX（綠界 STAGE 沙盒），確保測試站不會意外收款。
+ */
+export function assertCommerceAllowed(): void {
+  const c = config();
+  if (c.SITE_TEST_MODE && !c.PAYMENT_SANDBOX) throw new AppError('TEST_SITE', TEST_SITE_MESSAGE);
+}
+
 /** 建立綠界訂單（PENDING）並回傳前端需自動 POST 到綠界的表單參數（含 CheckMacValue）。 */
 export async function createEcpayCheckout(userId: string, input: z.input<typeof CheckoutSchema>) {
+  assertCommerceAllowed();
   const v = CheckoutSchema.parse(input);
   const pkg = findPackage(v.packageCode);
   const c = config();
@@ -124,6 +136,7 @@ function parseEcpayDate(s: string | undefined): Date | null {
  *   （以舊簽章資料拼湊/重放）→ 拒絕並記錄風控事件。綠界在未收到 1|OK 時會重送，因此重複的合法通知一律回 1|OK。
  */
 export async function handleEcpayNotify(rawBody: string, meta: { ip?: string } = {}): Promise<{ body: string; status: number; outcome: NotifyOutcome }> {
+  assertCommerceAllowed();
   const c = config();
   const params = Object.fromEntries(new URLSearchParams(rawBody)) as Record<string, string>;
   const tradeNo = params.MerchantTradeNo ?? null;
@@ -183,6 +196,7 @@ export async function handleEcpayNotify(rawBody: string, meta: { ip?: string } =
 
 /** 銀行轉帳：建立待人工對帳訂單（財務確認入帳需雙人覆核）。 */
 export async function createBankTransferOrder(userId: string, input: { packageCode: string; bankLast5?: string }) {
+  assertCommerceAllowed();
   const pkg = findPackage(input.packageCode);
   if (input.bankLast5 && !/^\d{5}$/.test(input.bankLast5)) throw new AppError('VALIDATION', 'bankLast5 must be 5 digits');
   const tradeNo = generateMerchantTradeNo().replace(/^CK/, 'BT');

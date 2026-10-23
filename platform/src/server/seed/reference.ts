@@ -89,3 +89,28 @@ export const GUARANTEE_SAMPLE_POOL: PoolDraftInput = {
   shippingFeeHome: 180,
   shippingFeeCvs: 80,
 };
+
+/**
+ * 機率賞範例（PROB）：每套 2000 籤、每抽 40 代幣。
+ * 大獎、2 獎為固定單抽機率（1/30、1/50；抽完後其機率滾入其餘獎項），其餘依剩餘籤數平均分配。
+ */
+export const PROB_SAMPLE_POOL: PoolDraftInput = {
+  slug: 'chiaki-miyazaki-prob',
+  title: '宮崎駿 機率賞（範例）',
+  ip: '',
+  source: 'CUSTOM',
+  playType: 'PROB',
+  priceCoins: 40,
+  setCount: 1,
+  levels: [
+    { levelNo: 1, name: '大獎', odds: '1/30', items: [{ name: '神隱卡西法', qtyPerSet: 5, recycleValue: 2000 }] },
+    { levelNo: 2, name: '2 獎', odds: '1/50', items: [{ name: '宮崎駿地毯', qtyPerSet: 5, recycleValue: 300 }] },
+    { levelNo: 3, name: '3 獎', items: [{ name: '宮崎駿盲盒', qtyPerSet: 30, recycleValue: 100, tag: '景品盲盒' }] },
+    { levelNo: 4, name: '4 獎', items: [{ name: '宮崎駿同人貼紙', qtyPerSet: 1960, recycleValue: 10, tag: '其他' }] },
+  ],
+  lastPrize: null,
+  guarantee: null,
+  drawPacks: [1, 5, 10],
+  shippingFeeHome: 150,
+  shippingFeeCvs: 70,
+};

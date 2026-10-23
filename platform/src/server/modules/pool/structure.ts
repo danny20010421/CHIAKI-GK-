@@ -13,6 +13,7 @@ import {
   LevelNameSchema,
   lockPublishedPool,
   MAX_TICKETS_PER_SET,
+  OddsSchema,
   PrizeItemSchema,
   PrizeNameSchema,
   RecycleValueSchema,
@@ -61,8 +62,8 @@ export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
     : await db<PoolHead[]>`SELECT id, slug, title, source, play_type, status, price_coins, set_count, draw_packs, last_prize_name, offline, deleted_at, delete_reason FROM pools WHERE slug = ${idOrSlug}`;
   const p = rows[0];
   if (!p) throw new AppError('NOT_FOUND', 'pool not found');
-  const levels = await db<{ id: string; levelNo: number; name: string; isSmall: boolean }[]>`
-    SELECT id, level_no, name, is_small FROM pool_levels WHERE pool_id = ${p.id} ORDER BY level_no`;
+  const levels = await db<{ id: string; levelNo: number; name: string; isSmall: boolean; odds: number | null }[]>`
+    SELECT id, level_no, name, is_small, odds FROM pool_levels WHERE pool_id = ${p.id} ORDER BY level_no`;
   const prizes = await db<AdminPrizeRow[]>`
     SELECT id, kind, level_id, name, qty_per_set, recycle_value, recyclable, tag, bulky, image_url
     FROM pool_prizes WHERE pool_id = ${p.id} ORDER BY sort_order, name`;
@@ -100,6 +101,7 @@ export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
       levelNo: l.levelNo,
       name: l.name,
       isSmall: l.isSmall,
+      odds: l.odds,
       items: prizes.filter((r) => r.kind === 'TICKET' && r.levelId === l.id).map(item),
     })),
     lastPrize: last ? { ...item(last), levelName: LAST_PRIZE_LABEL } : null,
@@ -123,8 +125,17 @@ export const CreateLevelSchema = z.object({
   levelNo: LevelNoSchema,
   name: LevelNameSchema,
   isSmall: z.boolean().optional(),
+  odds: OddsSchema.nullable().optional(),
   items: z.array(PrizeItemSchema).min(1, '每個等級至少一個獎項').max(50),
 });
+
+/** 機率賞：odds 只限 PROB 賞池、總和 < 1 */
+async function assertOdds(tx: Tx, poolId: string) {
+  const [r] = await tx<{ playType: string; n: number; sum: number | null }[]>`
+    SELECT p.play_type, count(l.odds)::int AS n, sum(l.odds) AS sum FROM pools p LEFT JOIN pool_levels l ON l.pool_id = p.id WHERE p.id = ${poolId} GROUP BY p.play_type`;
+  if (r!.n > 0 && r!.playType !== 'PROB') throw new AppError('VALIDATION', '只有機率賞（PROB）的等級可以設定固定機率 odds');
+  if ((r!.sum ?? 0) >= 1) throw new AppError('VALIDATION', '所有等級的固定機率總和必須小於 1');
+}
 
 export async function createLevel(actor: Principal, idOrSlug: string, input: z.input<typeof CreateLevelSchema>) {
   requirePermission(actor, 'pool.config.manage');
@@ -138,14 +149,15 @@ export async function createLevel(actor: Principal, idOrSlug: string, input: z.i
     let i = 0;
     for (const it of v.items) await insertItemChecked(tx, p.id, lv, it, v.levelNo * 100 + i++);
     await assertTicketTotal(tx, p.id);
+    await assertOdds(tx, p.id);
     await audit(tx, actor, 'POOL_LEVEL_CREATED', 'pool', p.id, { levelNo: v.levelNo, name: v.name, isSmall: v.isSmall ?? defaultIsSmall(v.levelNo), items: v.items.map((x) => x.name) });
     return getAdminPool(tx, p.id);
   });
 }
 
 export const UpdateLevelSchema = z
-  .object({ name: LevelNameSchema.optional(), isSmall: z.boolean().optional() })
-  .refine((v) => v.name !== undefined || v.isSmall !== undefined, 'nothing to update');
+  .object({ name: LevelNameSchema.optional(), isSmall: z.boolean().optional(), odds: OddsSchema.nullable().optional() })
+  .refine((v) => v.name !== undefined || v.isSmall !== undefined || v.odds !== undefined, 'nothing to update');
 
 /** 等級名稱隨時可改（留稽核；已入倉/已開獎的紀錄保留當時名稱）；是否小獎屬結構（影響運費規則），只在草稿可改。 */
 export async function updateLevel(actor: Principal, idOrSlug: string, levelNo: number, input: z.input<typeof UpdateLevelSchema>) {
@@ -154,13 +166,15 @@ export async function updateLevel(actor: Principal, idOrSlug: string, levelNo: n
   LevelNoSchema.parse(levelNo);
   return transaction(async (tx) => {
     const p = await lockPool(tx, idOrSlug);
-    const [l] = await tx<{ id: string; name: string; isSmall: boolean }[]>`
-      SELECT id, name, is_small FROM pool_levels WHERE pool_id = ${p.id} AND level_no = ${levelNo} FOR UPDATE`;
+    const [l] = await tx<{ id: string; name: string; isSmall: boolean; odds: number | null }[]>`
+      SELECT id, name, is_small, odds FROM pool_levels WHERE pool_id = ${p.id} AND level_no = ${levelNo} FOR UPDATE`;
     if (!l) throw new AppError('NOT_FOUND', `等級 ${levelNo} 不存在`);
     if (v.isSmall !== undefined && v.isSmall !== l.isSmall) requireDraft(p);
-    const after = { name: v.name ?? l.name, isSmall: v.isSmall ?? l.isSmall };
-    await tx`UPDATE pool_levels SET name = ${after.name}, is_small = ${after.isSmall}, updated_at = now() WHERE id = ${l.id}`;
-    await audit(tx, actor, 'POOL_LEVEL_UPDATED', 'pool', p.id, { levelNo, before: { name: l.name, isSmall: l.isSmall }, after });
+    if (v.odds !== undefined && v.odds !== l.odds) requireDraft(p);
+    const after = { name: v.name ?? l.name, isSmall: v.isSmall ?? l.isSmall, odds: v.odds === undefined ? l.odds : v.odds };
+    await tx`UPDATE pool_levels SET name = ${after.name}, is_small = ${after.isSmall}, odds = ${after.odds}, updated_at = now() WHERE id = ${l.id}`;
+    await assertOdds(tx, p.id);
+    await audit(tx, actor, 'POOL_LEVEL_UPDATED', 'pool', p.id, { levelNo, before: { name: l.name, isSmall: l.isSmall, odds: l.odds }, after });
     return { poolId: p.id, levelNo, ...after };
   });
 }

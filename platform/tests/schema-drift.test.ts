@@ -12,6 +12,7 @@ const PRISMA_TO_PG: Record<string, string[]> = {
   Boolean: ['boolean'],
   DateTime: ['timestamp with time zone', 'date'],
   Bytes: ['bytea'],
+  Float: ['double precision'],
 };
 
 function parsePrisma(src: string) {

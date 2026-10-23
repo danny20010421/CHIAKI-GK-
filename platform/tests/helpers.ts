@@ -38,6 +38,10 @@ export async function setupTestDb(env: Record<string, string> = {}) {
     RATE_LIMIT_IP_CAPACITY: '100000',
     RATE_LIMIT_USER_CAPACITY: '100000',
     BOT_MAX_REQUESTS: '100000',
+    // 測試站保護（SITE_TEST_MODE 預設開）在測試中關閉，金流測試照常進行；site-mode.test.ts 會覆寫驗證
+    SITE_TEST_MODE: 'false',
+    // 測試以指定籤號建立可預期的情境（正式站預設關閉自選籤號；quick-draw-only 測試會覆寫）
+    ALLOW_TICKET_PICK: 'true',
     ...env,
   });
   resetConfig();

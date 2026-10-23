@@ -231,6 +231,8 @@ model Draw {
   amountCoins    BigInt   @map("amount_coins")
   shippingCoins  BigInt   @default(0) @map("shipping_coins")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  probClientSeed String? @map("prob_client_seed")
+  probNonce      Int?    @map("prob_nonce")
   @@unique([userId, idempotencyKey])
   @@map("draws")
 }
@@ -471,6 +473,7 @@ model PoolLevel {
   isSmall   Boolean  @map("is_small")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  odds      Float?
   @@unique([poolId, levelNo])
   @@map("pool_levels")
 }
@@ -512,6 +515,9 @@ model PoolSet {
   internalNote String    @default("") @map("internal_note")
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
   deleteReason String?   @map("delete_reason")
+  probSeedHash   String? @map("prob_seed_hash")
+  probServerSeed String? @map("prob_server_seed")
+  probNonce      Int     @default(0) @map("prob_nonce")
   @@unique([poolId, setNo])
   @@map("pool_sets")
 }

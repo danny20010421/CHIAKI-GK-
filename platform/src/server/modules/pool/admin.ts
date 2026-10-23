@@ -8,6 +8,7 @@ import { requirePermission, type Principal } from '../auth/rbac';
 import { COMMIT_SCHEME, computeCommitment, generateLayout, generateSalt } from './commitment';
 import { defaultIsSmall, LevelNoSchema } from './levels';
 import { rulesHash, type PoolRules } from './rules';
+import { generateServerSeed, parseOdds, PROB_SCHEME, seedHash } from './prob';
 import { linkPoolIp } from '../catalog/ips';
 import { resolveBulky, TagSchema } from '../catalog/tags';
 import { CVS_FEE_RANGE, CvsFeeSchema, DEFAULT_SHIPPING_NOTE, HOME_FEE_RANGE, HomeFeeSchema } from '../shipping/fees';
@@ -42,10 +43,18 @@ export const PrizeItemSchema = z.object({
   bulky: z.boolean().optional(), // 大件・限宅配（未填：GK 標籤或等級 1 為是）
   imageUrl: ImageUrlSchema.nullable().default(null),
 });
+/** 機率賞的固定單抽機率：數字或 "1/30" 這類分數字串；0 < odds < 1 */
+export const OddsSchema = z
+  .union([z.number(), z.string().max(40)])
+  .transform(parseOdds)
+  .refine((x) => Number.isFinite(x) && x > 0 && x < 1, '機率須介於 0 與 1 之間（不含）');
+
 export const LevelSchema = z.object({
   levelNo: LevelNoSchema,
   name: LevelNameSchema,
   isSmall: z.boolean().optional(), // 未填：等級 4–8 為小獎
+  /** 機率賞（PROB）專用：固定單抽機率；未填＝依剩餘籤數平均分配剩下的機率 */
+  odds: OddsSchema.nullable().optional(),
   items: z.array(PrizeItemSchema).min(1, '每個等級至少一個獎項').max(50),
 });
 export const LastPrizeSchema = z.object({
@@ -74,7 +83,7 @@ export const PoolDraftSchema = z
     description: z.string().max(5000).default(''),
     terms: z.string().max(10000).default(''),
     source: z.enum(['OFFICIAL', 'CUSTOM', 'MIXED']),
-    playType: z.enum(['STANDARD', 'GUARANTEE', 'SOLO']),
+    playType: z.enum(['STANDARD', 'GUARANTEE', 'SOLO', 'PROB']),
     priceCoins: z.number().int().positive().max(1_000_000),
     setCount: z.number().int().min(1).max(1000),
     levels: z.array(LevelSchema).min(1, '至少一個等級').max(8, '最多 8 個等級'),
@@ -114,6 +123,9 @@ export const PoolDraftSchema = z
     if (v.guarantee && !nos.includes(v.guarantee.reserveLevelNo)) {
       ctx.addIssue({ code: 'custom', message: '保底獎項的等級須為本賞池已定義的等級', path: ['guarantee', 'reserveLevelNo'] });
     }
+    const withOdds = v.levels.filter((l) => l.odds != null);
+    if (withOdds.length && v.playType !== 'PROB') ctx.addIssue({ code: 'custom', message: '只有機率賞（PROB）的等級可以設定固定機率 odds', path: ['levels'] });
+    if (withOdds.reduce((a, l) => a + l.odds!, 0) >= 1) ctx.addIssue({ code: 'custom', message: '所有等級的固定機率總和必須小於 1', path: ['levels'] });
     if (v.playType === 'SOLO') {
       const main = v.levels.filter((l) => !(l.isSmall ?? defaultIsSmall(l.levelNo))).flatMap((l) => l.items);
       if (main.length !== 1) ctx.addIssue({ code: 'custom', message: 'SOLO pools need exactly one main prize (one item in non-small levels)', path: ['levels'] });
@@ -136,9 +148,9 @@ export async function insertPrizeItem(
   return row!.id;
 }
 
-export async function insertLevel(tx: Tx, poolId: string, l: { levelNo: number; name: string; isSmall?: boolean | undefined }): Promise<{ id: string; levelNo: number }> {
+export async function insertLevel(tx: Tx, poolId: string, l: { levelNo: number; name: string; isSmall?: boolean | undefined; odds?: number | null | undefined }): Promise<{ id: string; levelNo: number }> {
   const [row] = await tx<{ id: string }[]>`
-    INSERT INTO pool_levels (pool_id, level_no, name, is_small) VALUES (${poolId}, ${l.levelNo}, ${l.name}, ${l.isSmall ?? defaultIsSmall(l.levelNo)})
+    INSERT INTO pool_levels (pool_id, level_no, name, is_small, odds) VALUES (${poolId}, ${l.levelNo}, ${l.name}, ${l.isSmall ?? defaultIsSmall(l.levelNo)}, ${l.odds ?? null})
     ON CONFLICT (pool_id, level_no) DO NOTHING RETURNING id`;
   if (!row) throw new AppError('CONFLICT', `等級 ${l.levelNo} 已存在`);
   return { id: row.id, levelNo: l.levelNo };
@@ -226,10 +238,11 @@ interface StructLevel {
   levelNo: number;
   name: string;
   isSmall: boolean;
+  odds: number | null;
 }
 
 async function loadStructure(tx: Tx, poolId: string) {
-  const levels = await tx<StructLevel[]>`SELECT id, level_no, name, is_small FROM pool_levels WHERE pool_id = ${poolId} ORDER BY level_no`;
+  const levels = await tx<StructLevel[]>`SELECT id, level_no, name, is_small, odds FROM pool_levels WHERE pool_id = ${poolId} ORDER BY level_no`;
   const prizes = await tx<StructPrize[]>`
     SELECT pp.id, pp.kind, pp.level_id, pl.level_no, pp.name, pp.qty_per_set
     FROM pool_prizes pp LEFT JOIN pool_levels pl ON pl.id = pp.level_id
@@ -258,6 +271,9 @@ export async function assertPublishable(tx: Tx, poolId: string): Promise<void> {
     if (tickets.filter((p) => !smallIds.has(p.levelId!)).length !== 1) problems.push('SOLO 賞池須恰好一個非小獎獎項');
   }
   if ((pool.playType === 'GUARANTEE') !== (guarantee !== null)) problems.push('保底設定只適用且必須用於 GUARANTEE 賞池');
+  const withOdds = levels.filter((l) => l.odds !== null);
+  if (withOdds.length && pool.playType !== 'PROB') problems.push('只有機率賞（PROB）的等級可以設定固定機率 odds');
+  if (withOdds.reduce((a, l) => a + l.odds!, 0) >= 1) problems.push('所有等級的固定機率總和必須小於 1');
   if (problems.length) throw new AppError('VALIDATION', problems.join('；'), { problems });
 }
 
@@ -291,6 +307,7 @@ export async function publishPool(tx: Tx, poolId: string, approverId: string): P
       levelNo: l.levelNo,
       name: l.name,
       isSmall: l.isSmall,
+      ...(pool.playType === 'PROB' ? { odds: l.odds } : {}),
       prizes: prizes.filter((p) => p.levelId === l.id).map((p) => ({ prizeId: p.id, name: p.name, qtyPerSet: p.qtyPerSet })),
     })),
     prizes: prizes.map((p) => ({ prizeId: p.id, levelNo: p.levelNo!, name: p.name, qtyPerSet: p.qtyPerSet })),
@@ -313,6 +330,14 @@ export async function publishPool(tx: Tx, poolId: string, approverId: string): P
       cvsFeeRange: CVS_FEE_RANGE,
       rule: `SHIPPING_FEE_CHARGED_AT_FIRST_PAID_DRAW_PER_SET; ONE_FEE_COVERS_${perFee}_SMALL_LEVEL_PRIZES_PER_USER_PER_SET; EXTRA_FEE_WHEN_HELD_SMALL_PLUS_TICKETS_EXCEEDS_COVERAGE`,
     },
+    ...(pool.playType === 'PROB'
+      ? {
+          prob: {
+            scheme: PROB_SCHEME,
+            rule: 'EACH_TICKET: WALK_LEVELS_WITH_ODDS_IN_ORDER_SKIPPING_EXHAUSTED; U<CUMULATIVE_ODDS→UNIFORM_TICKET_OF_THAT_LEVEL; ELSE UNIFORM_TICKET_OF_LEVELS_WITHOUT_ODDS (NONE LEFT→ALL REMAINING); RNG=HMAC-SHA256(serverSeed, scheme:clientSeed:nonce:block); SERVER_SEED_HASH_PUBLISHED_BEFORE_SALE, SEED_REVEALED_WHEN_SET_SOLD_OUT',
+          },
+        }
+      : {}),
     terms: pool.terms,
   };
   const hash = rulesHash(rules);
@@ -327,12 +352,13 @@ export async function publishPool(tx: Tx, poolId: string, approverId: string): P
     const layout = generateLayout(layoutInput);
     const salt = generateSalt();
     const commitment = computeCommitment({ scheme: COMMIT_SCHEME, poolId, setNo, rulesHash: hash, layout }, salt);
+    const probSeed = pool.playType === 'PROB' ? generateServerSeed() : null;
     const [set] = await tx<{ id: string }[]>`
       INSERT INTO pool_sets (merchant_id, pool_id, set_no, rule_version_id, status, total_tickets, commit_scheme, commitment, commit_salt, on_sale_at,
-                             ship_fee_home, ship_fee_cvs, ship_refund_div)
+                             ship_fee_home, ship_fee_cvs, ship_refund_div, prob_server_seed, prob_seed_hash)
       VALUES (${pool.merchantId}, ${poolId}, ${setNo}, ${rv!.id}, ${setNo === 1 ? 'ON_SALE' : 'QUEUED'}, ${layout.length},
               ${COMMIT_SCHEME}, ${commitment}, ${salt}, ${setNo === 1 ? new Date() : null}, ${pool.shipFeeHome}, ${pool.shipFeeCvs},
-              ${config().SHIPPING_REFUND_DIV})
+              ${config().SHIPPING_REFUND_DIV}, ${probSeed}, ${probSeed ? seedHash(probSeed) : null})
       RETURNING id`;
     await tx`
       INSERT INTO tickets (set_id, ticket_no, prize_id)

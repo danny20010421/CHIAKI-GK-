@@ -36,7 +36,9 @@ export type ErrorCode =
   | 'BULKY_HOME_DELIVERY_ONLY'
   | 'STRUCTURE_LOCKED'
   | 'DRAW_PACK_NOT_ALLOWED'
-  | 'HAS_SALES';
+  | 'HAS_SALES'
+  | 'TEST_SITE'
+  | 'TICKET_PICK_DISABLED';
 
 const STATUS: Record<ErrorCode, number> = {
   VALIDATION: 400,
@@ -77,6 +79,8 @@ const STATUS: Record<ErrorCode, number> = {
   STRUCTURE_LOCKED: 409,
   DRAW_PACK_NOT_ALLOWED: 422,
   HAS_SALES: 409,
+  TEST_SITE: 403,
+  TICKET_PICK_DISABLED: 403,
 };
 
 /** 可預期的業務錯誤：會轉成乾淨的 JSON 錯誤回應，且交易一律 rollback。 */

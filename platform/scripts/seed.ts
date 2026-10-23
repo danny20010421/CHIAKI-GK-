@@ -8,7 +8,7 @@ import { setAdminCredentials } from '../src/server/modules/auth/admin-auth';
 import type { Principal, Role } from '../src/server/modules/auth/rbac';
 import { createPoolDraft } from '../src/server/modules/pool/admin';
 import { approve, requestBalanceAdjust, requestPoolPublish } from '../src/server/modules/admin/approvals';
-import { GK_FIRST_POOL, GUARANTEE_SAMPLE_POOL, seedReferenceData } from '../src/server/seed/reference';
+import { GK_FIRST_POOL, GUARANTEE_SAMPLE_POOL, PROB_SAMPLE_POOL, seedReferenceData } from '../src/server/seed/reference';
 import type { PoolDraftInput } from '../src/server/modules/pool/admin';
 
 const sql = db();
@@ -70,6 +70,7 @@ async function ensurePool(draft: PoolDraftInput) {
 }
 console.log(await ensurePool(GK_FIRST_POOL));
 console.log(await ensurePool(GUARANTEE_SAMPLE_POOL));
+console.log(await ensurePool(PROB_SAMPLE_POOL));
 
 console.log(`
 Seed complete.

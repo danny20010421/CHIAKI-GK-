@@ -5,6 +5,11 @@ import { transaction, type Db, type Tx } from '../../db';
 import { enforceRateLimit } from '../risk/risk';
 import { resolvePublicPool } from '../pool/queries';
 
+/** 自選籤號（鎖籤）預設關閉：網站只提供快速抽 */
+export function assertTicketPickAllowed(): void {
+  if (!config().ALLOW_TICKET_PICK) throw new AppError('TICKET_PICK_DISABLED', '本站僅提供快速抽，請以抽數（count）抽賞');
+}
+
 /**
  * 鎖籤（限時保留）。保留資訊直接存在 tickets 列上（held_by / held_until），
  * 以條件式 UPDATE 取得：同一張籤只有一位使用者能成功；逾時保留以 lazy 方式視為釋出（held_until <= now()）。
@@ -54,12 +59,15 @@ export async function holdTickets(
   ticketNos: number[],
   holdSeconds = config().HOLD_SECONDS,
 ): Promise<{ ticketNos: number[]; heldUntil: Date }> {
+  assertTicketPickAllowed();
   const nos = TicketNosSchema.parse(ticketNos);
   if (nos.length > config().MAX_TICKETS_PER_HOLD) throw new AppError('VALIDATION', `max ${config().MAX_TICKETS_PER_HOLD} tickets per hold`);
   await enforceRateLimit(userId, 'HOLD');
   return transaction(async (tx) => {
     const { id: poolId } = await resolvePublicPool(tx, poolIdOrSlug);
     const set = await requireOnSaleSet(tx, poolId, setNo);
+    const [pt] = await tx<{ playType: string }[]>`SELECT play_type FROM pools WHERE id = ${poolId}`;
+    if (pt!.playType === 'PROB') throw new AppError('VALIDATION', '機率賞不能鎖籤（只能快速抽）');
     const rows = await tx<{ ticketNo: number; heldUntil: Date }[]>`
       UPDATE tickets SET held_by = ${userId}, held_until = now() + make_interval(secs => ${holdSeconds})
       WHERE set_id = ${set.id} AND ticket_no = ANY(${nos}::int[]) AND status = 'AVAILABLE'

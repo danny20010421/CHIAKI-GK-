@@ -5,6 +5,7 @@ import type { PoolRules } from './rules';
 import { displayName, LAST_PRIZE_LABEL } from './levels';
 import { distinctTags, type Tag } from '../catalog/tags';
 import { drawPacksOut } from './admin';
+import { effectiveProbabilities, PROB_SCHEME, replayProbSet } from './prob';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -123,14 +124,14 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
     SELECT pp.id, pp.kind, pl.level_no, pl.name AS level_name, pl.is_small, pp.name, pp.qty_per_set, pp.tag, pp.bulky, pp.image_url
     FROM pool_prizes pp LEFT JOIN pool_levels pl ON pl.id = pp.level_id
     WHERE pp.pool_id = ${id} ORDER BY pl.level_no NULLS LAST, pp.sort_order, pp.name`;
-  const levels = await db<{ levelNo: number; name: string; isSmall: boolean }[]>`
-    SELECT level_no, name, is_small FROM pool_levels WHERE pool_id = ${id} ORDER BY level_no`;
+  const levels = await db<{ levelNo: number; name: string; isSmall: boolean; odds: number | null }[]>`
+    SELECT level_no, name, is_small, odds FROM pool_levels WHERE pool_id = ${id} ORDER BY level_no`;
   const last = all.find((r) => r.kind === 'LAST');
   const [g] = await db<{ everyN: number; minLevel: number; reservePrizeId: string; reserveTotal: number; reserveUsed: number }[]>`
     SELECT every_n, min_level, reserve_prize_id, reserve_total, reserve_used FROM pool_guarantees WHERE pool_id = ${id}`;
   const reserve = g ? all.find((r) => r.id === g.reservePrizeId) : undefined;
-  const sets = await db<{ setNo: number; displayName: string | null; offline: boolean; status: string; total: number; remaining: number; commitment: string; commitScheme: string; ruleVersionId: string; lastPrizeAwarded: boolean; shipFeeHome: number; shipFeeCvs: number }[]>`
-    SELECT s.set_no, s.display_name, s.offline, s.status, s.total_tickets AS total, s.commitment, s.commit_scheme, s.rule_version_id,
+  const sets = await db<{ setNo: number; displayName: string | null; offline: boolean; status: string; total: number; remaining: number; commitment: string; commitScheme: string; probSeedHash: string | null; ruleVersionId: string; lastPrizeAwarded: boolean; shipFeeHome: number; shipFeeCvs: number }[]>`
+    SELECT s.set_no, s.display_name, s.offline, s.status, s.total_tickets AS total, s.commitment, s.commit_scheme, s.prob_seed_hash, s.rule_version_id,
            (s.last_prize_user_id IS NOT NULL) AS last_prize_awarded, s.ship_fee_home, s.ship_fee_cvs,
            (SELECT count(*)::int FROM tickets t WHERE t.set_id = s.id AND t.status = 'AVAILABLE') AS remaining
     FROM pool_sets s WHERE s.pool_id = ${id} AND s.deleted_at IS NULL ORDER BY s.set_no`;
@@ -157,6 +158,8 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
       levelNo: l.levelNo,
       name: l.name,
       isSmall: l.isSmall,
+      /** 機率賞：固定單抽機率（null＝平均分配剩餘機率） */
+      odds: l.odds,
       items: tickets.filter((r) => r.levelNo === l.levelNo).map((r) => ({ ...showPrize(r), qtyPerSet: r.qtyPerSet })),
     })),
     prizes: tickets.map((r) => ({ ...showPrize(r), qtyPerSet: r.qtyPerSet })),
@@ -186,8 +189,9 @@ export type TicketState = 'AVAILABLE' | 'HELD' | 'TAKEN';
  */
 export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewerId?: string | null) {
   const { id: poolId } = await resolvePublicPool(db, idOrSlug);
-  const [s] = await db<{ id: string; setNo: number; displayName: string | null; offline: boolean; status: string; total: number; commitment: string; commitScheme: string; rulesHash: string; ruleVersion: number; lastPrizeName: string | null; lastPrizeAwarded: boolean; soldOutAt: Date | null; source: string; shippingNote: string; shipFeeHome: number; shipFeeCvs: number }[]>`
+  const [s] = await db<{ id: string; setNo: number; displayName: string | null; offline: boolean; playType: string; probSeedHash: string | null; probNonce: number; status: string; total: number; commitment: string; commitScheme: string; rulesHash: string; ruleVersion: number; lastPrizeName: string | null; lastPrizeAwarded: boolean; soldOutAt: Date | null; source: string; shippingNote: string; shipFeeHome: number; shipFeeCvs: number }[]>`
     SELECT s.id, s.set_no, s.display_name, (s.offline OR p.offline) AS offline, s.status, s.total_tickets AS total, s.commitment, s.commit_scheme, rv.rules_hash, rv.version AS rule_version,
+           p.play_type, s.prob_seed_hash, s.prob_nonce,
            p.last_prize_name, (s.last_prize_user_id IS NOT NULL) AS last_prize_awarded, s.sold_out_at, p.source, p.shipping_note,
            s.ship_fee_home, s.ship_fee_cvs
     FROM pool_sets s JOIN pools p ON p.id = s.pool_id JOIN pool_rule_versions rv ON rv.id = s.rule_version_id
@@ -208,7 +212,14 @@ export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewe
     FROM pool_prizes pr LEFT JOIN set_prizes sp ON sp.set_id = ${s.id} AND sp.prize_id = pr.id
     WHERE pr.pool_id = ${poolId} AND pr.kind = 'LAST'`;
   const totalRemaining = byPrize.reduce((a, b) => a + b.remaining, 0);
-  const prob = (n: number) => (totalRemaining ? Math.round((n / totalRemaining) * 1e6) / 1e6 : 0);
+  const round = (x: number) => Math.round(x * 1e6) / 1e6;
+  const prob = (n: number) => (totalRemaining ? round(n / totalRemaining) : 0);
+  // 機率賞：目前有效機率（固定機率等級：odds × 該獎剩餘 / 等級剩餘；其他：(1 − 有效 odds 總和) × 該獎剩餘 / 其他剩餘）
+  const isProb = s.playType === 'PROB';
+  const oddsRows = isProb ? await db<{ levelNo: number; odds: number | null }[]>`SELECT level_no, odds FROM pool_levels WHERE pool_id = ${poolId}` : [];
+  const oddsMap = new Map(oddsRows.map((o) => [o.levelNo, o.odds]));
+  const effective = isProb ? effectiveProbabilities(byPrize.map((p) => ({ levelNo: p.levelNo!, remaining: p.remaining })), oddsMap) : [];
+  const prizeProb = (i: number, remaining: number) => (isProb ? round(effective[i]!) : prob(remaining));
 
   const tickets = await db<{ ticketNo: number; status: string; heldActive: boolean; heldByMe: boolean; levelNo: number | null; levelName: string | null; name: string | null }[]>`
     SELECT t.ticket_no, t.status,
@@ -236,17 +247,30 @@ export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewe
     status: s.status,
     total: s.total,
     remaining: totalRemaining,
-    commitment: { scheme: s.commitScheme, hash: s.commitment, rulesHash: s.rulesHash, ruleVersion: s.ruleVersion },
+    commitment: {
+      scheme: s.commitScheme,
+      hash: s.commitment,
+      rulesHash: s.rulesHash,
+      ruleVersion: s.ruleVersion,
+      ...(isProb ? { prob: { scheme: PROB_SCHEME, seedHash: s.probSeedHash, draws: s.probNonce } } : {}),
+    },
+    playType: s.playType,
     shippingNote: s.shippingNote,
     shippingFees: { HOME_DELIVERY: s.shipFeeHome, CVS_711_C2C: s.shipFeeCvs, CVS_FAMI_C2C: s.shipFeeCvs },
     /** 各等級剩餘與即時機率 */
-    levels: [...levelMap.values()].sort((a, b) => a.levelNo - b.levelNo).map((l) => ({ ...l, probability: prob(l.remaining) })),
+    levels: [...levelMap.values()]
+      .sort((a, b) => a.levelNo - b.levelNo)
+      .map((l) => ({
+        ...l,
+        ...(isProb ? { odds: oddsMap.get(l.levelNo) ?? null } : {}),
+        probability: isProb ? round(byPrize.reduce((a, p, i) => a + (p.levelNo === l.levelNo ? effective[i]! : 0), 0)) : prob(l.remaining),
+      })),
     // 籤板不輸出 prizeId（獎項 id 只出現在賞池詳情的規則內容），避免任何籤號↔獎項的關聯線索
-    prizes: byPrize.map((p) => ({
+    prizes: byPrize.map((p, i) => ({
       ...showPrize({ ...p, id: undefined }),
       total: p.total,
       remaining: p.remaining,
-      probability: prob(p.remaining),
+      probability: prizeProb(i, p.remaining),
       recycleValue: p.recycleValue,
       recyclable: p.recyclable,
     })),
@@ -266,8 +290,8 @@ export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewe
 /** 完售後才可揭露：完整籤表、salt 與重算結果。 */
 export async function revealSet(db: Db, idOrSlug: string, setNo: number) {
   const { id: poolId } = await resolvePublicPool(db, idOrSlug);
-  const [s] = await db<{ id: string; status: string; commitment: string; commitSalt: string; commitScheme: string; rulesHash: string; rulesJson: string }[]>`
-    SELECT s.id, s.status, s.commitment, s.commit_salt, s.commit_scheme, rv.rules_hash, rv.rules_json
+  const [s] = await db<{ id: string; status: string; commitment: string; commitSalt: string; commitScheme: string; rulesHash: string; rulesJson: string; probServerSeed: string | null; probSeedHash: string | null }[]>`
+    SELECT s.id, s.status, s.commitment, s.commit_salt, s.commit_scheme, rv.rules_hash, rv.rules_json, s.prob_server_seed, s.prob_seed_hash
     FROM pool_sets s JOIN pool_rule_versions rv ON rv.id = s.rule_version_id
     WHERE s.pool_id = ${poolId} AND s.set_no = ${setNo} AND s.deleted_at IS NULL`;
   if (!s) throw new AppError('NOT_FOUND', 'set not found');
@@ -285,6 +309,22 @@ export async function revealSet(db: Db, idOrSlug: string, setNo: number) {
           LEFT JOIN pool_levels pl ON pl.id = pr.level_id
           WHERE t.set_id = ${s.id} ORDER BY t.ticket_no`;
   const input = { scheme, poolId, setNo, rulesHash: s.rulesHash, layout };
+  // 機率賞：公開 server seed 與每筆抽賞的 (nonce, clientSeed, 籤號)，並以同一演算法重算
+  let prob: Record<string, unknown> | null = null;
+  if (s.probServerSeed && s.probSeedHash) {
+    const draws = await db<{ nonce: number; clientSeed: string; drawId: string }[]>`
+      SELECT prob_nonce AS nonce, prob_client_seed AS client_seed, id AS draw_id FROM draws WHERE set_id = ${s.id} AND prob_nonce IS NOT NULL ORDER BY prob_nonce`;
+    const taken = await db<{ drawId: string; ticketNo: number }[]>`SELECT draw_id, ticket_no FROM tickets WHERE set_id = ${s.id} AND status = 'TAKEN'`;
+    const levels = (JSON.parse(s.rulesJson) as PoolRules).levels ?? [];
+    const replay = {
+      serverSeed: s.probServerSeed,
+      seedHash: s.probSeedHash,
+      layout: layout.map((t) => ({ ticketNo: t.ticketNo, levelNo: t.levelNo! })),
+      levels: levels.map((l) => ({ levelNo: l.levelNo, odds: l.odds ?? null })),
+      draws: draws.map((d) => ({ nonce: d.nonce, clientSeed: d.clientSeed, ticketNos: taken.filter((t) => t.drawId === d.drawId).map((t) => t.ticketNo).sort((a, b) => a - b) })),
+    };
+    prob = { scheme: PROB_SCHEME, ...replay, verified: replayProbSet(replay).ok };
+  }
   return {
     scheme: s.commitScheme,
     poolId,
@@ -296,6 +336,7 @@ export async function revealSet(db: Db, idOrSlug: string, setNo: number) {
     layout,
     canonical: canonicalLayout(input),
     verified: verifyCommitment(input, s.commitSalt, s.commitment),
+    ...(prob ? { prob } : {}),
     /** 0 銷售時被後台重新產生而取代的舊承諾（含舊 salt 與籤表，可各自驗證） */
     superseded: (
       await db<{ commitScheme: string; commitment: string; commitSalt: string; rulesHash: string; layoutJson: string; reason: string; supersededAt: Date }[]>`

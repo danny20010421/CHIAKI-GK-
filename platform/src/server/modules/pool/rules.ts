@@ -1,7 +1,7 @@
 import { canonicalJson, sha256Hex } from '../../lib/canonical';
 
 export type PoolSource = 'OFFICIAL' | 'CUSTOM' | 'MIXED';
-export type PlayType = 'STANDARD' | 'GUARANTEE' | 'SOLO';
+export type PlayType = 'STANDARD' | 'GUARANTEE' | 'SOLO' | 'PROB';
 
 export interface RulesPrize {
   prizeId: string;
@@ -33,7 +33,7 @@ export interface PoolRules {
   drawMethod: 'FIXED_LIST_WITHOUT_REPLACEMENT';
   holdSeconds: number;
   /** v3 */
-  levels?: { levelNo: number; name: string; isSmall: boolean; prizes: { prizeId: string; name: string; qtyPerSet: number }[] }[];
+  levels?: { levelNo: number; name: string; isSmall: boolean; odds?: number | null; prizes: { prizeId: string; name: string; qtyPerSet: number }[] }[];
   prizes: RulesPrize[];
   lastPrize: { prizeId?: string; name: string; grade?: string; rule: 'AWARDED_TO_DRAWER_OF_FINAL_TICKET_OF_EACH_SET' } | null;
   guarantee: {
@@ -56,6 +56,8 @@ export interface PoolRules {
     cvsFeeRange: [number, number];
     rule: string;
   };
+  /** 機率賞（PROB）：可驗證亂數方案 */
+  prob?: { scheme: string; rule: string };
   terms: string;
 }
 

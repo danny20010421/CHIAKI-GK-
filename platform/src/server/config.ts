@@ -8,6 +8,11 @@ const bool = z
   .string()
   .optional()
   .transform((v) => v === '1' || v === 'true');
+/** 預設為「是」的布林：只有明確設為 0/false 才關閉 */
+const boolDefaultTrue = z
+  .string()
+  .optional()
+  .transform((v) => !(v === '0' || v === 'false'));
 
 const EnvSchema = z.object({
   NODE_ENV: z.string().default('development'),
@@ -94,6 +99,13 @@ const EnvSchema = z.object({
   ECPAY_HASH_IV: z.string().default('EkRm7iFT261dpevs'),
   ECPAY_AIO_URL: z.string().url().default('https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5'),
   ECPAY_ACCEPT_SIMULATED: bool, // 僅 STAGE 測試時設為 1；正式環境模擬付款不得入帳
+  // 測試網站：所有金流端點一律拒絕（403「此為測試網站，不進行商業行為」），除非另外開啟 PAYMENT_SANDBOX（綠界 STAGE 沙盒）。
+  // 預設為「是」，避免誤收款；正式營運時才明確設為 false。
+  SITE_TEST_MODE: boolDefaultTrue,
+  PAYMENT_SANDBOX: bool,
+
+  // 抽賞方式：網站只提供快速抽（drawPacks 張數，由伺服器隨機配籤）。舊的「自選籤號」（鎖籤＋指定籤號抽）預設關閉。
+  ALLOW_TICKET_PICK: bool,
 
   // 風控
   RISK_HOLD_LIMIT_PER_MIN: z.coerce.number().int().positive().default(30),

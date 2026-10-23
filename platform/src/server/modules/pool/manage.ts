@@ -5,6 +5,7 @@ import { canonicalJson } from '../../lib/canonical';
 import { transaction, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { requirePermission, type Principal } from '../auth/rbac';
+import { generateServerSeed, seedHash } from './prob';
 import { COMMIT_SCHEME, COMMIT_SCHEME_V1, computeCommitment, generateLayout, generateSalt, type LayoutEntry } from './commitment';
 
 /**
@@ -45,6 +46,7 @@ interface PoolLock {
   id: string;
   merchantId: string;
   status: string;
+  playType: string;
   offline: boolean;
   deletedAt: Date | null;
   currentRuleVersionId: string | null;
@@ -69,8 +71,8 @@ interface SetLock {
 
 async function lockPool(tx: Tx, idOrSlug: string, opts: { allowDeleted?: boolean } = {}): Promise<PoolLock> {
   const rows = UUID_RE.test(idOrSlug)
-    ? await tx<PoolLock[]>`SELECT id, merchant_id, status, offline, deleted_at, current_rule_version_id, set_count, ship_fee_home, ship_fee_cvs FROM pools WHERE id = ${idOrSlug} FOR UPDATE`
-    : await tx<PoolLock[]>`SELECT id, merchant_id, status, offline, deleted_at, current_rule_version_id, set_count, ship_fee_home, ship_fee_cvs FROM pools WHERE slug = ${idOrSlug} FOR UPDATE`;
+    ? await tx<PoolLock[]>`SELECT id, merchant_id, status, play_type, offline, deleted_at, current_rule_version_id, set_count, ship_fee_home, ship_fee_cvs FROM pools WHERE id = ${idOrSlug} FOR UPDATE`
+    : await tx<PoolLock[]>`SELECT id, merchant_id, status, play_type, offline, deleted_at, current_rule_version_id, set_count, ship_fee_home, ship_fee_cvs FROM pools WHERE slug = ${idOrSlug} FOR UPDATE`;
   const p = rows[0];
   if (!p || (p.deletedAt && !opts.allowDeleted)) throw new AppError('NOT_FOUND', 'pool not found');
   return p;
@@ -216,8 +218,16 @@ async function regenerateLayout(tx: Tx, actor: Principal, p: PoolLock, s: SetLoc
     FROM unnest(${layout.map((l) => l.ticketNo)}::int[], ${layout.map((l) => l.prizeId)}::uuid[]) AS u(n, p)
     WHERE t.set_id = ${s.id} AND t.ticket_no = u.n`;
   await tx`UPDATE pool_sets SET commitment = ${commitment}, commit_salt = ${salt}, commit_scheme = ${COMMIT_SCHEME} WHERE id = ${s.id}`;
+  // 機率賞：一併更換 server seed（0 銷售，舊 seed 可公開，記在稽核中）
+  let oldProbSeed: string | null = null;
+  if (p.playType === 'PROB') {
+    const [ps] = await tx<{ seed: string | null }[]>`SELECT prob_server_seed AS seed FROM pool_sets WHERE id = ${s.id}`;
+    oldProbSeed = ps!.seed;
+    const seed = generateServerSeed();
+    await tx`UPDATE pool_sets SET prob_server_seed = ${seed}, prob_seed_hash = ${seedHash(seed)} WHERE id = ${s.id}`;
+  }
   await tx`SELECT set_config('chiaki.relayout', 'off', true)`;
-  return { oldCommitment: s.commitment, oldSalt: s.commitSalt, newCommitment: commitment };
+  return { oldCommitment: s.commitment, oldSalt: s.commitSalt, newCommitment: commitment, ...(oldProbSeed ? { oldProbSeed } : {}) };
 }
 
 // ───────────── 新增套 ─────────────
@@ -238,11 +248,12 @@ export async function addSet(actor: Principal, idOrSlug: string, input: z.input<
     const layout = generateLayout(await ticketPrizes(tx, p.id));
     const salt = generateSalt();
     const commitment = computeCommitment({ scheme: COMMIT_SCHEME, poolId: p.id, setNo, rulesHash: rv!.rulesHash, layout }, salt);
+    const probSeed = p.playType === 'PROB' ? generateServerSeed() : null;
     const [set] = await tx<{ id: string }[]>`
       INSERT INTO pool_sets (merchant_id, pool_id, set_no, rule_version_id, status, total_tickets, commit_scheme, commitment, commit_salt,
-                             ship_fee_home, ship_fee_cvs, ship_refund_div, display_name)
+                             ship_fee_home, ship_fee_cvs, ship_refund_div, display_name, prob_server_seed, prob_seed_hash)
       VALUES (${p.merchantId}, ${p.id}, ${setNo}, ${p.currentRuleVersionId}, 'QUEUED', ${layout.length}, ${COMMIT_SCHEME}, ${commitment}, ${salt},
-              ${p.shipFeeHome}, ${p.shipFeeCvs}, ${config().SHIPPING_REFUND_DIV}, ${v.displayName ?? null})
+              ${p.shipFeeHome}, ${p.shipFeeCvs}, ${config().SHIPPING_REFUND_DIV}, ${v.displayName ?? null}, ${probSeed}, ${probSeed ? seedHash(probSeed) : null})
       RETURNING id`;
     await tx`
       INSERT INTO tickets (set_id, ticket_no, prize_id)
