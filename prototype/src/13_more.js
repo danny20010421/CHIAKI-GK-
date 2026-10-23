@@ -4,7 +4,7 @@
         物流更正、賞池整合編輯
    ========================================================= */
 const hx = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const MIMG = k => ({bnfriend:'__DEMO_bnfriend__'}[k] || '').replace(/^__DEMO_.*__$/, '');
+const MIMG = k => ({bnfriend:'__DEMO_bnfriend__', bnhalloween:'__DEMO_bnhalloween__'}[k] || '').replace(/^__DEMO_.*__$/, '');
 const todayTW = () => twDate();
 /* downscale an uploaded image to a data URL (keeps pages light) */
 function readImage(file, max, cb){
@@ -130,7 +130,8 @@ ADM_VIEWS.forum = () => {
 
 /* ---------- 首頁 Banner（可排程、編輯、刪除、排序） ---------- */
 S.banners = [
-  {id:'b2', t:'品牌好友強力推薦・追蹤按讚抽 1000 CC幣', img:MIMG('bnfriend'), imgM:'', link:'#/me', from:'2026-10-23', to:'2026-12-31', on:true},
+  {id:'b3', t:'CHIAKI 萬聖百鬼夜', img:MIMG('bnhalloween'), imgM:'', link:'#/lobby', from:'2026-10-23', to:'2026-12-31', on:true},
+  {id:'b2', t:'品牌好友強力推薦・追蹤按讚抽 1000 CC幣', img:MIMG('bnfriend'), imgM:'', link:LINKS.ig, from:'2026-10-23', to:'2026-12-31', on:true},
 ];
 const bnState = b => !b.on ? '已停用' : todayTW() < b.from ? '排程中' : todayTW() > b.to ? '已結束' : '刊登中';
 const liveBanners = () => S.banners.filter(b => bnState(b) === '刊登中' && b.img);
@@ -138,7 +139,7 @@ const _homeR = routes.home, _homeA = routes.home.after;
 routes.home = r => { let h = _homeR(r); const L = liveBanners(); if (!L.length) return h;
   const i = h.indexOf('<section class="sec" aria-label="活動 Banner">'), j = h.indexOf('</section>', i) + 10; if (i < 0) return h;
   const car = `<section class="sec" aria-label="活動 Banner"><div class="carousel imgb" id="car" aria-roledescription="carousel">
-      ${L.map((b, k) => `<a class="slide bslide ${k === 0 ? 'on' : ''}" href="${hx(b.link || '#/lobby')}" role="group" aria-roledescription="slide" aria-label="${k + 1} / ${L.length}：${hx(b.t)}"><picture>${b.imgM ? `<source media="(max-width:599px)" srcset="${b.imgM}">` : ''}<img src="${b.img}" alt="${hx(b.t)}"></picture></a>`).join('')}
+      ${L.map((b, k) => `<a class="slide bslide ${k === 0 ? 'on' : ''}" href="${hx(b.link || '#/lobby')}"${/^https?:/.test(b.link || '') ? ' target="_blank" rel="noopener"' : ''} role="group" aria-roledescription="slide" aria-label="${k + 1} / ${L.length}：${hx(b.t)}"><picture>${b.imgM ? `<source media="(max-width:599px)" srcset="${b.imgM}">` : ''}<img src="${b.img}" alt="${hx(b.t)}"></picture></a>`).join('')}
       ${L.length > 1 ? `<div class="dots">${L.map((b, k) => `<button data-slide="${k}" aria-label="第 ${k + 1} 張" aria-current="${k === 0}"><i></i></button>`).join('')}</div>` : ''}</div></section>`;
   return h.slice(0, i) + car + h.slice(j); };
 routes.home.after = _homeA;
@@ -169,7 +170,7 @@ function bannerEditor(id){
   S.bnDraft = {img:b.img, imgM:b.imgM};
   openModal(`<h3 id="mdlT">${id ? '編輯' : '新增'} Banner</h3><form class="cfg" data-act="y-bnsave" data-k="${id || ''}" novalidate>
     <div class="field"><label for="bnT">標題（替代文字，必填）</label><input class="input" id="bnT" value="${hx(b.t)}"></div>
-    <div class="field"><label for="bnL">點擊連結</label><input class="input" id="bnL" value="${hx(b.link)}" placeholder="#/pool/gk 或 https://…"></div>
+    <div class="field"><label for="bnL">點擊連結</label><input class="input" id="bnL" value="${hx(b.link)}" placeholder="#/lobby、#/pool/bk 或 https://…"></div>
     <div class="cfg-g"><div class="field"><label for="bnF">開始日期</label><input class="input" type="date" id="bnF" value="${b.from}"></div><div class="field"><label for="bnTo">結束日期</label><input class="input" type="date" id="bnTo" value="${b.to}"></div></div>
     <div class="field"><span style="font-size:13px;color:var(--tx-2)">電腦版圖片（必填，${IMG_SPEC.banner.w}×${IMG_SPEC.banner.h}，3:1）</span><div class="bnprev" id="bnPv">${b.img ? `<img src="${b.img}" alt="">` : '<span class="dim">尚未上傳</span>'}</div>${uploader('banner','bnImg')}</div>
     <div class="field"><span style="font-size:13px;color:var(--tx-2)">手機版圖片（選填，${IMG_SPEC.bannerM.w}×${IMG_SPEC.bannerM.h}；未上傳則沿用電腦版）</span><div class="bnprev m" id="bnPvM">${b.imgM ? `<img src="${b.imgM}" alt="">` : '<span class="dim">沿用電腦版</span>'}</div>${uploader('bannerM','bnImgM')}</div>

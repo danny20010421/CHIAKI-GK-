@@ -418,7 +418,10 @@ function carousel(){
     clearTimeout(tm); if (!RM()) tm = setTimeout(() => go(i+1), 6000); };
   dots.forEach((d,k) => d.addEventListener('click', () => go(k)));
   c.addEventListener('pointerdown', e => x0 = e.clientX);
-  c.addEventListener('pointerup', e => { if (x0 == null) return; const dx = e.clientX - x0; if (Math.abs(dx) > 40) go(i + (dx < 0 ? 1 : -1)); x0 = null; });
+  let swiped = false;
+  c.addEventListener('pointerup', e => { if (x0 == null) return; const dx = e.clientX - x0; swiped = Math.abs(dx) > 40; if (swiped) go(i + (dx < 0 ? 1 : -1)); x0 = null; });
+  c.addEventListener('click', e => { if (swiped && e.target.closest('.slide')){ e.preventDefault(); e.stopPropagation(); } swiped = false; }, true);
+  c.addEventListener('dragstart', e => e.preventDefault());
   c.addEventListener('mouseenter', () => clearTimeout(tm));
   c.addEventListener('mouseleave', () => go(i));
   go(0);
