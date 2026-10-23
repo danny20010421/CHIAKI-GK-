@@ -80,7 +80,11 @@ export const PoolDraftSchema = z
     ip: z.string().max(100).default(''),
     /** 連結 IP（作品）；設定時 ip 文字會同步為 IP 名稱 */
     ipId: z.string().uuid().nullable().default(null),
-    description: z.string().max(5000).default(''),
+    description: z.string().max(400, '說明最多 400 字').default(''),
+    /** 來源說明（例：日本官方正版、平台自製） */
+    sourceNote: z.string().trim().max(200).default(''),
+    /** 商品狀態（例：全新未拆、外盒輕微壓痕） */
+    condition: z.string().trim().max(200).default(''),
     terms: z.string().max(10000).default(''),
     source: z.enum(['OFFICIAL', 'CUSTOM', 'MIXED']),
     playType: z.enum(['STANDARD', 'GUARANTEE', 'SOLO', 'PROB']),
@@ -169,10 +173,10 @@ export async function createPoolDraft(actor: Principal, input: PoolDraftInput): 
   return transaction(async (tx) => {
     const [pool] = await tx<{ id: string }[]>`
       INSERT INTO pools (slug, title, ip, description, terms, source, play_type, price_coins, set_count, created_by,
-                         shipping_note, ship_fee_home, ship_fee_cvs, draw_packs)
+                         shipping_note, ship_fee_home, ship_fee_cvs, draw_packs, source_note, item_condition)
       VALUES (${v.slug}, ${v.title}, ${v.ip}, ${v.description}, ${v.terms}, ${v.source}, ${v.playType}, ${v.priceCoins}, ${v.setCount},
               ${actor.userId}, ${v.shippingNote ?? DEFAULT_SHIPPING_NOTE[v.source]}, ${v.shippingFeeHome}, ${v.shippingFeeCvs},
-              ${v.drawPacks ?? DEFAULT_DRAW_PACKS}::text[])
+              ${v.drawPacks ?? DEFAULT_DRAW_PACKS}::text[], ${v.sourceNote}, ${v.condition})
       RETURNING id`;
     const poolId = pool!.id;
     if (v.ipId) await linkPoolIp(tx, poolId, v.ipId);
@@ -395,13 +399,17 @@ export async function lockPublishedPool(tx: Tx, idOrSlug: string): Promise<{ id:
 export const PoolSettingsSchema = z
   .object({
     shippingNote: z.string().max(500).optional(),
+    /** 賞池資訊（隨時可改，留稽核）：說明 ≤ 400 字、來源說明、商品狀態 */
+    description: z.string().max(400, '說明最多 400 字').optional(),
+    sourceNote: z.string().trim().max(200).optional(),
+    condition: z.string().trim().max(200).optional(),
     ipId: z.string().uuid().nullable().optional(),
     /** 快速抽包選項（1、3、5、10、20、all 的子集合）；隨時可改 */
     drawPacks: DrawPacksSchema.optional(),
     /** 最後賞（null = 移除）：只在草稿階段可改 */
     lastPrize: LastPrizeSchema.nullable().optional(),
   })
-  .refine((v) => v.shippingNote !== undefined || v.ipId !== undefined || v.drawPacks !== undefined || v.lastPrize !== undefined, 'nothing to update');
+  .refine((v) => Object.values(v).some((x) => x !== undefined), 'nothing to update');
 
 /** 更新賞池營運設定：出貨時程說明（無固定 SLA）、連結 IP（作品；null = 取消連結）、快速抽包選項；草稿另可設定最後賞。 */
 export async function updatePoolSettings(actor: Principal, idOrSlug: string, input: z.input<typeof PoolSettingsSchema>) {
@@ -409,8 +417,8 @@ export async function updatePoolSettings(actor: Principal, idOrSlug: string, inp
   const v = PoolSettingsSchema.parse(input);
   return transaction(async (tx) => {
     const p = await lockPublishedPool(tx, idOrSlug);
-    const [before] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null }[]>`
-      SELECT shipping_note, ip_id, draw_packs, last_prize_name FROM pools WHERE id = ${p.id}`;
+    const [before] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null; description: string; sourceNote: string; condition: string }[]>`
+      SELECT shipping_note, ip_id, draw_packs, last_prize_name, description, source_note, item_condition AS condition FROM pools WHERE id = ${p.id}`;
     if (v.lastPrize !== undefined) {
       if (p.status !== 'DRAFT') throw new AppError('STRUCTURE_LOCKED', '最後賞屬於賞池結構，只能在草稿階段修改（已發布賞池的籤表與規則已承諾）');
       await tx`DELETE FROM set_prizes WHERE prize_id IN (SELECT id FROM pool_prizes WHERE pool_id = ${p.id} AND kind = 'LAST')`;
@@ -419,12 +427,24 @@ export async function updatePoolSettings(actor: Principal, idOrSlug: string, inp
       if (v.lastPrize) await insertLastPrize(tx, p.id, v.lastPrize);
     }
     if (v.shippingNote !== undefined) await tx`UPDATE pools SET shipping_note = ${v.shippingNote} WHERE id = ${p.id}`;
+    if (v.description !== undefined) await tx`UPDATE pools SET description = ${v.description} WHERE id = ${p.id}`;
+    if (v.sourceNote !== undefined) await tx`UPDATE pools SET source_note = ${v.sourceNote} WHERE id = ${p.id}`;
+    if (v.condition !== undefined) await tx`UPDATE pools SET item_condition = ${v.condition} WHERE id = ${p.id}`;
     if (v.ipId !== undefined) await linkPoolIp(tx, p.id, v.ipId);
     if (v.drawPacks !== undefined) await tx`UPDATE pools SET draw_packs = ${v.drawPacks}::text[] WHERE id = ${p.id}`;
     await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'POOL_SETTINGS_UPDATED', entityType: 'pool', entityId: p.id, payload: { before, ...v } });
-    const [after] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null }[]>`
-      SELECT shipping_note, ip_id, draw_packs, last_prize_name FROM pools WHERE id = ${p.id}`;
-    return { poolId: p.id, shippingNote: after!.shippingNote, ipId: after!.ipId, drawPacks: drawPacksOut(after!.drawPacks), lastPrizeName: after!.lastPrizeName };
+    const [after] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null; description: string; sourceNote: string; condition: string }[]>`
+      SELECT shipping_note, ip_id, draw_packs, last_prize_name, description, source_note, item_condition AS condition FROM pools WHERE id = ${p.id}`;
+    return {
+      poolId: p.id,
+      shippingNote: after!.shippingNote,
+      description: after!.description,
+      sourceNote: after!.sourceNote,
+      condition: after!.condition,
+      ipId: after!.ipId,
+      drawPacks: drawPacksOut(after!.drawPacks),
+      lastPrizeName: after!.lastPrizeName,
+    };
   });
 }
 

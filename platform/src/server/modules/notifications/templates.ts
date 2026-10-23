@@ -53,6 +53,18 @@ const T: Record<NotificationType, (d: Data) => Rendered> = {
     sms: `【CHIAKI】包裹已由${s(d.carrierLabel)}寄出，單號 ${s(d.trackingNo)}`,
     url: `/me/shipments/${s(d.shipmentId)}`,
   }),
+  SHIPMENT_UPDATED: (d) => ({
+    title: '出貨單狀態更新',
+    body: `您的出貨單狀態：${s(d.statusLabel)}。${d.reason ? `說明：${s(d.reason)}` : ''}${d.trackingNo ? `追蹤編號 ${s(d.trackingNo)}${d.carrierLabel ? `（${s(d.carrierLabel)}）` : ''}` : ''}`,
+    sms: `【CHIAKI】出貨單狀態：${s(d.statusLabel)}`,
+    url: `/me/shipments/${s(d.shipmentId)}`,
+  }),
+  FORUM_MODERATED: (d) => ({
+    title: '討論區審核結果',
+    body: `您的${s(d.targetLabel, '貼文')}「${s(d.title)}」${s(d.resultLabel)}。${d.reason ? `原因：${s(d.reason)}` : ''}`,
+    sms: `【CHIAKI】討論區審核結果：${s(d.resultLabel)}`,
+    url: `/forum/${s(d.postId)}`,
+  }),
   REFUND_STATUS: (d) => ({
     title: '退款申請狀態更新',
     body: `您的${s(d.kindLabel, '退款')}申請（${s(d.amountLabel)}）狀態：${s(d.statusLabel)}。${d.note ? `備註：${s(d.note)}` : ''}`,

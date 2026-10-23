@@ -414,6 +414,8 @@ model Pool {
   offline      Boolean   @default(false)
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
   deleteReason String?   @map("delete_reason")
+  sourceNote    String @default("") @map("source_note")
+  itemCondition String @default("") @map("item_condition")
   @@map("pools")
 }
 
@@ -688,6 +690,7 @@ model Shipment {
   exceptionAt DateTime? @map("exception_at") @db.Timestamptz(6)
   exceptionNote String? @map("exception_note")
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  addressId String? @map("address_id") @db.Uuid
   @@map("shipments")
 }
 
@@ -801,6 +804,10 @@ model User {
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   phoneVerifiedAt DateTime? @map("phone_verified_at") @db.Timestamptz(6)
   email String?
+  nickname         String?   @map("nickname")
+  realName         String?   @map("real_name")
+  avatarAssetId    String?   @map("avatar_asset_id") @db.Uuid
+  profileUpdatedAt DateTime? @map("profile_updated_at") @db.Timestamptz(6)
   @@map("users")
 }
 
@@ -894,4 +901,132 @@ model WarehouseItem {
   levelName            String?   @map("level_name")
   isSmall              Boolean   @default(false) @map("is_small")
   @@map("warehouse_items")
+}
+
+model PhoneChangeRequest {
+  userId      String   @id @map("user_id") @db.Uuid
+  newPhone    String   @map("new_phone")
+  requestedAt DateTime @default(now()) @map("requested_at") @db.Timestamptz(6)
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
+  @@map("phone_change_requests")
+}
+
+model MemberAddress {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  method         String
+  recipientName  String   @map("recipient_name")
+  recipientPhone String   @map("recipient_phone")
+  address        String?
+  cvsStoreId     String?  @map("cvs_store_id")
+  cvsStoreName   String?  @map("cvs_store_name")
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("member_addresses")
+}
+
+model ForumPost {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  category         String
+  title            String
+  body             String
+  imageAssetId     String?   @map("image_asset_id") @db.Uuid
+  status           String    @default("PENDING")
+  moderationReason String?   @map("moderation_reason")
+  moderatedBy      String?   @map("moderated_by") @db.Uuid
+  moderatedAt      DateTime? @map("moderated_at") @db.Timestamptz(6)
+  likeCount        Int       @default(0) @map("like_count")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("forum_posts")
+}
+
+model ForumComment {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  postId           String    @map("post_id") @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  body             String
+  status           String    @default("PENDING")
+  moderationReason String?   @map("moderation_reason")
+  moderatedBy      String?   @map("moderated_by") @db.Uuid
+  moderatedAt      DateTime? @map("moderated_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("forum_comments")
+}
+
+model ForumLike {
+  postId    String   @map("post_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@id([postId, userId])
+  @@map("forum_likes")
+}
+
+model ForumReport {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  targetType String    @map("target_type")
+  targetId   String    @map("target_id") @db.Uuid
+  reporterId String    @map("reporter_id") @db.Uuid
+  reason     String
+  status     String    @default("OPEN")
+  resolvedBy String?   @map("resolved_by") @db.Uuid
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@unique([targetType, targetId, reporterId])
+  @@map("forum_reports")
+}
+
+model Banner {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId     String    @default("chiaki") @map("merchant_id")
+  title          String
+  altText        String    @map("alt_text")
+  linkUrl        String?   @map("link_url")
+  startsAt       DateTime? @map("starts_at") @db.Timestamptz(6)
+  endsAt         DateTime? @map("ends_at") @db.Timestamptz(6)
+  enabled        Boolean   @default(true)
+  sortOrder      Int       @default(0) @map("sort_order")
+  desktopAssetId String    @map("desktop_asset_id") @db.Uuid
+  mobileAssetId  String?   @map("mobile_asset_id") @db.Uuid
+  createdBy      String?   @map("created_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("banners")
+}
+
+/// 優惠券：已使用過的代碼不可改（觸發器）；刪除為軟刪除
+model Coupon {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  merchantId  String    @default("chiaki") @map("merchant_id")
+  code        String
+  kind        String
+  value       Int
+  minSpend    Int       @default(0) @map("min_spend")
+  issueLimit  Int?      @map("issue_limit")
+  issuedCount Int       @default(0) @map("issued_count")
+  usedCount   Int       @default(0) @map("used_count")
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(6)
+  enabled     Boolean   @default(true)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy   String?   @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  @@map("coupons")
+}
+
+/// 出貨事件紀錄（append-only；會員可見）
+model ShipmentEvent {
+  id          BigInt   @id @default(autoincrement())
+  shipmentId  String   @map("shipment_id") @db.Uuid
+  status      String
+  kind        String
+  actorType   String   @map("actor_type")
+  actorId     String?  @map("actor_id") @db.Uuid
+  note        String?
+  changesJson String   @default("{}") @map("changes_json")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("shipment_events")
 }

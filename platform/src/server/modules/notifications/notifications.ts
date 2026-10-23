@@ -17,6 +17,8 @@ export const NOTIFICATION_TYPES = [
   'SHIPPING_FEE_REFUND',
   'TICKET_REPLY',
   'REFERRAL_REWARD',
+  'SHIPMENT_UPDATED',
+  'FORUM_MODERATED',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

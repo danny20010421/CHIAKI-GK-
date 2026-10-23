@@ -4,7 +4,7 @@ import type { ImageFormat, ImageInfo } from './image-header';
  * 圖片素材規格（業主提供）。鍵：建議尺寸、最小尺寸、格式、檔案上限 KB、比例 ±2%（高度不限者不檢查比例）。
  * 前台檢查器與後台上傳皆以此表為準（GET /api/assets/specs）；伺服器端一律重新驗證，不信任前台。
  */
-export const ASSET_TYPES = ['cover', 'prize', 'banner', 'bannerM', 'event', 'eventBody', 'ticket', 'ip', 'product', 'partner', 'og'] as const;
+export const ASSET_TYPES = ['cover', 'prize', 'banner', 'bannerM', 'event', 'eventBody', 'ticket', 'ip', 'product', 'partner', 'og', 'avatar', 'forum'] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 
 export interface AssetSpec {
@@ -34,7 +34,8 @@ const s = (type: AssetType, label: string, w: number, h: number | null, minW: nu
 export const ASSET_SPECS: Record<AssetType, AssetSpec> = {
   cover: s('cover', '賞池封面', 1600, 1600, 1080, 1080, ['jpeg', 'webp'], 600),
   prize: s('prize', '獎項圖', 1200, 1200, 800, 800, ['png', 'jpeg', 'webp'], 400),
-  banner: s('banner', '首頁橫幅（桌機）', 2400, 900, 1800, 675, ['jpeg', 'webp'], 800),
+  // 業主 2026-10 第六批：桌機橫幅改為 3:1
+  banner: s('banner', '首頁橫幅（桌機）', 2400, 800, 1800, 600, ['jpeg', 'webp'], 800),
   bannerM: s('bannerM', '首頁橫幅（手機）', 1200, 1500, 900, 1125, ['jpeg', 'webp'], 600),
   event: s('event', '活動頁主視覺', 1920, 640, 1440, 480, ['jpeg', 'webp'], 700),
   eventBody: s('eventBody', '活動頁內文長圖', 1080, null, 1080, null, ['jpeg', 'webp', 'png'], 1000, 3000),
@@ -43,6 +44,9 @@ export const ASSET_SPECS: Record<AssetType, AssetSpec> = {
   product: s('product', '商城商品圖', 1200, 1200, 800, 800, ['jpeg', 'webp', 'png'], 400),
   partner: s('partner', '合作夥伴標誌', 400, 400, 200, 200, ['jpeg', 'webp', 'png'], 150),
   og: s('og', '社群分享縮圖（OG）', 1200, 630, 1200, 630, ['jpeg', 'png'], 300),
+  // 會員上傳：頭像須為 400×400 正方形（前端裁切縮放後上傳；伺服器驗證並重新封裝、去除中繼資料）
+  avatar: { ...s('avatar', '會員頭像', 400, 400, 400, 400, ['jpeg', 'png', 'webp'], 200), maxHeight: null },
+  forum: s('forum', '討論區圖片', 1200, null, 400, null, ['jpeg', 'png', 'webp'], 800, 2400),
 };
 
 /** 安全上限：避免極大像素的「解壓縮炸彈」（規格只定最小值，此為額外防護） */

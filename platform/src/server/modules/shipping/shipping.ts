@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AppError } from '../../errors';
-import { transaction, type Db } from '../../db';
+import { db, transaction, type Db } from '../../db';
+import { ADDRESS_TO_SHIPPING, getOwnAddress } from '../member/profile';
 import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
 import type { Principal } from '../auth/rbac';
@@ -10,9 +11,8 @@ import { advanceShipment, listMemberShipments } from './fulfilment';
 
 export { SHIPPING_METHODS };
 
-export const ShipmentRequestSchema = z
+const RecipientSchema = z
   .object({
-    itemIds: ItemIdsSchema,
     method: z.enum(SHIPPING_METHODS),
     recipientName: z.string().min(1).max(50),
     recipientPhone: z.string().regex(/^09\d{8}$/, '請填寫台灣手機號碼 09xxxxxxxx'),
@@ -23,6 +23,26 @@ export const ShipmentRequestSchema = z
   .superRefine((v, ctx) => {
     if (v.method === 'HOME_DELIVERY' && !v.address) ctx.addIssue({ code: 'custom', path: ['address'], message: 'address required for home delivery' });
     if (v.method !== 'HOME_DELIVERY' && !v.cvsStoreId) ctx.addIssue({ code: 'custom', path: ['cvsStoreId'], message: 'store id required for CVS pickup' });
+  });
+
+/**
+ * 申請出貨：收件資訊可直接填寫，或以 addressId 引用「常用收件資訊」（此時以該筆資料為準，不需再填其他收件欄位）。
+ */
+export const ShipmentRequestSchema = z
+  .object({
+    itemIds: ItemIdsSchema,
+    addressId: z.string().uuid().optional(),
+    method: z.enum(SHIPPING_METHODS).optional(),
+    recipientName: z.string().min(1).max(50).optional(),
+    recipientPhone: z.string().optional(),
+    address: z.string().min(5).max(200).optional(),
+    cvsStoreId: z.string().min(3).max(20).optional(),
+    cvsStoreName: z.string().max(50).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.addressId) return;
+    const r = RecipientSchema.safeParse(v);
+    if (!r.success) for (const i of r.error.issues) ctx.addIssue(i);
   });
 
 /**
@@ -41,7 +61,15 @@ export async function listShippingMethods(db: Db) {
  *  - 若預收時選的是超商、出貨卻改宅配：每個涉及的套補收「宅配 − 超商」差額（該套目前設定）。
  */
 export async function requestShipment(userId: string, input: z.input<typeof ShipmentRequestSchema>) {
-  const v = ShipmentRequestSchema.parse(input);
+  const raw = ShipmentRequestSchema.parse(input);
+  let recipient: z.infer<typeof RecipientSchema>;
+  if (raw.addressId) {
+    const a = await getOwnAddress(db(), userId, raw.addressId);
+    recipient = { method: ADDRESS_TO_SHIPPING[a.method], recipientName: a.recipientName, recipientPhone: a.recipientPhone, address: a.address ?? undefined, cvsStoreId: a.cvsStoreId ?? undefined, cvsStoreName: a.cvsStoreName ?? undefined };
+  } else {
+    recipient = RecipientSchema.parse(raw);
+  }
+  const v = { ...recipient, itemIds: raw.itemIds, addressId: raw.addressId ?? null };
   return transaction(async (tx) => {
     const [m] = await tx<{ feeCoins: number; maxItems: number; merchantId: string }[]>`
       SELECT fee_coins, max_items, merchant_id FROM shipping_methods WHERE method = ${v.method} AND active`;
@@ -83,11 +111,12 @@ export async function requestShipment(userId: string, input: z.input<typeof Ship
         : [];
     const fee = baseFee + homeUpgrades.reduce((s, u) => s + u.amount, 0);
     const [s] = await tx<{ id: string }[]>`
-      INSERT INTO shipments (merchant_id, user_id, method, recipient_name, recipient_phone, address, cvs_store_id, cvs_store_name, fee_coins, item_count, prepaid_item_count)
+      INSERT INTO shipments (merchant_id, user_id, method, recipient_name, recipient_phone, address, cvs_store_id, cvs_store_name, fee_coins, item_count, prepaid_item_count, address_id)
       VALUES (${m.merchantId}, ${userId}, ${v.method}, ${v.recipientName}, ${v.recipientPhone},
               ${v.method === 'HOME_DELIVERY' ? v.address! : null}, ${v.method === 'HOME_DELIVERY' ? null : v.cvsStoreId!},
-              ${v.cvsStoreName ?? null}, ${fee}, ${v.itemIds.length}, ${covered.length})
+              ${v.cvsStoreName ?? null}, ${fee}, ${v.itemIds.length}, ${covered.length}, ${v.addressId})
       RETURNING id`;
+    await tx`INSERT INTO shipment_events (shipment_id, status, kind, actor_type, actor_id, note) VALUES (${s!.id}, 'REQUESTED', 'REQUESTED', 'USER', ${userId}, '會員申請出貨')`;
     await tx`UPDATE warehouse_items SET status = 'SHIP_REQUESTED', shipment_id = ${s!.id}, updated_at = now() WHERE id = ANY(${v.itemIds}::uuid[])`;
     let coinsAfter: number | null = null;
     if (fee > 0) {

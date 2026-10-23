@@ -278,3 +278,61 @@ export async function expectAppError(p: Promise<unknown>, code: string): Promise
   }
   throw new Error(`expected AppError ${code}, but promise resolved`);
 }
+
+// ───────────── 測試用的「結構完整」小圖片（可通過重新封裝；像素資料為假資料） ─────────────
+const u32 = (n: number) => {
+  const b = Buffer.alloc(4);
+  b.writeUInt32BE(n >>> 0);
+  return b;
+};
+const u16 = (n: number) => {
+  const b = Buffer.alloc(2);
+  b.writeUInt16BE(n);
+  return b;
+};
+const pngChunk = (type: string, data: Buffer) => Buffer.concat([u32(data.length), Buffer.from(type, 'latin1'), data, u32(0)]);
+/** PNG：IHDR + tEXt（含「GPS」中繼資料）+ IDAT + IEND */
+export function testPng(w: number, h: number, meta = 'GPS 25.0330N 121.5654E'): Buffer {
+  const ihdr = Buffer.concat([u32(w), u32(h), Buffer.from([8, 6, 0, 0, 0])]);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('tEXt', Buffer.from(`Comment\0${meta}`, 'latin1')),
+    pngChunk('IDAT', Buffer.alloc(300, 0x42)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+/** JPEG：SOI + APP0 + APP1（EXIF，含「GPS」）+ COM + DQT + SOF0 + SOS + 掃描資料 + EOI（+ 尾端夾帶資料） */
+export function testJpeg(w: number, h: number, opts: { trailing?: string } = {}): Buffer {
+  const seg = (marker: number, data: Buffer) => Buffer.concat([Buffer.from([0xff, marker]), u16(data.length + 2), data]);
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    seg(0xe0, Buffer.concat([Buffer.from('JFIF\0'), Buffer.alloc(9)])),
+    seg(0xe1, Buffer.concat([Buffer.from('Exif\0\0'), Buffer.from('GPS 25.0330N 121.5654E'), Buffer.alloc(200, 0x11)])),
+    seg(0xfe, Buffer.from('camera owner: someone')),
+    seg(0xdb, Buffer.alloc(65, 1)),
+    seg(0xc0, Buffer.concat([Buffer.from([8]), u16(h), u16(w), Buffer.from([3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1])])),
+    seg(0xda, Buffer.from([3, 1, 0, 2, 0x11, 3, 0x11, 0, 0x3f, 0])),
+    Buffer.alloc(400, 0x33),
+    Buffer.from([0xff, 0xd9]),
+    Buffer.from(opts.trailing ?? '', 'latin1'),
+  ]);
+}
+/** WebP（VP8X 延伸格式，帶 EXIF 區塊與旗標） */
+export function testWebp(w: number, h: number): Buffer {
+  const le24 = (n: number) => Buffer.from([n & 255, (n >>> 8) & 255, (n >>> 16) & 255]);
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32LE(data.length);
+    return Buffer.concat([Buffer.from(type, 'latin1'), len, data, data.length % 2 ? Buffer.from([0]) : Buffer.alloc(0)]);
+  };
+  const body = Buffer.concat([
+    Buffer.from('WEBP'),
+    chunk('VP8X', Buffer.concat([Buffer.from([0x08, 0, 0, 0]), le24(w - 1), le24(h - 1)])),
+    chunk('VP8L', Buffer.concat([Buffer.from([0x2f]), Buffer.alloc(200, 0x21)])),
+    chunk('EXIF', Buffer.from('GPS 25.0330N 121.5654E')),
+  ]);
+  const size = Buffer.alloc(4);
+  size.writeUInt32LE(body.length);
+  return Buffer.concat([Buffer.from('RIFF'), size, body]);
+}

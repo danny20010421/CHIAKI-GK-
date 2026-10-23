@@ -32,6 +32,8 @@ export const PERMISSIONS = [
   'catalog.product.manage', // 商城商品屬性（標籤、大件）
   'pool.manage', // 賞池/套：下架與重新上架、套名稱與備註、0 銷售重新產生籤表、新增套、刪除/還原套
   'pool.delete', // 刪除/還原整個賞池（僅 SUPER_ADMIN）
+  'forum.moderate', // 討論區審核：核准、退回、下架（須填原因）、處理檢舉
+  'marketing.manage', // 首頁橫幅、優惠券
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -56,6 +58,8 @@ const MATRIX: Record<Role, readonly Permission[]> = {
     'asset.manage',
     'catalog.product.manage',
     'pool.manage',
+    'forum.moderate',
+    'marketing.manage',
   ],
   FINANCE: [
     'refund.decide',
@@ -69,7 +73,7 @@ const MATRIX: Record<Role, readonly Permission[]> = {
     'wallet.reconcile',
     'cs.compensation.approve',
   ],
-  CS: ['member.read', 'refund.decide', 'risk.read', 'cs.ticket.manage', 'cs.compensation.grant', 'storage.extend', 'shipment.resend', 'approval.list'],
+  CS: ['member.read', 'refund.decide', 'risk.read', 'cs.ticket.manage', 'cs.compensation.grant', 'storage.extend', 'shipment.resend', 'approval.list', 'forum.moderate'],
   MERCHANT: [],
   MEMBER: [],
 };

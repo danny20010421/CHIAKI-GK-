@@ -131,7 +131,7 @@ describe('fulfilment pipeline', () => {
     assert.equal(((await ok.json()) as { updated: number }).updated, 2);
 
     const home = (await (await carriersRoute(apiRequest('GET', '/api/admin/carriers?method=HOME_DELIVERY', { token: ops.token }), none)).json()) as { carriers: { code: string; label: string }[] };
-    assert.deepEqual(home.carriers.map((c) => c.label), ['黑貓宅急便', '新竹物流', '中華郵政']);
+    assert.deepEqual(home.carriers.map((c) => c.label), ['黑貓宅急便', '新竹物流', '中華郵政', '嘉里大榮', '宅配通']);
     const fami = (await (await carriersRoute(apiRequest('GET', '/api/admin/carriers?method=CVS_FAMI_C2C', { token: ops.token }), none)).json()) as { carriers: { label: string }[] };
     assert.deepEqual(fami.carriers.map((c) => c.label), ['全家店到店']);
   });

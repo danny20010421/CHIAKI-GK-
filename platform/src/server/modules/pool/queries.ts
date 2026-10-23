@@ -112,11 +112,11 @@ export function showPrize(r: Pick<PrizeRow, 'kind' | 'levelNo' | 'levelName' | '
 export async function getPoolDetail(db: Db, idOrSlug: string) {
   const { id } = await resolvePublicPool(db, idOrSlug);
   const [p] = await db<{
-    id: string; slug: string; title: string; ip: string; description: string; source: string; playType: string; drawPacks: string[]; offline: boolean;
+    id: string; slug: string; title: string; ip: string; description: string; sourceNote: string; condition: string; source: string; playType: string; drawPacks: string[]; offline: boolean;
     priceCoins: number; status: string; setCount: number; lastPrizeName: string | null; merchantId: string; shippingNote: string;
     ruleVersionId: string; ruleVersion: number; rulesHash: string; rulesJson: string;
   }[]>`
-    SELECT p.id, p.slug, p.title, p.ip, p.description, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.draw_packs, p.offline,
+    SELECT p.id, p.slug, p.title, p.ip, p.description, p.source_note, p.item_condition AS condition, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.draw_packs, p.offline,
            p.last_prize_name, p.merchant_id, p.shipping_note, rv.id AS rule_version_id, rv.version AS rule_version, rv.rules_hash, rv.rules_json
     FROM pools p JOIN pool_rule_versions rv ON rv.id = p.current_rule_version_id WHERE p.id = ${id}`;
   if (!p) throw new AppError('NOT_FOUND', 'pool not found');
@@ -143,6 +143,9 @@ export async function getPoolDetail(db: Db, idOrSlug: string) {
     title: p.title,
     ip: p.ip,
     description: p.description,
+    /** 來源說明、商品狀態、出貨時程說明（後台隨時可改） */
+    sourceNote: p.sourceNote,
+    condition: p.condition,
     source: p.source,
     playType: p.playType,
     priceCoins: p.priceCoins,

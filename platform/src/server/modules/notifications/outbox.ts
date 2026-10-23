@@ -28,6 +28,8 @@ const DEFAULTS: Record<NotificationType, Channel[]> = {
   SHIPPING_FEE_REFUND: ['IN_APP', 'WEB_PUSH', 'LINE'],
   TICKET_REPLY: ['IN_APP', 'WEB_PUSH', 'LINE', 'EMAIL'],
   REFERRAL_REWARD: ['IN_APP', 'WEB_PUSH', 'LINE'],
+  SHIPMENT_UPDATED: ['IN_APP', 'WEB_PUSH', 'LINE', 'EMAIL'],
+  FORUM_MODERATED: ['IN_APP'],
 };
 
 interface Recipient {

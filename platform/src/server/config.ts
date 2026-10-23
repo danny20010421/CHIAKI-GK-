@@ -57,6 +57,11 @@ const EnvSchema = z.object({
   RATE_LIMIT_USER_REFILL_PER_SEC: z.coerce.number().positive().default(1),
   // 免費試玩（GET/POST /api/play/:poolId）：每 IP 每分鐘次數上限
   FREE_PLAY_PER_MIN: z.coerce.number().int().positive().default(30),
+  // 換手機 OTP：每位會員每小時最多送出次數；討論區每位會員每日上限
+  PHONE_CHANGE_OTP_PER_HOUR: z.coerce.number().int().positive().default(5),
+  FORUM_POSTS_PER_DAY: z.coerce.number().int().positive().default(5),
+  FORUM_COMMENTS_PER_DAY: z.coerce.number().int().positive().default(30),
+  FORUM_REPORTS_PER_DAY: z.coerce.number().int().positive().default(20),
   MAX_BODY_BYTES: z.coerce.number().int().positive().default(64 * 1024),
   // 圖片素材上傳（base64 JSON）本文上限：最大 1500 KB 的檔案 base64 後約 2.0 MB
   ASSET_UPLOAD_MAX_BODY_BYTES: z.coerce.number().int().positive().default(2_200_000),

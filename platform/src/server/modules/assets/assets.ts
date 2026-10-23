@@ -5,6 +5,7 @@ import { db, transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { requirePermission, type Principal } from '../auth/rbac';
 import { readImageHeader, type ImageInfo } from './image-header';
+import { stripMetadata } from './reencode';
 import { ASSET_SPECS, ASSET_TYPES, checkAgainstSpec, type AssetType, type CheckResult } from './specs';
 
 /**
@@ -217,4 +218,41 @@ export async function getAssetContent(d: Db, id: string): Promise<{ contentType:
   const [a] = await d<{ format: keyof typeof MIME; content: Buffer; sha256: string; altText: string }[]>`SELECT format, content, sha256, alt_text FROM assets WHERE id = ${id}`;
   if (!a) throw new AppError('NOT_FOUND', 'asset not found');
   return { contentType: MIME[a.format], body: a.content, sha256: a.sha256, altText: a.altText };
+}
+
+/** 會員上傳（頭像、討論區圖片）的輸入 */
+export const MemberImageSchema = z.object({
+  dataBase64: z.string().min(1).max(1_200_000),
+  copyrightConfirmed: z.literal(true, { errorMap: () => ({ message: '請確認您擁有此圖片的使用授權（copyrightConfirmed 必須為 true）' }) }),
+  filename: z.string().max(200).optional(),
+  mimeType: z.string().max(100).optional(),
+});
+
+/**
+ * 會員圖片：沿用素材驗證器（格式、大小、尺寸、比例）→ 重新封裝去除所有中繼資料（EXIF/GPS…）→ 再驗證一次 → 儲存。
+ * 回傳素材 id（公開網址 /api/assets/:id）。須在呼叫端的交易內執行（稽核由呼叫端寫）。
+ */
+export async function storeMemberImage(
+  tx: Tx,
+  userId: string,
+  type: 'avatar' | 'forum',
+  input: z.infer<typeof MemberImageSchema>,
+  altText: string,
+  extra?: (info: ImageInfo) => CheckResult | null,
+): Promise<{ id: string; url: string; width: number; height: number; bytes: number; strippedBytes: number }> {
+  const raw = decodeBase64(input.dataBase64);
+  const first = validateAsset(type, raw, { filename: input.filename, mimeType: input.mimeType });
+  const more = first.detected && extra ? extra(first.detected) : null;
+  if (more && !more.ok) first.checks.push(more);
+  if (!first.ok || (more && !more.ok)) throw new AppError('ASSET_REJECTED', '圖片不符合規格，請依各項檢查結果修正後再上傳', { report: { ...first, ok: false } });
+  const clean = stripMetadata(raw, first.detected!.format);
+  const report = validateAsset(type, clean);
+  if (!report.ok) throw new AppError('ASSET_REJECTED', '圖片不符合規格', { report });
+  const [row] = await tx<{ id: string }[]>`
+    INSERT INTO assets (type, format, width, height, bytes, sha256, alt_text, copyright_confirmed, original_filename, uploaded_by, content)
+    VALUES (${type}, ${report.detected!.format}, ${report.detected!.width}, ${report.detected!.height}, ${clean.length}, ${report.sha256},
+            ${altText.slice(0, 200)}, true, ${input.filename ?? null}, ${userId}, ${clean})
+    ON CONFLICT (type, sha256) DO UPDATE SET type = EXCLUDED.type
+    RETURNING id`;
+  return { id: row!.id, url: `/api/assets/${row!.id}`, width: report.detected!.width, height: report.detected!.height, bytes: raw.length, strippedBytes: clean.length };
 }

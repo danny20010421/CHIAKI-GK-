@@ -80,7 +80,7 @@ describe('hand-written image header parsing', () => {
 
 describe('spec checks (pure)', () => {
   it('table has the 11 owner types with the given numbers', () => {
-    assert.deepEqual([...ASSET_TYPES], ['cover', 'prize', 'banner', 'bannerM', 'event', 'eventBody', 'ticket', 'ip', 'product', 'partner', 'og']);
+    assert.deepEqual([...ASSET_TYPES], ['cover', 'prize', 'banner', 'bannerM', 'event', 'eventBody', 'ticket', 'ip', 'product', 'partner', 'og', 'avatar', 'forum']);
     assert.deepEqual(ASSET_SPECS.ticket, { type: 'ticket', label: '籤紙圖', suggested: { width: 3000, height: 2040 }, min: { width: 1500, height: 1020 }, maxHeight: null, formats: ['png'], maxKB: 1500, ratioTolerance: 0.02 });
     assert.deepEqual([ASSET_SPECS.eventBody.min, ASSET_SPECS.eventBody.maxHeight, ASSET_SPECS.eventBody.ratioTolerance], [{ width: 1080, height: null }, 3000, null]);
     assert.deepEqual([ASSET_SPECS.og.min, ASSET_SPECS.og.formats, ASSET_SPECS.og.maxKB], [{ width: 1200, height: 630 }, ['jpeg', 'png'], 300]);
@@ -105,9 +105,9 @@ describe('spec checks (pure)', () => {
     assert.deepEqual(failed(big.checks), ['size']);
     assert.match(big.checks[1]!.message, /超過上限 600 KB/);
     // 最小尺寸
-    const small = validateAsset('banner', webp('VP8X', 1600, 600));
+    const small = validateAsset('banner', webp('VP8X', 1500, 500));
     assert.deepEqual(failed(small.checks), ['minDimensions']);
-    assert.match(small.checks[2]!.message, /太小，需至少 1800×675 px（建議 2400×900 px）/);
+    assert.match(small.checks[2]!.message, /太小，需至少 1800×600 px（建議 2400×800 px）/);
     // 長圖：寬 ≥ 1080、高度不限但 ≤ 3000，不檢查比例
     const body = validateAsset('eventBody', png(1080, 2800, 900 * 1024));
     assert.equal(body.ok, true);
@@ -177,7 +177,7 @@ describe('POST /api/admin/assets', () => {
     const cover = await j<{ asset: { id: string } }>(await upload(base('cover', jpeg(1600, 1600), { links: [{ targetType: 'POOL', targetId: poolId }] })));
     assert.equal(cover.status, 201);
     const coverId = cover.body.asset.id;
-    const banner = await j<{ links: { targetType: string; targetId: string; role: string }[] }>(await upload(base('banner', webp('VP8X', 2400, 900), { links: [{ targetType: 'BANNER', targetId: 'home-hero', role: 'hero' }] })));
+    const banner = await j<{ links: { targetType: string; targetId: string; role: string }[] }>(await upload(base('banner', webp('VP8X', 2400, 800), { links: [{ targetType: 'BANNER', targetId: 'home-hero', role: 'hero' }] })));
     assert.deepEqual([banner.status, banner.body.links], [201, [{ targetType: 'BANNER', targetId: 'home-hero', role: 'hero' }]]);
     assert.equal((await linkRoute(apiRequest('POST', `/api/admin/assets/${coverId}/links`, { token: ops.token, body: { targetType: 'PARTNER', targetId: 'painter-rrrrryan2d' } }), ctx({ id: coverId }))).status, 400, 'cover cannot be a partner logo');
     assert.equal((await linkRoute(apiRequest('POST', `/api/admin/assets/${coverId}/links`, { token: ops.token, body: { targetType: 'POOL', targetId: 'no-such-pool' } }), ctx({ id: coverId }))).status, 404);
@@ -216,7 +216,7 @@ describe('GET /api/assets/specs', () => {
   it('public spec table for the front-end checker', async () => {
     const r = await j<{ note: string; specs: { type: string; label: string; formats: string[]; maxKB: number; heightFree: boolean; ratioTolerancePercent: number | null }[] }>(await specsRoute(apiRequest('GET', '/api/assets/specs'), none));
     assert.equal(r.status, 200);
-    assert.equal(r.body.specs.length, 11);
+    assert.equal(r.body.specs.length, 13);
     assert.match(r.body.note, /不採信副檔名或 MIME/);
     const eb = r.body.specs.find((x) => x.type === 'eventBody')!;
     assert.deepEqual([eb.heightFree, eb.ratioTolerancePercent, eb.formats, eb.maxKB], [true, null, ['JPEG', 'WebP', 'PNG'], 1000]);
