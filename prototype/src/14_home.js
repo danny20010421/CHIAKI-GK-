@@ -96,8 +96,9 @@ heroFx = function(){
     const items = p.prizes.filter(pr => pr.img).map(pr => ({img:pr.img, lv:pr.lvName, n:pr.name}));
     if (p.last && p.lastImg) items.push({img:p.lastImg, lv:'最後賞', n:p.last});
     if (items.length < 2) return h;
-    const card = x => `<button type="button" class="mq-it" data-act="scroll" data-to="h-pz" aria-label="${x.lv} ${x.n}"><img src="${x.img}" alt="" loading="lazy"><span class="mq-lv">${x.lv}</span></button>`;
-    const strip = `<div class="thumbs mq" aria-label="本賞池獎品"><div class="mq-row" style="--t:${items.length * 3.2}s">${items.map(card).join('')}<span class="mq-dup" aria-hidden="true">${items.map(card).join('')}</span></div></div>`;
+    S.zoomList = items;
+    const card = (x, i) => `<button type="button" class="mq-it" data-act="zoom" data-i="${i}" aria-label="放大查看：${x.lv} ${x.n}"><img src="${x.img}" alt="" loading="lazy"><span class="mq-lv">${x.lv}</span></button>`;
+    const strip = `<div class="thumbs mq" aria-label="本賞池獎品"><div class="mq-row" style="--t:${items.length * 3.2}s">${items.map((x, i) => card(x, i)).join('')}<span class="mq-dup" aria-hidden="true">${items.map((x, i) => card(x, i).replace('<button ', '<button tabindex="-1" ')).join('')}</span></div></div>`;
     let depth = 0, k = i; while (k < h.length){ const o = h.indexOf('<div', k), c = h.indexOf('</div>', k); if (o > -1 && o < c){ depth++; k = o + 4; } else { depth--; k = c + 6; if (depth === 0) break; } }
     return h.slice(0, i) + strip + h.slice(k); };
   routes.pool.after = r => { if (_after) _after(r); const m = $('.thumbs.mq'); if (!m) return;
@@ -116,4 +117,38 @@ heroFx = function(){
 @media (prefers-reduced-motion:reduce){.pd .thumbs.mq{overflow-x:auto;-webkit-mask:none;mask:none}.mq-row{animation:none}.mq-dup{display:none}}
 </style>`);
 })();
+
+/* 點縮圖 → 放大檢視（左右切換、滑動、Esc 關閉） */
+function zoomOpen(i){ const L = S.zoomList || []; if (!L.length) return; let k = (i + L.length) % L.length, x0 = null; const back = document.activeElement;
+  const root = document.createElement('div'); root.className = 'zoom'; root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); root.setAttribute('aria-label', '獎品放大檢視');
+  const draw = () => { const x = L[k]; root.innerHTML = `<div class="zm-bg" data-z="close"></div>
+    <figure class="zm-fig"><div class="zm-img"><img src="${x.img}" alt="${x.lv} ${x.n}"></div><figcaption><span class="mq-lv">${x.lv}</span><b>${x.n}</b><span class="dim num">${k + 1} / ${L.length}</span></figcaption></figure>
+    <button type="button" class="zm-btn zm-x" data-z="close" aria-label="關閉">${ic('x','width:22px;height:22px')}</button>
+    ${L.length > 1 ? `<button type="button" class="zm-btn zm-p" data-z="prev" aria-label="上一張">${ic('right','width:22px;height:22px;transform:rotate(180deg)')}</button><button type="button" class="zm-btn zm-n" data-z="next" aria-label="下一張">${ic('right','width:22px;height:22px')}</button>` : ''}`; };
+  const close = () => { root.remove(); removeEventListener('keydown', key, true); document.documentElement.style.overflow = ''; back && back.focus && back.focus({preventScroll:true}); };
+  const go = d => { k = (k + d + L.length) % L.length; draw(); const b = root.querySelector(d < 0 ? '.zm-p' : '.zm-n'); b && b.focus(); };
+  const key = e => { if (e.key === 'Escape'){ e.preventDefault(); close(); } else if (e.key === 'ArrowLeft') go(-1); else if (e.key === 'ArrowRight') go(1);
+    else if (e.key === 'Tab'){ const f = [...root.querySelectorAll('button')]; const a = f.indexOf(document.activeElement); if (e.shiftKey && a <= 0){ e.preventDefault(); f[f.length - 1].focus(); } else if (!e.shiftKey && a === f.length - 1){ e.preventDefault(); f[0].focus(); } } };
+  root.addEventListener('click', e => { const z = e.target.closest('[data-z]'); if (!z) return; const a = z.dataset.z; if (a === 'close') close(); else go(a === 'prev' ? -1 : 1); });
+  root.addEventListener('pointerdown', e => { x0 = e.clientX; });
+  root.addEventListener('pointerup', e => { if (x0 == null) return; const dx = e.clientX - x0; x0 = null; if (Math.abs(dx) > 48) go(dx < 0 ? 1 : -1); });
+  draw(); document.body.appendChild(root); document.documentElement.style.overflow = 'hidden'; addEventListener('keydown', key, true); root.querySelector('.zm-x').focus(); }
+document.addEventListener('click', e => { const el = e.target.closest('[data-act="zoom"]'); if (!el) return; e.preventDefault(); zoomOpen(+el.dataset.i); });
+document.head.insertAdjacentHTML('beforeend', `<style>
+.zoom{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;padding:64px 16px;animation:zmIn .2s ease-out}
+.zm-bg{position:absolute;inset:0;background:rgba(5,5,6,.9);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.zm-fig{position:relative;margin:0;width:min(640px,100%);display:flex;flex-direction:column;gap:16px}
+.zm-img{width:100%;aspect-ratio:1/1;max-height:calc(100svh - 200px);border-radius:16px;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:pan-y}
+.zm-img img{width:100%;height:100%;object-fit:contain;display:block;user-select:none;-webkit-user-drag:none}
+.zm-fig figcaption{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;text-align:center;font-size:14px;line-height:20px}
+.zm-fig figcaption .mq-lv{position:static}
+.zm-btn{position:absolute;z-index:2;width:48px;height:48px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:rgba(20,20,22,.8);color:#fff;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+.zm-btn svg{display:block}
+.zm-x{top:16px;right:16px}
+.zm-p{left:max(16px,calc(50% - 400px));top:50%;transform:translateY(-50%)}
+.zm-n{right:max(16px,calc(50% - 400px));top:50%;transform:translateY(-50%)}
+@media (max-width:599px){.zm-p,.zm-n{top:auto;bottom:16px;transform:none}.zm-p{left:calc(50% - 56px)}.zm-n{right:calc(50% - 56px)}}
+@keyframes zmIn{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.zoom{animation:none}}
+</style>`);
 </script>
