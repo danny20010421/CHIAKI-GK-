@@ -14,8 +14,9 @@ html = html.replace('__GUAR__', guar)
 # product photos for the test pools (media/<key>.b64, JPEG)
 for f in sorted((here / 'media').glob('*.b64')):
     html = html.replace('__DEMO_' + f.stem + '__', 'data:image/jpeg;base64,' + f.read_text().strip())
-# draw animation video is served as its own file next to index.html (assets/gacha.mp4)
-html = html.replace('__VIDEO_gacha__', 'assets/gacha.mp4')
+# draw animation video is served as its own file next to index.html (assets/gacha1.mp4, assets/gacha2.mp4)
+for v in ('gacha1', 'gacha2'):
+    html = html.replace('__VIDEO_' + v + '__', 'assets/' + v + '.mp4')
 out = here.parent / 'index.html'   # GitHub Pages serves the repository root
 out.write_text(html, encoding='utf-8')
 print('built', out, len(html), 'bytes')

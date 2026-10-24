@@ -68,9 +68,9 @@ const _lobby = routes.lobby;
 routes.lobby = r => { const keep = POOLS.slice(); const hid = POOLS.filter(hiddenPool);
   hid.forEach(p => POOLS.splice(POOLS.indexOf(p), 1)); let h; try { h = _lobby(r); } finally { POOLS.length = 0; keep.forEach(p => POOLS.push(p)); }
   const q = r.q, filtered = ['ip','tag','src','play','q'].some(k => q.get(k));
-  if (hid.length && !filtered){ const lock = `<button type="button" class="pc lockcard" data-act="bd-lock"><span class="lk-ic">${ic('lock','width:28px;height:28px')}</span><b>限定賞池</b><span>輸入通關密碼解鎖</span></button>`;
+  if (hid.length && !filtered){ const lock = `<section class="lock-sec" aria-labelledby="h-lock"><h3 id="h-lock">限定賞池</h3><button type="button" class="lockrow" data-act="bd-lock"><span class="lk-ic">${ic('lock','width:24px;height:24px')}</span><span class="lk-t"><b>輸入通關密碼</b><span>限定賞池不會出現在一般列表，需密碼才能進入</span></span><span class="lk-go">${ic('right','width:20px;height:20px')}</span></button></section>`;
     const i = h.indexOf('<div class="grid lgrid">');
-    if (i > -1){ let depth = 0, k = i; while (k < h.length){ const o = h.indexOf('<div', k), c = h.indexOf('</div>', k); if (o > -1 && o < c){ depth++; k = o + 4; } else { depth--; if (depth === 0) break; k = c + 6; } }
+    if (i > -1){ let depth = 0, k = i; while (k < h.length){ const o = h.indexOf('<div', k), c = h.indexOf('</div>', k); if (o > -1 && o < c){ depth++; k = o + 4; } else { depth--; k = c + 6; if (depth === 0) break; } }
       h = h.slice(0, k) + lock + h.slice(k); } }
   return h; };
 const _homeB = routes.home, _homeBA = routes.home.after;

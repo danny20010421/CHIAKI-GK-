@@ -113,7 +113,7 @@ const NOW = Date.now();
    small = 是否屬「小獎」（計入運費 20 件規則、可按件退運費），未設定時 4 等以後為小獎。
    items: n 名稱、q 數量、rv 回收值、keep 示範用保留數、tag 標籤（未填自動判斷） */
 const POOLS = [
-  {id:'bk', title:'一番賞 烙印勇士 ～宿命的雙極～', ip:'烙印勇士', src:'o', play:'std', price:420, hue:356, seed:211, setCount:3, setDrawn:[6,0,0], hot:true, isNew:true, img:DEMO_IMG('bkcover'),
+  {id:'bk', title:'一番賞 烙印勇士 ～宿命的雙極～', ip:'烙印勇士', src:'o', play:'std', price:420, hue:356, seed:211, drawn:6, hot:true, isNew:true, img:DEMO_IMG('bkcover'),
    desc:'凱茲與索特宿命對決，A 賞複製原畫、B 賞凱茲雙版本隨機、最後賞索特（人類姿態）。本套獎項皆不提供回收。',
    ship:{home:0, cvs:0}, packs:[1,5,10],
    levels:[
