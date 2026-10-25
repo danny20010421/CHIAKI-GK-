@@ -95,7 +95,9 @@ nextTicket = function(){ _nextTicketK(); const tx = $('#tix'); if (!tx) return;
   const cv = $('.cover', tx); if (cv) cv.innerHTML = `<div class="cv-tear">${kujiCoverTear()}</div><div class="cv-static">${kujiCoverStatic()}</div>`;
   tx.classList.add('k3'); };
 const inCoverFrame = (el, x, y) => { const r = el.getBoundingClientRect(), u = (x - r.left) / r.width * 300, v = (y - r.top) / r.height * 204;
-  if (!kInFrame.p) kInFrame.p = new Path2D(KF_CV); const c = kInFrame.c || (kInFrame.c = document.createElement('canvas').getContext('2d')); return c.isPointInPath(kInFrame.p, u, v); };
+  if (!kInFrame.p) kInFrame.p = new Path2D(KF_CV); const c = kInFrame.c || (kInFrame.c = document.createElement('canvas').getContext('2d')); if (u < 34 && v > 80 && v < 118) return true;   // 左側箭頭／凹口＝撕口，可以從這裡開始拉
+  if (u < 60 && v < 36 && u + v > 30) return true;   // 左上角開口
+  return c.isPointInPath(kInFrame.p, u, v); };
 function kInFrame(){}
 document.addEventListener('pointerdown', e => { const tx = e.target.closest && e.target.closest('#tix.k3'); if (!tx) return;
   if (!inCoverFrame(tx, e.clientX, e.clientY)){ e.stopPropagation(); tx.classList.add('nope'); setTimeout(() => tx.classList.remove('nope'), 260); } }, true);
