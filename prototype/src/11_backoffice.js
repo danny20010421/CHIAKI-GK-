@@ -60,7 +60,7 @@ function lookupIndex(){
   (S.members || []).forEach(m => R.push({type:'會員', id:m.uid, label:`${m.n}・${m.ph}`, sub:`${m.vip}・${m.st}`, go:'member', hay:[m.uid, m.n, m.ph, m.ph.slice(-3)].join(' ')}));
   S.shipments.forEach(s => R.push({type:'出貨單', id:s.id, label:`${s.user}・${s.items} 件・${SHIP_M[s.m]}`, sub:s.st + (s.no ? '・' + s.no : ''), go:'ship', hay:[s.id, s.user, s.no, ...(s.names||[])].join(' ')}));
   S.tickets.forEach(t => R.push({type:'工單', id:t.id, label:t.subj, sub:`${t.user}・${t.st}`, go:'cs', hay:[t.id, t.subj, t.user, t.link].join(' ')}));
-  S.refunds.forEach(f => R.push({type:'退款', id:f.id, label:`${f.user}・${f.kind==='coin' ? fmt(f.amt) + ' CC幣' : 'NT$ ' + fmt(f.amt)}`, sub:f.st, go:'refund', hay:[f.id, f.user, f.note].join(' ')}));
+  S.refunds.forEach(f => R.push({type:'退款', id:f.id, label:`${f.user}・${f.kind==='coin' ? fmt(f.amt) + ' UC幣' : 'NT$ ' + fmt(f.amt)}`, sub:f.st, go:'refund', hay:[f.id, f.user, f.note].join(' ')}));
   POOLS.forEach(p => R.push({type:'賞池', id:p.id, label:p.title.split(' ～')[0], sub:p.ip, go:'pool', hay:[p.id, p.title, p.ip].join(' ')}));
   if (typeof drawRows === 'function') drawRows().slice(0, 300).forEach(r => R.push({type:'抽賞', id:r.tx, label:`${r.user}・${r.pool}`, sub:`No.${r.no}・${r.res}`, go:'draw', q:r.tx, hay:[r.tx, r.user, r.pool].join(' ')}));
   return R;
@@ -111,7 +111,7 @@ ADM_VIEWS.refund = () => { const f = S.rfF || '待審核';
   let h = _refundView();
   const tbl = h.indexOf('<div class="tbl-wrap">');
   const tabs = `<div class="adm-bar">${['待審核','已處理','全部'].map(k => `<button class="chip ${f === k ? 'on' : ''}" data-act="x-rff" data-k="${k}">${k}<span class="cn">${S.refunds.filter(x => k === '全部' || (k === '待審核' ? x.st === '待審核' : x.st !== '待審核')).length}</span></button>`).join('')}</div>`;
-  const rows = list.map(x => `<tr class="${S.hl === x.id ? 'hl' : ''}"><td class="num">${x.id}</td><td>${x.user}</td><td>${x.kind==='coin'?'CC幣':'台幣'}</td><td>${x.via}</td><td class="r num">${x.kind==='coin'?fmt(x.amt)+' CC幣':'NT$ '+fmt(x.amt)}</td><td class="dim">${x.note}</td><td>${stTagT(x.st)}</td>
+  const rows = list.map(x => `<tr class="${S.hl === x.id ? 'hl' : ''}"><td class="num">${x.id}</td><td>${x.user}</td><td>${x.kind==='coin'?'UC幣':'台幣'}</td><td>${x.via}</td><td class="r num">${x.kind==='coin'?fmt(x.amt)+' UC幣':'NT$ '+fmt(x.amt)}</td><td class="dim">${x.note}</td><td>${stTagT(x.st)}</td>
       <td>${x.st==='待審核' ? `<span class="row" style="gap:8px"><button class="btn s gold" data-act="x-rfok" data-k="${x.id}">核准</button><button class="btn s" data-act="x-rfno" data-k="${x.id}">駁回</button></span>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="dim">沒有資料</td></tr>';
   return h.slice(0, tbl) + tabs + `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>編號</th><th>會員</th><th>類型</th><th>管道</th><th class="r">金額</th><th>說明</th><th>狀態</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 };

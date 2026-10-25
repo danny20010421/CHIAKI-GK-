@@ -54,7 +54,7 @@ Object.assign(S, {
     {uid:'20261019-0142', n:'k***a', ph:'0933-***-118', vip:'金籤', spend:96200, st:'正常', age:true, mfa:true},
     {uid:'20261021-0077', n:'w***l', ph:'0988-***-602', vip:'銅籤', spend:1200, st:'凍結', age:false, mfa:false}
   ],
-  vipT: [{n:'銅籤', min:0, perk:'會員基本權益'}, {n:'銀籤', min:10000, perk:'生日 100 CC幣、新賞提前 1 小時通知'}, {n:'金籤', min:50000, perk:'每月 95 折券 1 張、生日 300 CC幣'}, {n:'黑金籤', min:150000, perk:'新賞優先 24 小時、專屬客服'}],
+  vipT: [{n:'銅籤', min:0, perk:'會員基本權益'}, {n:'銀籤', min:10000, perk:'生日 100 UC幣、新賞提前 1 小時通知'}, {n:'金籤', min:50000, perk:'每月 95 折券 1 張、生日 300 UC幣'}, {n:'黑金籤', min:150000, perk:'新賞優先 24 小時、專屬客服'}],
   topups: [
     {id:'TP-88021', user:'Chiaki 玩家', amt:3000, via:'信用卡', no:'2610201914ab', st:'已入帳', rc:'相符'},
     {id:'TP-88020', user:'k***a', amt:10000, via:'ATM', no:'2610191022cd', st:'已入帳', rc:'相符'},
@@ -115,7 +115,7 @@ Object.assign(ADM_VIEWS, {
     ${S.members.map((m,i) => `<tr><td class="num">${m.uid}</td><td>${m.n}</td><td class="num">${m.ph}</td><td>${m.vip}</td><td class="r">${fmt(m.spend)}</td><td>${m.age?'<span class="tag ok">已驗證</span>':'<span class="tag warn">未驗證</span>'}</td><td>${m.mfa?'啟用':'—'}</td>
       <td><span class="tag ${m.st==='正常'?'ok':'bad'}">${m.st}</span></td><td><span class="row" style="gap:8px"><button class="btn s" data-act="x-mfreeze" data-k="${i}">${m.st==='正常'?'凍結':'解除凍結'}</button><button class="btn s ghost" data-act="x-madj" data-k="${i}">調整點數</button></span></td></tr>`).join('')}
     </tbody></table></div>`,
-  vip: () => `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>等級</th><th class="r">累計消費門檻（CC幣）</th><th>權益</th></tr></thead><tbody>
+  vip: () => `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>等級</th><th class="r">累計消費門檻（UC幣）</th><th>權益</th></tr></thead><tbody>
     ${S.vipT.map((v,i) => `<tr><td><b>${v.n}</b></td><td class="r"><input class="input num" type="number" min="0" value="${v.min}" data-act="x-vipmin" data-k="${i}" style="height:32px;width:120px;text-align:right" aria-label="${v.n} 門檻"></td><td><input class="input" value="${v.perk}" data-act="x-vipperk" data-k="${i}" style="height:32px;min-width:280px" aria-label="${v.n} 權益"></td></tr>`).join('')}
     </tbody></table></div><p class="dim" style="font-size:12px;margin-top:12px">等級依近 12 個月累計消費每日重新計算；權益變更自儲存起生效。</p>`,
   wallet: () => `<div class="kpis"><div class="kpi"><span>今日儲值</span><b>NT$ 14,000</b><em>3 筆</em></div><div class="kpi"><span>對帳相符</span><b>${S.topups.filter(t=>t.rc==='相符').length}</b><em>綠界回呼已驗證</em></div><div class="kpi"><span>待對帳</span><b style="color:var(--warn)">${S.topups.filter(t=>t.rc!=='相符').length}</b><em style="color:var(--tx-3)">超商代碼未付款</em></div><div class="kpi"><span>退款申請</span><b>${S.refunds.filter(f=>f.st==='待審核').length}</b><em style="color:var(--tx-3)">見運費退款</em></div></div>
@@ -131,7 +131,7 @@ Object.assign(ADM_VIEWS, {
     return `<div class="agrid" style="margin-top:0"><div class="panel"><h3>近 7 日 GMV（NT$）</h3>${barSVG(days, ' 元')}</div>
       <div class="panel"><h3>轉換漏斗（本月）</h3>${funnel.map(([n,v]) => `<div class="fun"><span>${n}</span><div class="fun-b"><i style="width:${v/funnel[0][1]*100}%"></i></div><b class="num">${fmt(v)}</b></div>`).join('')}</div></div>
       <div class="panel" style="margin-top:24px"><h3>各賞池目前套數售出率（%）</h3>${barSVG(sell, '%')}</div>
-      <div class="kpis" style="margin-top:24px"><div class="kpi"><span>本月毛利率</span><b>38.2%</b><em>收益 − 商品成本 − 運費成本</em></div><div class="kpi"><span>未履約責任</span><b>NT$ 214,600</b><em style="color:var(--tx-3)">倉庫中獎品＋未用CC幣</em></div><div class="kpi"><span>30 日留存</span><b>41%</b><em>▲ 3%</em></div><div class="kpi"><span>平均客單</span><b>1,460 幣</b><em>每次抽賞</em></div></div>`; },
+      <div class="kpis" style="margin-top:24px"><div class="kpi"><span>本月毛利率</span><b>38.2%</b><em>收益 − 商品成本 − 運費成本</em></div><div class="kpi"><span>未履約責任</span><b>NT$ 214,600</b><em style="color:var(--tx-3)">倉庫中獎品＋未用UC幣</em></div><div class="kpi"><span>30 日留存</span><b>41%</b><em>▲ 3%</em></div><div class="kpi"><span>平均客單</span><b>1,460 幣</b><em>每次抽賞</em></div></div>`; },
   mkt: () => `<div class="row between" style="margin-bottom:16px"><b>優惠券</b><button class="btn s gold" data-act="x-cpadd">${ic('plus','width:16px;height:16px')}新增優惠券</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>代碼</th><th>內容</th><th class="r">已使用</th><th>到期</th><th>狀態</th></tr></thead><tbody>
     ${S.coupons.map((c,i) => `<tr><td class="num">${c.code}</td><td>${c.d}</td><td class="r">${c.used}</td><td>${c.exp}</td><td><button class="btn s ${c.on?'':'ghost'}" data-act="x-cpon" data-k="${i}" aria-pressed="${c.on}">${c.on?'啟用中':'已停用'}</button></td></tr>`).join('')}
@@ -141,12 +141,12 @@ Object.assign(ADM_VIEWS, {
     ${S.banners.map(b => `<tr><td>${b.t}</td><td>${uploader('banner','bnD')}</td><td>${uploader('bannerM','bnM')}</td><td>${b.from} ～ ${b.to}</td><td><span class="tag ok">刊登中</span></td></tr>`).join('')}
     </tbody></table></div>
     <div class="row between" style="margin:32px 0 16px"><b>邀請好友成效</b></div>
-    <div class="kpis"><div class="kpi"><span>本月新邀請</span><b>146</b><em>完成手機驗證 118</em></div><div class="kpi"><span>達標發放</span><b>3 人</b><em>共 3,000 不可退款 CC幣</em></div><div class="kpi"><span>疑似濫用</span><b style="color:var(--warn)">9</b><em style="color:var(--tx-3)">轉人工審核</em></div><div class="kpi"><span>分眾推播</span><b>2 檔</b><em>追蹤 IP 新賞通知</em></div></div>`,
+    <div class="kpis"><div class="kpi"><span>本月新邀請</span><b>146</b><em>完成手機驗證 118</em></div><div class="kpi"><span>達標發放</span><b>3 人</b><em>共 3,000 不可退款 UC幣</em></div><div class="kpi"><span>疑似濫用</span><b style="color:var(--warn)">9</b><em style="color:var(--tx-3)">轉人工審核</em></div><div class="kpi"><span>分眾推播</span><b>2 檔</b><em>追蹤 IP 新賞通知</em></div></div>`,
   role: () => { const perms = ['賞池上架','獎品編輯','會員凍結','退款撥款','系統設定','客服回覆','出貨作業'];
     const roles = {超級管理員:[1,1,1,1,1,1,1], 營運:[1,1,0,0,0,1,1], 財務:[0,0,0,1,0,0,0], 客服:[0,0,1,0,0,1,0], 倉管:[0,0,0,0,0,0,1]};
     return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>角色</th>${perms.map(p => `<th>${p}</th>`).join('')}</tr></thead><tbody>
       ${Object.entries(roles).map(([r,v]) => `<tr><td><b>${r}</b></td>${v.map(x => `<td>${x ? ic('check','width:16px;height:16px;color:var(--ok)') : '<span class="dim">—</span>'}</td>`).join('')}</tr>`).join('')}
-      </tbody></table></div><p class="dim" style="font-size:12px;margin:12px 0 24px">賞池上架、退款撥款、CC幣調整超過門檻等高風險操作，需第二位管理員覆核。</p>
+      </tbody></table></div><p class="dim" style="font-size:12px;margin:12px 0 24px">賞池上架、退款撥款、UC幣調整超過門檻等高風險操作，需第二位管理員覆核。</p>
       <div class="agrid" style="margin-top:0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>人員</th><th>角色</th><th>MFA</th><th>最後登入</th></tr></thead><tbody>
       ${S.staff.map(s => `<tr><td>${s.n}</td><td>${s.role}</td><td>${s.mfa?'<span class="tag ok">已啟用</span>':'<span class="tag warn">未啟用</span>'}</td><td class="dim">${s.last}</td></tr>`).join('')}</tbody></table></div>
       <div class="panel"><h3>操作日誌</h3>${S.audit.map(a => `<div class="risk"><span class="dot" style="background:var(--info)"></span><div><b>${a.a}</b><div class="dim">${a.who} ・ ${a.t}</div></div></div>`).join('')}</div></div>`; },
@@ -155,7 +155,7 @@ Object.assign(ADM_VIEWS, {
       <div class="panel"><h3>公告</h3><div class="field"><label for="cf_notice">首頁公告文字</label><input class="input" id="cf_notice" data-cfg="notice" value="${c.notice}"></div></div>
       <div class="panel"><h3>保管與抽賞</h3><div class="cfg-g">${f('storeDays','免費保管天數','天','min="1"')}${f('warnDays','到期前提醒','天','min="1"')}${f('holdSec','鎖籤保留時間','秒','min="60"')}${f('ageMin','付費抽賞年齡門檻','歲','min="18"')}</div></div>
       <div class="panel"><h3>寄送與運費</h3><div class="kv"><span>運費</span><b>一律運費到付（物流業者向收件人收取）</b></div><div class="kv"><span>寄送方式</span><b>上架時逐件預設；會員不可選</b></div></div>
-      <div class="panel"><h3>邀請好友</h3><div class="cfg-g">${f('inviteGoal','達標人數','人','min="1"')}${f('inviteReward','贈送不可退款 CC幣','CC幣','min="0"')}</div></div>
+      <div class="panel"><h3>邀請好友</h3><div class="cfg-g">${f('inviteGoal','達標人數','人','min="1"')}${f('inviteReward','贈送不可退款 UC幣','UC幣','min="0"')}</div></div>
       <div class="panel"><h3>金流與物流</h3><div class="kv"><span>綠界商店代號</span><b class="num">30•••07</b></div><div class="kv"><span>綠界環境</span><span class="tag warn">測試環境</span></div><div class="kv"><span>物流商</span><b>黑貓、新竹、郵局、7-ELEVEN 交貨便、全家店到店</b></div></div>
       <button class="btn gold" type="submit">儲存設定</button></form>`; },
   ext: () => `<div class="panel"><h3>官方社群連結</h3>${[['Instagram',LINKS.ig],['LINE 社群',LINKS.line],['Facebook',LINKS.fb]].map(([n,u],i) => `<div class="field" style="margin-bottom:12px"><label for="lk${i}">${n}</label><input class="input" id="lk${i}" value="${u}"></div>`).join('')}<button class="btn s" data-act="x-toast" data-v="社群連結已儲存">儲存</button></div>
@@ -179,7 +179,7 @@ function poolEditor(id){
       <div class="cfg-g"><div class="field"><label for="pe_ip">IP</label><select class="input" id="pe_ip" style="width:100%">${S.ips.map(x => `<option ${x.n===p.ip?'selected':''}>${x.n}</option>`).join('')}</select></div>
         <div class="field"><label for="pe_src">商品來源</label><select class="input" id="pe_src" style="width:100%">${Object.entries(SRC).map(([k,v]) => `<option value="${k}" ${k===p.src?'selected':''}>${v.t}</option>`).join('')}</select></div>
         <div class="field"><label for="pe_play">玩法</label><select class="input" id="pe_play" style="width:100%">${Object.entries(PLAY).map(([k,v]) => `<option value="${k}" ${k===p.play?'selected':''}>${v}</option>`).join('')}</select></div>
-        <div class="field"><label for="pe_price">單抽價格（CC幣）</label><input class="input num" type="number" id="pe_price" min="1" value="${p.price}" required></div>
+        <div class="field"><label for="pe_price">單抽價格（UC幣）</label><input class="input num" type="number" id="pe_price" min="1" value="${p.price}" required></div>
         <div class="field"><label for="pe_sets">套數</label><input class="input num" type="number" id="pe_sets" min="1" value="${p.sets.length}" required></div>
         <p class="dim" style="font-size:12px;margin:0;grid-column:1/-1">寄送方式於「獎項」逐件預設，運費一律到付。</p></div>
       <div class="field"><span style="font-size:13px;color:var(--tx-2)">封面圖片（${IMG_SPEC.cover.w}×${IMG_SPEC.cover.h}，1:1，≤${IMG_SPEC.cover.kb}KB）</span>${uploader('cover','pe_cover')}</div>
@@ -250,7 +250,7 @@ document.addEventListener('click', e => {
     'x-csv': () => { const rows = drawRows(), csv = '﻿時間,交易編號,會員,賞池,套,籤號,結果\n' + rows.map(r => [r.at,r.tx,r.user,r.pool,r.set,r.no,r.res].map(x => `"${String(x).replace(/"/g,'""')}"`).join(',')).join('\n');
       const u = URL.createObjectURL(new Blob([csv], {type:'text/csv'})), l = document.createElement('a'); l.href = u; l.download = 'chiaki-draws.csv'; l.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); toast('已匯出 CSV'); },
     'x-mfreeze': () => { const m = S.members[+k]; m.st = m.st === '正常' ? '凍結' : '正常'; S.audit.unshift({t:'剛剛', who:'輝', a:`${m.st==='凍結'?'凍結':'解除凍結'}會員 ${m.uid}`}); render(true); toast(`已${m.st==='凍結'?'凍結':'解除凍結'}帳號`); },
-    'x-madj': () => toast('CC幣調整已送出，超過 1,000 CC幣需第二位管理員覆核'),
+    'x-madj': () => toast('UC幣調整已送出，超過 1,000 UC幣需第二位管理員覆核'),
     'x-recon': () => { S.topups.forEach(t => { if (t.st === '已入帳') t.rc = '相符'; }); toast('對帳完成：已入帳款項與綠界紀錄相符'); render(true); },
     'x-cpadd': () => { S.coupons.push({code:'NEW' + (S.coupons.length + 1), d:'新優惠券（請編輯內容）', used:0, exp:'2026-12-31', on:false}); render(true); toast('已新增，預設為停用'); },
     'x-cpon': () => { S.coupons[+k].on = !S.coupons[+k].on; render(true); },

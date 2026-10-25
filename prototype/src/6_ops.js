@@ -5,7 +5,7 @@
    plus member-side notification settings and full rules page.
    ========================================================= */
 const ADMIN_HASH = '4be1a191ec62fa1deb76d7c64fc6eaa259207c898a1ea1a621069a3ca4fc99ab'; // front-end test gate only
-/* 每回收 1 件小獎，退還「該份運費 ÷ N」CC幣（N 預設 20，即每份運費涵蓋的小獎件數） */
+/* 每回收 1 件小獎，退還「該份運費 ÷ N」UC幣（N 預設 20，即每份運費涵蓋的小獎件數） */
 const shipRefundDiv = () => Math.max(1, +((S.cfg && S.cfg.refundDiv) || 20));
 const CARRIERS = {
   tcat:{n:'黑貓宅急便', url:'https://www.t-cat.com.tw/inquire/trace.aspx'},
@@ -29,8 +29,8 @@ Object.assign(S, {
   ],
   tickets: [
     {id:'CS-1026', cat:'出貨/物流', user:'k***a', subj:'想更改 7-11 取貨門市', st:'待處理', due:+2, link:'出貨單 SH-0012', msgs:[{f:'u', t:'您好，我剛申請出貨，想把取貨門市改成台北車站門市，可以嗎？', d:'10/23 05:10'}]},
-    {id:'CS-1025', cat:'抽賞爭議', user:'Chiaki 玩家', subj:'動畫卡住但CC幣已扣除', st:'處理中', due:+6, link:'抽賞 CK20261022-391502', msgs:[{f:'u', t:'剛剛抽的時候畫面卡住，CC幣有扣但沒看到結果。', d:'10/22 23:41'},{f:'s', t:'已查詢伺服器紀錄，結果已成立並存入您的中獎倉庫，請重新整理查看。', d:'10/23 00:02'}]},
-    {id:'CS-1023', cat:'退款', user:'t***2', subj:'未使用的 CC幣怎麼退款', st:'待用戶回覆', due:-1, link:'退款 RF-0003', msgs:[{f:'u', t:'儲值後還沒用的 CC幣可以退嗎？', d:'10/21 18:20'},{f:'s', t:'已收到申請，請提供銀行代碼與帳號末五碼以便核對。', d:'10/21 19:02'}]}
+    {id:'CS-1025', cat:'抽賞爭議', user:'Chiaki 玩家', subj:'動畫卡住但UC幣已扣除', st:'處理中', due:+6, link:'抽賞 CK20261022-391502', msgs:[{f:'u', t:'剛剛抽的時候畫面卡住，UC幣有扣但沒看到結果。', d:'10/22 23:41'},{f:'s', t:'已查詢伺服器紀錄，結果已成立並存入您的中獎倉庫，請重新整理查看。', d:'10/23 00:02'}]},
+    {id:'CS-1023', cat:'退款', user:'t***2', subj:'未使用的 UC幣怎麼退款', st:'待用戶回覆', due:-1, link:'退款 RF-0003', msgs:[{f:'u', t:'儲值後還沒用的 UC幣可以退嗎？', d:'10/21 18:20'},{f:'s', t:'已收到申請，請提供銀行代碼與帳號末五碼以便核對。', d:'10/21 19:02'}]}
   ],
   csSel: 'CS-1026', csTab: '全部',
   shipments: [
@@ -39,8 +39,8 @@ Object.assign(S, {
     {id:'SH-0009', user:'y***i', items:5, m:'home', st:'已送達', carrier:'tcat', no:'9012 3456 7788'}
   ],
   refunds: [
-    {id:'RF-0003', user:'t***2', kind:'twd', via:'原付款方式退回', amt:1000, st:'待審核', note:'未使用CC幣退款'},
-    {id:'RF-0002', user:'s***o', kind:'coin', via:'自動', amt:30, st:'已入帳', note:'客訴補償・不可退款 CC幣'}
+    {id:'RF-0003', user:'t***2', kind:'twd', via:'原付款方式退回', amt:1000, st:'待審核', note:'未使用UC幣退款'},
+    {id:'RF-0002', user:'s***o', kind:'coin', via:'自動', amt:30, st:'已入帳', note:'客訴補償・不可退款 UC幣'}
   ],
   blocked: [{ip:'203.0.113.24', why:'1 分鐘內 180 次鎖籤請求', at:'10:42'}],
   ips: null
@@ -101,7 +101,7 @@ ADM_VIEWS.cs = () => {
           <button class="btn s" data-act="x-csdo" data-k="resend">${ic('truck','width:16px;height:16px')}重新安排出貨</button>
           <button class="btn s" data-act="x-csdo" data-k="extend">${ic('clock','width:16px;height:16px')}延長保管 7 天</button>
           <button class="btn s" data-act="x-csdo" data-k="refund">${ic('recycle','width:16px;height:16px')}核准退款</button>
-          <button class="btn s" data-act="x-csdo" data-k="comp">${ic('gift','width:16px;height:16px')}補償 CC幣</button>
+          <button class="btn s" data-act="x-csdo" data-k="comp">${ic('gift','width:16px;height:16px')}補償 UC幣</button>
         </div>
         <div class="field"><label for="csTpl">快速回覆範本</label><select class="input" id="csTpl" data-act="x-cstpl" style="width:100%"><option value="">選擇範本…</option>
           <option>已收到您的問題，我們將於 24 小時內回覆，謝謝您的耐心。</option>
@@ -123,10 +123,10 @@ ADM_VIEWS.ship = () => `<div class="flow">${SHIP_FLOW.map(st => `<div class="flo
     <p class="dim" style="font-size:12px;margin-top:12px">標記「已出貨」時必須填寫物流單號，系統會自動以簡訊／站內通知告知會員，會員可於中獎倉庫查看並查詢物流。</p>`;
 ADM_VIEWS.refund = () => `<div class="panel" style="margin-bottom:24px"><h3>退款規則</h3>
       <div class="kv"><span>運費</span><b>一律到付，平台不預收、不退運費</b></div>
-      <div class="kv"><span>回收獎品</span><b>只轉為不可退款 CC幣</b></div>
-      <div class="kv"><span>台幣退款（未使用CC幣）</span><b>原付款方式退回・需第二位管理員覆核</b></div></div>
+      <div class="kv"><span>回收獎品</span><b>只轉為不可退款 UC幣</b></div>
+      <div class="kv"><span>台幣退款（未使用UC幣）</span><b>原付款方式退回・需第二位管理員覆核</b></div></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>編號</th><th>會員</th><th>類型</th><th>管道</th><th class="r">金額</th><th>說明</th><th>狀態</th><th></th></tr></thead><tbody>
-    ${S.refunds.map(f => `<tr><td class="num">${f.id}</td><td>${f.user}</td><td>${f.kind==='coin'?'CC幣（部分）':'台幣'}</td><td>${f.via}</td><td class="r">${f.kind==='coin'?fmt(f.amt)+' CC幣':'NT$ '+fmt(f.amt)}</td><td class="dim">${f.note}</td>
+    ${S.refunds.map(f => `<tr><td class="num">${f.id}</td><td>${f.user}</td><td>${f.kind==='coin'?'UC幣（部分）':'台幣'}</td><td>${f.via}</td><td class="r">${f.kind==='coin'?fmt(f.amt)+' UC幣':'NT$ '+fmt(f.amt)}</td><td class="dim">${f.note}</td>
       <td><span class="tag ${f.st==='待審核'?'warn':f.st==='已駁回'?'bad':'ok'}">${f.st}</span></td>
       <td>${f.st==='待審核' ? `<span class="row" style="gap:8px"><button class="btn s gold" data-act="x-rfok" data-k="${f.id}">核准</button><button class="btn s" data-act="x-rfno" data-k="${f.id}">駁回</button></span>` : ''}</td></tr>`).join('')}
     </tbody></table></div>`;
@@ -195,7 +195,7 @@ document.addEventListener('click', e => {
     'x-logout': () => { S.adminOk = false; try { sessionStorage.removeItem('ck_admin'); } catch(_){} render(); },
     'x-cstab': () => { S.csTab = k; render(true); },
     'x-cssel': () => { S.csSel = k; render(true); },
-    'x-csdo': () => { const m = {resend:'已重新安排出貨，並通知會員', extend:'已延長保管 7 天', refund:'已送出退款核准（需第二位管理員覆核）', comp:'已發放補償 50 不可退款 CC幣'}[k];
+    'x-csdo': () => { const m = {resend:'已重新安排出貨，並通知會員', extend:'已延長保管 7 天', refund:'已送出退款核准（需第二位管理員覆核）', comp:'已發放補償 50 不可退款 UC幣'}[k];
       T.msgs.push({f:'s', t:`【系統】${m}`, d:now()}); if (T.st === '待處理') T.st = '處理中'; toast(m); render(true); },
     'x-csreply': () => { const v = $('#csReply').value.trim(); if (!v){ toast('請輸入回覆內容'); $('#csReply').focus(); return; } T.msgs.push({f:'s', t:v, d:now()}); T.st = '待用戶回覆'; toast('已回覆，會員將收到通知'); render(true); },
     'x-csclose': () => { T.st = '已結案'; toast('工單已結案'); render(true); },
@@ -208,7 +208,7 @@ document.addEventListener('click', e => {
     'x-shipgo': () => { const s = S.shipments.find(x => x.id === k), no = $('#shN').value.trim(); if (!no){ toast('請輸入物流單號'); $('#shN').focus(); return; }
       s.carrier = $('#shC').value; s.no = no; s.st = '已出貨'; shipLog(s, '已出貨', `${CARRIERS[s.carrier].n} ${no}`); closeModal(); toast('已出貨，會員已收到物流單號通知'); render(true); },
     'x-rfok': () => { const f = S.refunds.find(x => x.id === k); f.st = '已核准（待覆核撥款）'; toast('已核准，待第二位管理員覆核撥款'); render(true); },
-    'x-rfno': () => { const f = S.refunds.find(x => x.id === k); f.st = '已駁回'; if (f.back){ S.coins += f.amt; syncBal(); S.tx.unshift({t:`退款申請 ${f.id} 已駁回，CC幣退回`, d:twNow(), a:f.amt, ic:'card'}); } toast('已駁回並通知會員'); render(true); },
+    'x-rfno': () => { const f = S.refunds.find(x => x.id === k); f.st = '已駁回'; if (f.back){ S.coins += f.amt; syncBal(); S.tx.unshift({t:`退款申請 ${f.id} 已駁回，UC幣退回`, d:twNow(), a:f.amt, ic:'card'}); } toast('已駁回並通知會員'); render(true); },
     'x-notest': () => toast(`已送出測試：${k}`),
     'x-ipmv': () => { const i = +k, j = i + +el.dataset.d; [S.ips[i], S.ips[j]] = [S.ips[j], S.ips[i]]; render(true); },
     'x-ipvis': () => { S.ips[+k].vis = !S.ips[+k].vis; render(true); },

@@ -70,6 +70,7 @@ runDraw = function(p, results){ if (p.anim !== 'video') return _runDrawC(p, resu
     <video id="gVid" src="${vid.src}" playsinline webkit-playsinline preload="auto" aria-hidden="true"></video>
     <div class="vblack" aria-hidden="true"></div>
     <button type="button" class="btn s ghost vskip" data-act="vskip">${ic('right','width:16px;height:16px')}跳過</button>
+    <span class="vff" aria-hidden="true">▶▶ 2 倍速</span><span class="vhint" aria-hidden="true">長按畫面 2 倍速</span>
     <div class="vsum" id="vsum" hidden></div></div>`;
   const v = $('#gVid'), st = $('#stage'); let ended = false, raf = 0;
   const end = () => { if (ended) return; ended = true; cancelAnimationFrame(raf); try { v.pause(); } catch(_){} st.classList.add('dark'); const sk = $('.vskip', st); if (sk) sk.remove();
@@ -80,34 +81,39 @@ runDraw = function(p, results){ if (p.anim !== 'video') return _runDrawC(p, resu
     if (vid.kind === 'kills' && vid.stop[tier] && t >= vid.stop[tier]) return end();
     raf = requestAnimationFrame(watch); };
   v.addEventListener('ended', end); v.addEventListener('error', end); st._end = end;
+  /* 長按影片 2 倍速，放開恢復 */
+  const fast = on => { if (ended) return; v.playbackRate = on ? 2 : 1; st.classList.toggle('ff', on); };
+  st.addEventListener('pointerdown', e => { if (e.target.closest('button')) return; fast(true); });
+  ['pointerup','pointercancel','pointerleave'].forEach(t => st.addEventListener(t, () => fast(false)));
+  st.addEventListener('contextmenu', e => e.preventDefault());
   if (RM() || !vid.src) return end();
   const p1 = v.play(); if (p1 && p1.catch) p1.catch(() => { v.muted = true; v.play().catch(end); });
   raf = requestAnimationFrame(watch);
   setTimeout(() => { if (!ended && v.paused && v.currentTime === 0) end(); }, 4000);   // 無法播放時直接進結算
 };
-/* 結算畫面：可直接把抽到的獎品轉成不可退款 CC幣，不用回倉庫 */
+/* 結算畫面：可直接把抽到的獎品轉成不可退款 UC幣，不用回倉庫 */
 function vGroups(){ const g = {}; D.results.forEach(x => { (g[x.name] = g[x.name] || {x, n:0}).n++; }); return Object.values(g).sort((a, b) => (a.x.lv || 99) - (b.x.lv || 99)); }
 function vConvTotal(){ return [...document.querySelectorAll('#vsum .vs-ck:checked:not(:disabled)')].reduce((s, c) => s + (+c.dataset.v), 0); }
-function vSyncBar(){ const t = vConvTotal(), b = $('#vsConv'); if (!b) return; b.disabled = !t; b.innerHTML = `${ic('recycle','width:18px;height:18px')}<span>${t ? `轉成 CC幣 +${fmt(t)}` : '請勾選要轉換的獎品'}</span>`;
+function vSyncBar(){ const t = vConvTotal(), b = $('#vsConv'); if (!b) return; b.disabled = !t; b.innerHTML = `${ic('recycle','width:18px;height:18px')}<span>${t ? `轉成 UC幣 +${fmt(t)}` : '請勾選要轉換的獎品'}</span>`;
   const left = [...document.querySelectorAll('#vsum .vs-ck:not(:disabled)')]; const all = $('#vsAll'); if (all){ all.disabled = !left.length; all.textContent = left.length && left.every(c => c.checked) ? '取消全選' : '全選可轉換'; } }
 function vSummary(){ if (!D || !D.video) return; const p = D.p, box = $('#vsum'); if (!box) return;
   const L = vGroups(), hi = D.results.filter(x => x.lv && x.lv <= 4).length;
   box.innerHTML = `<div class="vs-in"><h2>抽卡結果</h2><p class="vs-sub" id="vsSub">共 ${D.results.length} 張${hi ? `，其中 <b>${hi}</b> 張為 4 獎（含）以上` : ''} ・ 已存入中獎倉庫</p>
     <div class="vs-grid">${L.map(({x, n}, i) => { const done = D.conv[x.name], can = x.rv > 0 && !done, def = can && (x.lv || 99) >= 3;
       return `<label class="vs-it ${x.lv && x.lv <= 2 ? 'hi' : ''} ${done ? 'done' : ''}" style="animation-delay:${Math.min(i, 12) * 60}ms"><div class="vs-img">${x.img ? `<img src="${x.img}" alt="">` : ''}${n > 1 ? `<span class="vs-n">×${fmt(n)}</span>` : ''}
-        ${x.rv > 0 && !done ? `<span class="vs-ckw"><input type="checkbox" class="vs-ck" data-k="${hx(x.name)}" data-v="${x.rv * n}" ${def ? 'checked' : ''} ${can ? '' : 'disabled'} aria-label="轉換 ${hx(x.name)} ×${n} 為 CC幣"></span>` : ''}${done ? `<span class="vs-done">已轉換</span>` : ''}</div>
-        <span class="vs-lv">${x.lvName || ''}</span><b>${hx(x.name)}</b><span class="vs-rv">${done ? `+${fmt(done)} CC幣` : x.rv ? '回收值 ' + fmt(x.rv) + ' CC幣' : '不可回收'}</span></label>`; }).join('')}</div>
+        ${x.rv > 0 && !done ? `<span class="vs-ckw"><input type="checkbox" class="vs-ck" data-k="${hx(x.name)}" data-v="${x.rv * n}" ${def ? 'checked' : ''} ${can ? '' : 'disabled'} aria-label="轉換 ${hx(x.name)} ×${n} 為 UC幣"></span>` : ''}${done ? `<span class="vs-done">已轉換</span>` : ''}</div>
+        <span class="vs-lv">${x.lvName || ''}</span><b>${hx(x.name)}</b><span class="vs-rv">${done ? `+${fmt(done)} UC幣` : x.rv ? '回收值 ' + fmt(x.rv) + ' UC幣' : '不可回收'}</span></label>`; }).join('')}</div>
     ${L.some(({x}) => x.rv > 0) ? `<div class="vs-conv"><button type="button" class="btn" id="vsAll" data-act="vs-all">全選可轉換</button><button type="button" class="btn gold" id="vsConv" data-act="vs-conv"></button></div>
-    <p class="vs-note">轉換後為不可退款 CC幣，可直接繼續抽；大獎與 2 獎預設不勾選，避免誤轉。目前餘額 <b class="num" id="vsBal">${fmt(S.coins)}</b> CC幣</p>` : ''}
-    <dl class="vs-stub"><dt>交易編號</dt><dd class="num">${D.txn}</dd><dt>賞池</dt><dd>${hx(p.title)}</dd>${D.paid != null ? `<dt>扣款</dt><dd class="num">${fmt(D.paid)} CC幣</dd>` : ''}<dt>時間</dt><dd class="num">${twNow()}</dd></dl>
+    <p class="vs-note">轉換後為不可退款 UC幣，可直接繼續抽；大獎與 2 獎預設不勾選，避免誤轉。目前餘額 <b class="num" id="vsBal">${fmt(S.coins)}</b> UC幣</p>` : ''}
+    <dl class="vs-stub"><dt>交易編號</dt><dd class="num">${D.txn}</dd><dt>賞池</dt><dd>${hx(p.title)}</dd>${D.paid != null ? `<dt>扣款</dt><dd class="num">${fmt(D.paid)} UC幣</dd>` : ''}<dt>時間</dt><dd class="num">${twNow()}</dd></dl>
     <div class="acts"><button class="btn gold" type="button" data-act="vs-again">${ic('ticket','width:18px;height:18px')}再抽 ${D.packN} 抽</button><a class="btn" href="#/warehouse" data-act="close-stage">${ic('box')}前往中獎倉庫</a></div></div>`;
   box.hidden = false; vSyncBar(); requestAnimationFrame(() => box.classList.add('show')); setTimeout(() => { const b = $('.acts .btn', box); b && b.focus(); }, 60); }
 function vConvert(){ const picks = [...document.querySelectorAll('#vsum .vs-ck:checked:not(:disabled)')].map(c => c.dataset.k); if (!picks.length) return;
   let total = 0, n = 0;
   S.wh.forEach(w => { if (D.whIds.includes(w.id) && w.st === 'stored' && w.rv > 0 && picks.includes(w.pname)){ w.st = 'recycled'; total += w.rv; n++; D.conv[w.pname] = (D.conv[w.pname] || 0) + w.rv; } });
   if (!total) return toast('這些獎品已不在倉庫中');
-  S.coins += total; S.coinsNR += total; syncBal(); S.tx.unshift({t:`抽卡結算轉換 ${n} 張 → 不可退款 CC幣`, d:twNow(), a:total, ic:'recycle', nr:true});
-  const keep = $('#vsum').scrollTop; vSummary(); $('#vsum').scrollTop = keep; toast(`已轉換 ${n} 張，獲得 ${fmt(total)} 不可退款 CC幣`); }
+  S.coins += total; S.coinsNR += total; syncBal(); S.tx.unshift({t:`抽卡結算轉換 ${n} 張 → 不可退款 UC幣`, d:twNow(), a:total, ic:'recycle', nr:true});
+  const keep = $('#vsum').scrollTop; vSummary(); $('#vsum').scrollTop = keep; toast(`已轉換 ${n} 張，獲得 ${fmt(total)} 不可退款 UC幣`); }
 document.addEventListener('change', e => { if (e.target.classList && e.target.classList.contains('vs-ck')) vSyncBar(); });
 document.addEventListener('click', e => { const el = e.target.closest('[data-act="vs-conv"],[data-act="vs-all"],[data-act="vs-again"]'); if (!el || el.disabled || !D || !D.video) return; e.preventDefault();
   const a = el.dataset.act;
@@ -121,8 +127,14 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 .vstage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
 .vstage .vblack{position:absolute;inset:0;background:#000;opacity:0;transition:opacity .7s ease;pointer-events:none}
 .vstage.dark .vblack{opacity:1}
+.vstage{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
+.vff{position:absolute;left:50%;top:24px;transform:translateX(-50%);z-index:3;display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 16px;border-radius:999px;background:rgba(0,0,0,.6);color:#fff;font-size:13px;font-weight:700;line-height:1;opacity:0;transition:opacity .15s;pointer-events:none}
+.vstage.ff .vff{opacity:1}
+.vhint{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);z-index:3;display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 12px;border-radius:999px;background:rgba(0,0,0,.45);color:rgba(255,255,255,.8);font-size:12px;line-height:1;pointer-events:none;animation:vhint 3s ease 1s forwards;opacity:0}
+@keyframes vhint{0%{opacity:0}15%,75%{opacity:1}100%{opacity:0}}
+.vstage.dark .vff,.vstage.dark .vhint{display:none}
 .vskip{position:absolute;right:16px;top:16px;z-index:3;min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:4px;background:rgba(0,0,0,.55)}
-.vsum{position:absolute;inset:0;z-index:4;overflow:auto;padding:32px 16px;opacity:0;transition:opacity .5s ease;display:flex;justify-content:center}
+.vsum{position:absolute;inset:0;z-index:4;touch-action:pan-y;overflow:auto;padding:32px 16px;opacity:0;transition:opacity .5s ease;display:flex;justify-content:center}
 .vsum.show{opacity:1}
 .vs-in{width:min(960px,100%);display:flex;flex-direction:column;align-items:center;gap:16px;margin:auto 0}
 .vs-in h2{margin:0;font-family:var(--serif-tc);font-size:28px;line-height:36px;color:var(--gold-2);text-align:center}

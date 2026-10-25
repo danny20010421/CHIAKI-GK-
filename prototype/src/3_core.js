@@ -212,7 +212,7 @@ function cfgFill(h){
   const hold = typeof holdSec === 'function' ? holdSec() : 180, holdTxt = hold % 60 ? `${hold} 秒` : `${hold/60} 分鐘`;
   return String(h).replace(/保管 30 天/g, `保管 ${storeDays()} 天`).replace(/前 7 天/g, `前 ${warn} 天`).replace(/（7 天前／當天）/g, `（${warn} 天前／當天）`)
     .replace(/保留 3 分鐘/g, `保留 ${holdTxt}`).replace(/(年滿|未滿) 18 歲/g, `$1 ${age} 歲`)
-    .replace(/1\/20/g, `1/${(typeof shipRefundDiv === 'function') ? shipRefundDiv() : 20}`).replace(/累計達 <strong>20 位<\/strong>/g, `累計達 <strong>${c.inviteGoal || 20} 位</strong>`).replace(/1,000 不可退款 CC幣/g, `${fmt(c.inviteReward != null ? c.inviteReward : 1000)} 不可退款 CC幣`);
+    .replace(/1\/20/g, `1/${(typeof shipRefundDiv === 'function') ? shipRefundDiv() : 20}`).replace(/累計達 <strong>20 位<\/strong>/g, `累計達 <strong>${c.inviteGoal || 20} 位</strong>`).replace(/1,000 不可退款 UC幣/g, `${fmt(c.inviteReward != null ? c.inviteReward : 1000)} 不可退款 UC幣`);
 }
 /* copy that reports failure honestly (clipboard is often blocked in in-app browsers) */
 async function copyText(v, okMsg){
@@ -249,7 +249,7 @@ const S = {
   tx: [
     {t:'儲值 ・ 信用卡（綠界）', d:'2026-10-20 21:14', a:+3000, ic:'card'},
     {t:'抽賞 ・ 一番賞 烙印勇士 ～宿命的雙極～ ×3', d:'2026-10-18 22:40', a:-1260, ic:'ticket'},
-    {t:'回收獎品 ・ 宮崎駿同人貼紙 → 不可退款 CC幣', d:'2026-09-14 13:02', a:+10, ic:'recycle', pt:true},
+    {t:'回收獎品 ・ 宮崎駿同人貼紙 → 不可退款 UC幣', d:'2026-09-14 13:02', a:+10, ic:'recycle', pt:true},
   ],
   pick: {pack:1000, pay:'card'},
   admin: 'dash',
@@ -311,7 +311,7 @@ function poolCard(p){
       <span class="status tag info">即將登場</span>
       ${art(p.hue,'A','', p.title+' 商品圖')}
       <div class="body"><h3>${p.title}</h3>
-        <div class="price"><span class="coin">C</span>${fmt(p.price)}<small>/ 抽</small></div>
+        <div class="price"><span class="coin">U</span>${fmt(p.price)}<small>/ 抽</small></div>
         <div class="meta"><span>開賣倒數</span></div>
         <div class="cd" data-cd="${p.soon}"></div></div></a>`;
   }
@@ -323,7 +323,7 @@ function poolCard(p){
     ${art(p.hue, p.play==='solo'?'1':'A','', p.title+' 商品圖', p.img)}
     <div class="body">
       <h3>${p.title}</h3>${p.sets.length>1?`<span class="dim" style="font-size:12px;line-height:1">第 ${p.setIdx+1} / ${p.sets.length} 套進行中</span>`:''}
-      <div class="price"><span class="coin">C</span>${fmt(p.price)}<small>/ 抽</small></div>
+      <div class="price"><span class="coin">U</span>${fmt(p.price)}<small>/ 抽</small></div>
       <div class="meter ${low?'low':''}" role="img" aria-label="剩餘 ${left} / ${p.total} 抽"><i style="width:${pct}%"></i></div>
       <div class="meta"><span>剩餘 <b class="num">${left}</b> / ${p.total} 抽</span></div>
       ${tops?`<div class="top">${ic('crown','width:14px;height:14px')}${p.src==='s'?'大獎・中獎剩餘':'大賞剩餘'} ${tops}${p.last?'・Last':''}</div>`:'<div class="top dim">大賞已出完</div>'}
@@ -383,7 +383,7 @@ routes.home = () => {
   const fresh = pick(live.filter(p => p.isNew).concat(live.filter(p => !p.isNew)));
   const soon = POOLS.filter(p => p.soon && !p.off);
   const slides = [
-    {p:'bk', k:'官方一番賞', t:'烙印勇士<br>宿命的雙極', d:'A～I 賞＋最後賞，每抽 420 CC幣。'}
+    {p:'bk', k:'官方一番賞', t:'烙印勇士<br>宿命的雙極', d:'A～I 賞＋最後賞，每抽 420 UC幣。'}
   ];
   const tick = drawLog.map(x => `<span>${x.u} 在 <b>${x.pool}</b> 抽中 <em>${x.txt}</em></span>`).join('');
   return `

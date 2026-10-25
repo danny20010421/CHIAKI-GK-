@@ -131,7 +131,7 @@ ADM_VIEWS.forum = () => {
 /* ---------- 首頁 Banner（可排程、編輯、刪除、排序） ---------- */
 S.banners = [
   {id:'b3', t:'CHIAKI 萬聖百鬼夜', img:MIMG('bnhalloween'), imgM:'', link:'#/lobby', from:'2026-10-23', to:'2026-12-31', on:true},
-  {id:'b2', t:'品牌好友強力推薦・追蹤按讚抽 1000 CC幣', img:MIMG('bnfriend'), imgM:'', link:LINKS.ig, from:'2026-10-23', to:'2026-12-31', on:true},
+  {id:'b2', t:'品牌好友強力推薦・追蹤按讚抽 1000 UC幣', img:MIMG('bnfriend'), imgM:'', link:LINKS.ig, from:'2026-10-23', to:'2026-12-31', on:true},
 ];
 const bnState = b => !b.on ? '已停用' : todayTW() < b.from ? '排程中' : todayTW() > b.to ? '已結束' : '刊登中';
 const liveBanners = () => S.banners.filter(b => bnState(b) === '刊登中' && b.img);
@@ -148,8 +148,8 @@ routes.home.after = _homeA;
 S.coupons = [
   {code:'WELCOME90', d:'新會員首抽 9 折', kind:'pct', val:10, min:1000, used:128, limit:1000, exp:'2026-11-30', on:true},
   {code:'VALLEY200', d:'雲頂終結谷 滿 1,000 折 200', kind:'amt', val:200, min:1000, used:0, limit:300, exp:'2026-12-31', on:true}];
-const CP_K = {pct:'折扣 %', amt:'折抵 CC幣'};
-const cpVal = c => c.kind === 'pct' ? `${c.val}% off` : `折 ${fmt(c.val)} CC幣`;
+const CP_K = {pct:'折扣 %', amt:'折抵 UC幣'};
+const cpVal = c => c.kind === 'pct' ? `${c.val}% off` : `折 ${fmt(c.val)} UC幣`;
 const cpState = c => !c.on ? '已停用' : todayTW() > c.exp ? '已過期' : c.limit && c.used >= c.limit ? '已用完' : '啟用';
 const _mkt = ADM_VIEWS.mkt;
 ADM_VIEWS.mkt = () => { const old = _mkt(), inv = old.slice(old.indexOf('<div class="row between" style="margin:32px 0 16px"><b>邀請好友成效</b>'));
@@ -162,7 +162,7 @@ ADM_VIEWS.mkt = () => { const old = _mkt(), inv = old.slice(old.indexOf('<div cl
     <p class="dim" style="font-size:12px;margin:8px 0 0">刊登中且有上傳圖片的 Banner 會依排序輪播；沒有可刊登的 Banner 時首頁顯示預設賞池輪播。</p>
     <div class="row between" style="margin:32px 0 16px"><b>優惠券</b><button class="btn s gold" data-act="y-cp" data-k="">${ic('plus','width:16px;height:16px')}新增優惠券</button></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>代碼</th><th>內容</th><th>優惠</th><th class="r">門檻</th><th class="r">已使用</th><th>到期</th><th>狀態</th><th>操作</th></tr></thead><tbody>
-    ${S.coupons.map(c => `<tr><td class="num"><b>${hx(c.code)}</b></td><td>${hx(c.d)}</td><td>${cpVal(c)}</td><td class="r">${c.min ? fmt(c.min) + ' CC幣' : '—'}</td><td class="r">${fmt(c.used)}${c.limit ? ' / ' + fmt(c.limit) : ''}</td><td class="num">${c.exp}</td><td>${stTagT(cpState(c))}</td>
+    ${S.coupons.map(c => `<tr><td class="num"><b>${hx(c.code)}</b></td><td>${hx(c.d)}</td><td>${cpVal(c)}</td><td class="r">${c.min ? fmt(c.min) + ' UC幣' : '—'}</td><td class="r">${fmt(c.used)}${c.limit ? ' / ' + fmt(c.limit) : ''}</td><td class="num">${c.exp}</td><td>${stTagT(cpState(c))}</td>
       <td><span class="row" style="gap:8px"><button class="btn s" data-act="y-cp" data-k="${c.code}">編輯</button><button class="btn s" data-act="y-cpon" data-k="${c.code}">${c.on ? '停用' : '啟用'}</button><button class="btn s ghost" data-act="y-del" data-t="cp" data-k="${c.code}">刪除</button></span></td></tr>`).join('') || '<tr><td colspan="8" class="dim">尚無優惠券</td></tr>'}
     </tbody></table></div>` + inv; };
 function bannerEditor(id){
@@ -182,8 +182,8 @@ function couponEditor(code){
   openModal(`<h3 id="mdlT">${code ? '編輯' : '新增'}優惠券</h3><form class="cfg" data-act="y-cpsave" data-k="${code || ''}" novalidate>
     <div class="cfg-g"><div class="field"><label for="cpC">代碼（英數 4–16 碼）</label><input class="input num" id="cpC" value="${hx(c.code)}" ${code && c.used ? 'disabled' : ''} style="text-transform:uppercase"></div>
       <div class="field"><label for="cpK">類型</label><select class="input" id="cpK">${Object.entries(CP_K).map(([k,t]) => `<option value="${k}" ${c.kind === k ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-      <div class="field"><label for="cpV">面額（折扣 % 或折抵 CC幣）</label><input class="input num" type="number" id="cpV" min="0" value="${c.val}"></div>
-      <div class="field"><label for="cpMin">最低消費（CC幣，0 為不限）</label><input class="input num" type="number" id="cpMin" min="0" value="${c.min}"></div>
+      <div class="field"><label for="cpV">面額（折扣 % 或折抵 UC幣）</label><input class="input num" type="number" id="cpV" min="0" value="${c.val}"></div>
+      <div class="field"><label for="cpMin">最低消費（UC幣，0 為不限）</label><input class="input num" type="number" id="cpMin" min="0" value="${c.min}"></div>
       <div class="field"><label for="cpLim">發放上限（0 為不限）</label><input class="input num" type="number" id="cpLim" min="0" value="${c.limit}"></div>
       <div class="field"><label for="cpExp">到期日</label><input class="input" type="date" id="cpExp" value="${c.exp}"></div></div>
     <div class="field"><label for="cpD">顯示說明</label><input class="input" id="cpD" value="${hx(c.d)}" placeholder="例如：新會員首抽 9 折"></div>
@@ -240,7 +240,7 @@ ADM_VIEWS.pooledit = () => {
       <div class="field"><label for="pe2t">賞池名稱</label><input class="input" id="pe2t" value="${hx(p.title)}"></div>
       <div class="field"><label for="pe2ip">IP（作品）</label><select class="input" id="pe2ip">${sortedIps(S.ips).map(x => `<option ${x.n === p.ip ? 'selected' : ''}>${hx(x.n)}</option>`).join('')}</select></div>
       <div class="field"><label for="pe2src">商品來源</label><select class="input" id="pe2src" ${lk}>${Object.entries(SRC).map(([k,v]) => `<option value="${k}" ${k === p.src ? 'selected' : ''}>${v.t}</option>`).join('')}</select></div>
-      <div class="field"><label for="pe2price">單抽價格（CC幣）</label><input class="input num" type="number" min="1" id="pe2price" value="${p.price}" ${lk}>${sold ? '<span class="dim" style="font-size:12px">已開抽，改價請送審建立新版本</span>' : ''}</div></div>`)}
+      <div class="field"><label for="pe2price">單抽價格（UC幣）</label><input class="input num" type="number" min="1" id="pe2price" value="${p.price}" ${lk}>${sold ? '<span class="dim" style="font-size:12px">已開抽，改價請送審建立新版本</span>' : ''}</div></div>`)}
     ${sec('rule', '規則與玩法', `<div class="cfg-g">
       <div class="field"><label for="pe2play">玩法</label><select class="input" id="pe2play" ${lk}>${Object.entries(PLAY).map(([k,v]) => `<option value="${k}" ${k === p.play ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div class="field"><label for="pe2last">最後賞（留空為無）</label><input class="input" id="pe2last" value="${hx(p.last || '')}" ${lk}></div>

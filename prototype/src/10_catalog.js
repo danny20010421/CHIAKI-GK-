@@ -35,11 +35,11 @@
       {name:'5 獎', items:[{n:'火影同人貼紙', q:9498, rv:10, tag:'其他', ship:'c711', img:DEMO_IMG('nrsticker')},
                          {n:'隨機一番賞小獎', q:10000, rv:100, tag:'一番賞', ship:'c711', img:DEMO_IMG('nrmystery')}]}], last:null};
   buildPool(N); POOLS.splice(1, 0, N); })();
-/* 抽賞大廳：新手免費體驗池（不扣 CC幣、獎品不發放），固定排在最前面 */
+/* 抽賞大廳：新手免費體驗池（不扣 UC幣、獎品不發放），固定排在最前面 */
 function demoCard(p){
   return poolCard(p).replace(`href="#/pool/${p.id}"`, 'href="#/play" aria-label="免費體驗：' + p.title + '"')
     .replace(/<span class="status tag[^"]*">[^<]*<\/span>/, '').replace('<div class="badges">', '<span class="status tag ok">新手體驗</span><div class="badges">')
-    .replace(/<div class="price">[\s\S]*?<\/div>/, '<div class="price free">免費<small>不扣 CC幣</small></div>')
+    .replace(/<div class="price">[\s\S]*?<\/div>/, '<div class="price free">免費<small>不扣 UC幣</small></div>')
     .replace(/<div class="top[^"]*">[\s\S]*?<\/div>/, `<div class="top">${ic('gift','width:14px;height:14px')}100% 中獎・體驗用，獎品不發放</div>`)
     .replace(/<div class="meter[\s\S]*?<\/div>\s*<div class="meta">[\s\S]*?<\/div>/, '<div class="meta"><span>每天都能玩，熟悉撕籤流程</span></div>');
 }
@@ -182,7 +182,7 @@ function packsSection(p){
   return `<section class="packs-wrap" id="packs" aria-labelledby="h-pk" tabindex="-1">
       <div class="sec-h"><h2 id="h-pk"><small>DRAW</small>選擇抽數${p.sets.length > 1 ? `<span class="muted" style="font-size:14px;font-weight:400;margin-left:8px">${p.sets[p.setIdx].name || `第 ${p.setIdx + 1} 套`}・剩 ${left} 抽</span>` : `<span class="muted" style="font-size:14px;font-weight:400;margin-left:8px">剩 ${left} 抽</span>`}</h2></div>
       <div class="packs" role="group" aria-label="選擇抽數">${packs.map(n => { const k = n === 'all' ? left : n, ok = k <= left && k > 0;
-        return `<button class="pack ${n === 'all' ? 'all' : ''}" data-act="x-qd" data-n="${n}" ${ok ? '' : 'disabled'}><b>${n === 'all' ? '全包' : n + ' 抽'}</b><span><span class="coin" style="width:16px;height:16px;font-size:9px">C</span>${fmt(k * p.price)}</span>${n === 'all' && p.last ? '<small>含最後賞</small>' : ok ? '' : '<small>剩餘不足</small>'}</button>`; }).join('')}</div>
+        return `<button class="pack ${n === 'all' ? 'all' : ''}" data-act="x-qd" data-n="${n}" ${ok ? '' : 'disabled'}><b>${n === 'all' ? '全包' : n + ' 抽'}</b><span><span class="coin" style="width:16px;height:16px;font-size:9px">U</span>${fmt(k * p.price)}</span>${n === 'all' && p.last ? '<small>含最後賞</small>' : ok ? '' : '<small>剩餘不足</small>'}</button>`; }).join('')}</div>
       <p class="dim" style="font-size:12px;margin:16px 0 0">選擇抽數後由系統隨機配籤，付款後撕開籤紙揭曉。${p.play === 'prob' ? '本賞池為機率賞，每抽依公布機率決定等級。' : '開賣前公布承諾雜湊，完售後公開完整籤表供驗證。'}</p>
     </section>`;
 }
@@ -193,12 +193,12 @@ function quickDraw(n){
   clearHold(); S.sel = shuffle(free.slice(), Math.random).slice(0, k); startHold(p); buyDialog();
 }
 
-/* ---------- 免費體驗：抽了不扣CC幣、不發獎品 ---------- */
+/* ---------- 免費體驗：抽了不扣UC幣、不發獎品 ---------- */
 routes.play = r => {
   const live = POOLS.filter(p => !p.soon && !p.off && !p.sets[p.setIdx].off && remaining(p)).sort((a, b) => (b.demoOnly ? 1 : 0) - (a.demoOnly ? 1 : 0)), p = poolById(S.playPool) && live.includes(poolById(S.playPool)) ? poolById(S.playPool) : live[0];
   S.playPool = p.id;
   return `<div class="wrap">
-    <div class="page-h"><h1>免費體驗區</h1><p>先感受撕籤紙的手感與中獎演出。<b style="color:var(--gold-2)">不扣CC幣、獎品不會發放</b>，結果也不影響正式賞池。</p></div>
+    <div class="page-h"><h1>免費體驗區</h1><p>先感受撕籤紙的手感與中獎演出。<b style="color:var(--gold-2)">不扣UC幣、獎品不會發放</b>，結果也不影響正式賞池。</p></div>
     <div class="play-pick" role="group" aria-label="選擇體驗賞池">${live.map(x => `<button class="chip ${x.id === p.id ? 'on' : ''}" data-act="x-playpool" data-k="${x.id}" aria-pressed="${x.id === p.id}">${x.demoOnly ? '★ ' : ''}${x.title.split(' ～')[0]}</button>`).join('')}</div>
     <div class="qd">
       <div class="qd-art">${art(p.hue, 'A', 'main', p.title + ' 主視覺', p.img)}</div>
