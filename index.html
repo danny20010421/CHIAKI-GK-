@@ -4331,7 +4331,7 @@ document.addEventListener('click', e => { const el = e.target.closest('[data-act
    ========================================================= */
 S.vipT = [
   {lv:0, n:'新手籤', min:0,       gift:0,    bday:0,     cp:'—',                     store:0,  perks:[]},
-  {lv:1, n:'銅籤',   min:3000,    gift:50,   bday:50,    cp:'95 折券 ×1',            store:0,  perks:[]},
+  {lv:1, n:'銅籤',   min:3000,    gift:50,   bday:0,     cp:'95 折券 ×1',            store:0,  perks:[]},
   {lv:2, n:'銀籤',   min:30000,   gift:100,  bday:100,   cp:'95 折券 ×2',            store:0,  perks:['生日禮']},
   {lv:3, n:'金籤',   min:200000,  gift:500,  bday:500,   cp:'95 折券 ×2',            store:0,  perks:['賞池頁即時機率顯示']},
   {lv:4, n:'白金籤', min:500000,  gift:1000, bday:2000,  cp:'9 折券 ×3',             store:7,  perks:['免費保管期限 +7 天']},
@@ -4464,7 +4464,7 @@ heroFx = function(){
   };
   /* 首頁飄落的籤紙：正面＝新版封面，背面＝撕開後的內頁樣式（同一個虛線框） */
   raster(kujiCover(), 'front');
-  raster(`<svg viewBox="0 0 300 204"><defs><radialGradient id="hb" cx=".5" cy=".55" r=".6"><stop offset="0" stop-color="#223238"/><stop offset="1" stop-color="#1b272b"/></radialGradient></defs><rect width="300" height="204" fill="url(#hb)"/><path d="${KF_LINE}" fill="none" stroke="rgba(230,199,127,.75)" stroke-width="1.4" stroke-linejoin="round" stroke-dasharray="4.5 2.5"/><text x="150" y="112" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="700" font-size="22" letter-spacing="2" fill="#e6c77f">CHIAKI</text></svg>`, 'back');
+  raster(`<svg viewBox="0 0 300 204"><defs><radialGradient id="hb" cx=".5" cy=".55" r=".6"><stop offset="0" stop-color="#4d6a73"/><stop offset="1" stop-color="#2c4249"/></radialGradient></defs><rect width="300" height="204" fill="url(#hb)"/><path d="${KF_LINE}" fill="none" stroke="#e6c77f" stroke-width="1.6" stroke-linejoin="round" stroke-dasharray="4.5 2.5"/><text x="148" y="98" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="700" font-size="24" letter-spacing="2" fill="#f2e2b6">CHIAKI</text><text x="148" y="124" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="700" font-size="16" letter-spacing="4" fill="#e6c77f">一番賞</text></svg>`, 'back');
   function ticket(t, sy){
     const w = 44 + 76*t.z, h = w*.68;
     const px = t.x + tx*36*t.z, py = t.y + ty*24*t.z - sy*.35*t.z;

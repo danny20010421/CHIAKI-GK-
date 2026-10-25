@@ -4,7 +4,7 @@
    ========================================================= */
 S.vipT = [
   {lv:0, n:'新手籤', min:0,       gift:0,    bday:0,     cp:'—',                     store:0,  perks:[]},
-  {lv:1, n:'銅籤',   min:3000,    gift:50,   bday:50,    cp:'95 折券 ×1',            store:0,  perks:[]},
+  {lv:1, n:'銅籤',   min:3000,    gift:50,   bday:0,     cp:'95 折券 ×1',            store:0,  perks:[]},
   {lv:2, n:'銀籤',   min:30000,   gift:100,  bday:100,   cp:'95 折券 ×2',            store:0,  perks:['生日禮']},
   {lv:3, n:'金籤',   min:200000,  gift:500,  bday:500,   cp:'95 折券 ×2',            store:0,  perks:['賞池頁即時機率顯示']},
   {lv:4, n:'白金籤', min:500000,  gift:1000, bday:2000,  cp:'9 折券 ×3',             store:7,  perks:['免費保管期限 +7 天']},
