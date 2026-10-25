@@ -15,21 +15,22 @@ const _probPctB = probPct; probPct = (p, i) => p.play === 'bday' ? '<span style=
       {name:'一獎', items:[
         {n:'長記銀樓 14K 玫瑰金鑲鑽手鍊（8000 元抵用券）', q:1, img:I('bdbracelet'), tag:'其他'},
         {n:'日本機票 50%（7000 元抵用券）', q:1, img:I('bdflight'), tag:'其他'},
-        {n:'當天約會費全部', q:1, img:I('bddate'), tag:'其他'},
+        {n:'當天約會經費 5000 元', q:1, img:I('bddate'), tag:'其他'},
         {n:'14K／18K 玫瑰金或香檳金戒指（5000 元抵用券）', q:1, img:I('bdring'), tag:'其他'}]},
       {name:'二獎', items:[
         {n:'長記銀樓 14K 玫瑰金鑲鑽手鍊（4000 元抵用券）', q:1, img:I('bdbracelet'), tag:'其他'},
         {n:'續約三星手機（4000 元抵用券）', q:1, img:I('bdphone'), tag:'其他'},
         {n:'鉑金 PT950 戒指或鍊墜（4000 元抵用券）', q:1, img:I('bdpt'), tag:'其他'},
         {n:'日本機票 25%（3500 元抵用券）', q:1, img:I('bdflight'), tag:'其他'},
-        {n:'當天約會費 50%', q:1, img:I('bddate'), tag:'其他'},
+        {n:'當天約會經費 2500 元', q:1, img:I('bddate'), tag:'其他'},
         {n:'不限品牌衣物任選（3000 元抵用券）', q:1, img:I('bdcloth'), tag:'其他'}]},
       {name:'三獎', small:false, items:[
         {n:'14K／18K 玫瑰金或香檳金戒指（2500 元抵用券）', q:1, img:I('bdring'), tag:'其他'},
         {n:'長記銀樓 14K 玫瑰金鑲鑽手鍊（2000 元抵用券）', q:1, img:I('bdbracelet'), tag:'其他'},
         {n:'鉑金 PT950 戒指或鍊墜（2000 元抵用券）', q:2, img:I('bdpt'), tag:'其他'},
         {n:'不限品牌衣物任選（1500 元抵用券）', q:2, img:I('bdcloth'), tag:'其他'},
-        {n:'半年份衛生棉', q:1, img:I('bdpad'), tag:'其他'}]},
+        {n:'半年份衛生棉', q:1, img:I('bdpad'), tag:'其他'},
+        {n:'重抽券', q:10, img:I('bdreroll'), tag:'其他', reroll:true}]},
       {name:'四獎', small:false, items:[
         {n:'Kose 雪肌精 臉部保濕保養品＋頭髮（1000 元抵用券）', q:3, img:I('bdkose'), tag:'其他'},
         {n:'DONKI DONKI 購物（1000 元抵用券）', q:3, img:I('bddonki'), tag:'其他'},
@@ -37,10 +38,12 @@ const _probPctB = probPct; probPct = (p, i) => p.play === 'bday' ? '<span style=
         {n:'響食天堂（一餐）', q:2, img:I('bdbuffet'), tag:'其他'},
         {n:'一個月衛生棉', q:3, img:I('bdpad'), tag:'其他'}]},
       {name:'參加獎', small:true, items:[
-        {n:'再來兩抽', q:67, img:I('bdagain'), tag:'其他', again:true},
-        {n:'生日快樂（銘謝惠顧）', q:900, img:I('bdhbd'), tag:'其他', miss:true}]}], last:null};
+        {n:'馬卡龍（1 顆）', q:13, img:I('bdmacaron'), tag:'其他'},
+        {n:'糖葫蘆（1 枝）', q:13, img:I('bdtanghulu'), tag:'其他'},
+        {n:'再來兩抽', q:160, img:I('bdagain'), tag:'其他', again:true},
+        {n:'生日快樂（銘謝惠顧）', q:770, img:I('bdhbd'), tag:'其他', miss:true}]}], last:null};
   buildPool(B);
-  B.levels.forEach((L, li) => L.items.forEach(it => { const pr = B.prizes.find(x => x.lv === li + 1 && x.name === it.n); if (pr){ pr.again = !!it.again; pr.miss = !!it.miss; } }));
+  B.levels.forEach((L, li) => L.items.forEach(it => { const pr = B.prizes.find(x => x.lv === li + 1 && x.name === it.n); if (pr){ pr.again = !!it.again; pr.miss = !!it.miss; pr.reroll = !!it.reroll; } }));
   POOLS.push(B); })();
 
 /* ---------- 解鎖（密碼只存雜湊；靜態網站僅能隱藏，不是真正的權限控管） ---------- */
@@ -99,7 +102,7 @@ routes.pool = r => { const p = poolById(r.arg);
   h = h.replace(/<span class="coin" style="width:28px;height:28px;font-size:14px;align-self:center">C<\/span>\s*<b class="num" style="font-size:32px;line-height:1">0<\/b><span class="muted">CC幣 \/ 抽<\/span>/, '<b class="bd-free">免費</b><span class="muted">每輪 3 抽・保底 1 個獎品</span>');
   h = h.replace('機率 = 該賞剩餘數 ÷ 總剩餘數，每抽即時更新', '每輪抽完恢復原配率');
   h = h.replace(/<small class="shipm">[\s\S]*?<\/small>/g, '').replace(/CHIAKI 原創設計/g, '生日限定').replace(/<a class="odds-lock"[\s\S]*?<\/a>/g, '<span class="dim" style="white-space:nowrap">依規則</span>');
-  const log = S.bdLog.length ? S.bdLog.map(x => `<li><span class="dim num">${x.at}</span><div class="bd-items">${x.items.map(n => `<span class="tag ${/再來兩抽|銘謝惠顧/.test(n) ? '' : 'ok'}">${hx(n)}</span>`).join('')}</div></li>`).join('') : '<li class="dim">還沒有抽獎紀錄</li>';
+  const log = S.bdLog.length ? S.bdLog.map(x => `<li class="${x.void ? 'void' : ''}"><span class="dim num">${x.at}${x.redo ? '・重抽' : ''}${x.void ? '・已重抽作廢' : ''}</span><div class="bd-items">${x.items.map(n => `<span class="tag ${/再來兩抽|銘謝惠顧/.test(n) ? '' : 'ok'}">${hx(n)}</span>`).join('')}</div></li>`).join('') : '<li class="dim">還沒有抽獎紀錄</li>';
   const sec = `<section class="panel bd-log" aria-labelledby="h-bdlog"><div class="row between bd-log-h"><h3 id="h-bdlog">我的抽獎紀錄</h3><span class="dim">每 30 分鐘清除・下次清除 ${bdNextClear()}</span></div><ol>${log}</ol></section>`;
   const i = h.indexOf('<section class="prizes"'); if (i > -1) h = h.slice(0, i) + sec + h.slice(i);
   /* 獎品內容可展開／收合（預設收合） */
@@ -153,7 +156,7 @@ const _packsB = packsSection;
 packsSection = function(p){ if (p.play !== 'bday') return _packsB(p);
   return `<section class="packs-wrap" id="packs" aria-labelledby="h-pk" tabindex="-1"><div class="sec-h"><h2 id="h-pk"><small>DRAW</small>開始抽獎<span class="muted" style="font-size:14px;font-weight:400;margin-left:8px">共 ${p.total} 籤・每輪恢復原配率</span></h2><button type="button" class="btn s ghost bd-bgm" id="bdBgm" data-act="bd-bgm" aria-pressed="${BGM.on}">${ic(BGM.on ? 'sound' : 'mute','width:16px;height:16px')}<span>${BGM.on ? '生日快樂歌' : '音樂已關閉'}</span></button></div>
     <button class="btn gold block bd-go" id="bdGo" type="button" data-act="bd-go">${ic('ticket','width:18px;height:18px')}抽 3 抽（免費）</button>
-    <ul class="bd-rules"><li>每輪 3 抽，有機會中多個獎品，每輪保底一個獎品。</li><li>抽到「再來兩抽」，本輪再多抽 2 次。</li><li>每輪結束後需等待 ${BD_CD} 秒才能再玩。</li><li>每次抽完都會恢復原配率。</li><li>獎項皆不提供回收；抽中的獎品會記錄在下方「我的抽獎紀錄」。</li></ul></section>`; };
+    <ul class="bd-rules"><li>每輪 3 抽，有機會中多個獎品，每輪保底一個獎品。</li><li>抽到「再來兩抽」，本輪再多抽 2 次。</li><li>每輪結束後需等待 ${BD_CD} 秒才能再玩。</li><li>每次抽完都會恢復原配率。</li><li>抽中「重抽券」可保留，對某一輪結果不滿意時可使用重抽，該輪獎品作廢、以新結果為準。${S.bdReroll ? `目前持有 <b>${S.bdReroll}</b> 張。` : ''}</li><li>獎項皆不提供回收；抽中的獎品會記錄在下方「我的抽獎紀錄」。</li></ul></section>`; };
 
 /* 一輪：前 2 抽隨機（最大獎權重 0.35），第 3 抽若前面都沒中獎則只從獎品中抽；再來兩抽 → 追加 2 抽 */
 const BD_W_TOP = .35;
@@ -168,19 +171,32 @@ function bdRound(p){
   for (let k = 0; k < 3; k++){ const t = bdPick(p, k === 2 && !hit); if (!t) break; take(t); }
   while (extra > 0){ extra--; const t = bdPick(p, false); if (!t) break; take(t, '再來兩抽'); }
   return out; }
-document.addEventListener('click', e => { const el = e.target.closest('[data-act="bd-go"]'); if (!el || el.disabled) return; const p = curPool(); if (!p || p.play !== 'bday') return;
-  if (bdLeft()) return toast(`請再等 ${bdLeft()} 秒`); if (!remaining(p)) return toast('已全部抽完');
+/* 重抽券：抽中後可保留；對某一輪結果不滿意時使用，該輪獎品全部作廢（含該輪抽中的重抽券），立即重抽一輪 */
+S.bdReroll = (() => { try { return +localStorage.getItem('ck_bdreroll') || 0; } catch(_){ return 0; } })();
+const bdRerollSave = () => { try { localStorage.setItem('ck_bdreroll', String(S.bdReroll)); } catch(_){} };
+function bdRun(p, redo){
   const snap = p.tickets.map(t => t.taken), res = bdRound(p); p.tickets.forEach((t, i) => { t.taken = snap[i]; if (!snap[i]) delete t.by; });   // 每輪抽完恢復原配率
   if (!res.length) return;
-  bdCheckClear(); S.bdLog.unshift({at:twNow(), items:res.map(x => x.name)}); bdSave();
-  S.audit.unshift({t:'剛剛', who:'Chiaki 玩家', a:`漩漩生日一番賞：${res.filter(x => x.lv < 6).map(x => x.name).join('、') || '未中獎'}`});
+  bdCheckClear(); const id = 'r' + Date.now(); S.bdLog.unshift({id, at:twNow(), items:res.map(x => x.name), redo:!!redo}); bdSave();
+  const won = res.filter(x => x.name === '重抽券').length; if (won){ S.bdReroll += won; bdRerollSave(); }
+  S.audit.unshift({t:'剛剛', who:'Chiaki 玩家', a:`漩漩生日一番賞${redo ? '（重抽）' : ''}：${res.filter(x => x.lv < 6 || !/再來兩抽|銘謝惠顧/.test(x.name)).map(x => x.name).join('、') || '未中獎'}`});
   S.bdCd = Date.now() + 864e5;   // 演出期間先鎖住，結束後才開始 10 秒倒數
-  runDraw(p, res); });
+  runDraw(p, res); D.bdId = id; D.bdWon = won; }
+document.addEventListener('click', e => { const el = e.target.closest('[data-act="bd-go"]'); if (!el || el.disabled) return; const p = curPool(); if (!p || p.play !== 'bday') return;
+  if (bdLeft()) return toast(`請再等 ${bdLeft()} 秒`); if (!remaining(p)) return toast('已全部抽完');
+  bdRun(p); });
+document.addEventListener('click', e => { const el = e.target.closest('[data-act="bd-reroll"]'); if (!el || !D || !D.bdId) return; e.preventDefault();
+  if (S.bdReroll < 1) return toast('沒有可用的重抽券');
+  const p = D.p, id = D.bdId, cost = Math.max(1, D.bdWon || 0); const L = S.bdLog.find(x => x.id === id); if (L){ L.void = true; bdSave(); }
+  S.bdReroll = Math.max(0, S.bdReroll - cost); bdRerollSave();
+  fx.stop(); $('#stageRoot').innerHTML = ''; document.documentElement.style.overflow = ''; D = null;
+  toast('已使用重抽券，本輪結果作廢，重新抽獎'); bdRun(p, true); });
 const _closeStageB = closeStage;
 closeStage = function(){ const was = D && D.p && D.p.play === 'bday'; if (was) S.bdCd = Date.now() + BD_CD * 1000; _closeStageB(); };
 const _sumB = showSummary;
 showSummary = function(){ _sumB(); if (!D || !D.p || D.p.play !== 'bday') return; const s = $('#sum'); if (!s) return;
   const sub = s.querySelector('.sub'); if (sub){ const n = D.results.filter(x => x.lv < 6).length; sub.innerHTML = `本輪共 ${D.results.length} 抽，中獎 <b style="color:var(--gold-2)">${n}</b> 個 ・ 已記錄在「我的抽獎紀錄」`; }
   const w = s.querySelector('.acts a[href="#/warehouse"]'); if (w){ w.setAttribute('href', '#/pool/bday'); w.innerHTML = `${ic('list','width:18px;height:18px')}查看抽獎紀錄`; }
-  const again = s.querySelector('.acts [data-act="close-stage"]'); if (again && !again.getAttribute('href')) again.textContent = `完成（${BD_CD} 秒後可再抽）`; };
+  const again = s.querySelector('.acts [data-act="close-stage"]'); if (again && !again.getAttribute('href')) again.textContent = `完成（${BD_CD} 秒後可再抽）`;
+  if (S.bdReroll > 0){ const acts = s.querySelector('.acts'); if (acts) acts.insertAdjacentHTML('beforebegin', `<button type="button" class="btn block bd-rr" data-act="bd-reroll">${ic('recycle','width:18px;height:18px')}不滿意？使用重抽券重抽本輪（持有 ${S.bdReroll} 張）</button><p class="bd-rr-note">使用後本輪獎品全部作廢${D.bdWon ? '（含本輪抽中的重抽券）' : ''}，以重抽結果為準。</p>`); } };
 </script>

@@ -3,15 +3,15 @@
    VIP 制度（累計抽賞消費 CC幣）＋ 每日簽到（每週一重置）
    ========================================================= */
 S.vipT = [
-  {lv:0, n:'新手籤', min:0,      gift:0,    bday:0,    cp:'—',                       store:0,  perks:['會員基本權益']},
-  {lv:1, n:'銅籤',   min:3000,   gift:30,   bday:50,   cp:'95 折券 ×1',              store:0,  perks:['生日禮']},
-  {lv:2, n:'銀籤',   min:10000,  gift:100,  bday:100,  cp:'95 折券 ×2',              store:0,  perks:['新賞提前 1 小時通知']},
-  {lv:3, n:'金籤',   min:30000,  gift:300,  bday:300,  cp:'9 折券 ×2',               store:15, perks:['賞池頁即時機率顯示','保管期限 +15 天']},
-  {lv:4, n:'白金籤', min:80000,  gift:800,  bday:600,  cp:'9 折券 ×3',               store:15, perks:['優先出貨']},
-  {lv:5, n:'鑽石籤', min:200000, gift:2000, bday:1200, cp:'9 折券 ×3＋85 折券 ×1',   store:30, perks:['專屬客服','保管期限 +30 天']},
-  {lv:6, n:'黑金籤', min:500000, gift:5000, bday:3000, cp:'85 折券 ×3',              store:30, perks:['專屬活動與限定賞池']}
+  {lv:0, n:'新手籤', min:0,       gift:0,    bday:0,     cp:'—',                     store:0,  perks:[]},
+  {lv:1, n:'銅籤',   min:3000,    gift:50,   bday:50,    cp:'95 折券 ×1',            store:0,  perks:[]},
+  {lv:2, n:'銀籤',   min:30000,   gift:100,  bday:100,   cp:'95 折券 ×2',            store:0,  perks:['生日禮']},
+  {lv:3, n:'金籤',   min:200000,  gift:500,  bday:500,   cp:'95 折券 ×2',            store:0,  perks:['賞池頁即時機率顯示']},
+  {lv:4, n:'白金籤', min:500000,  gift:1000, bday:2000,  cp:'9 折券 ×3',             store:7,  perks:['免費保管期限 +7 天']},
+  {lv:5, n:'鑽石籤', min:1000000, gift:2500, bday:5000,  cp:'85 折券 ×3＋8 折券 ×1', store:14, perks:['專屬客服','免費保管期限 +14 天']},
+  {lv:6, n:'黑金籤', min:2000000, gift:5000, bday:10000, cp:'8 折券 ×3',             store:14, perks:['專屬活動與限定賞池']}
 ];
-S.vip = {spend:13800, got:[1, 2]};
+S.vip = {spend:13800, got:[1]};
 const VIP_ODDS = 3;
 const vipLv = (spend = S.vip.spend) => S.vipT.reduce((l, t) => spend >= t.min ? t.lv : l, 0);
 const vipT = lv => S.vipT[lv] || S.vipT[0];
@@ -43,7 +43,7 @@ routes.vip = () => { const lv = vipLv(), t = vipT(lv), nx = vipNext();
     </section>
     <div class="tbl-wrap" style="margin-top:32px"><table class="tbl vip-tbl"><caption class="sr">VIP 等級與權益</caption>
       <thead><tr><th>等級</th><th class="r">累計消費</th><th class="r">升級禮</th><th class="r">生日禮</th><th>每月優惠券</th><th>其他權益</th></tr></thead><tbody>
-      ${S.vipT.map(v => `<tr class="${v.lv === lv ? 'hl' : ''}"><td><div class="vt-n">${vipBadge(v.lv)}<b>${v.n}</b></div></td><td class="r num">${fmt(v.min)}</td><td class="r num">${v.gift ? fmt(v.gift) : '—'}</td><td class="r num">${v.bday ? fmt(v.bday) : '—'}</td><td>${v.cp}</td><td>${v.lv > 1 ? '<span class="dim">含前一級權益＋</span>' : ''}${v.perks.join('、')}</td></tr>`).join('')}
+      ${S.vipT.map(v => `<tr class="${v.lv === lv ? 'hl' : ''}"><td><div class="vt-n">${vipBadge(v.lv)}<b>${v.n}</b></div></td><td class="r num">${fmt(v.min)}</td><td class="r num">${v.gift ? fmt(v.gift) : '—'}</td><td class="r num">${v.bday ? fmt(v.bday) : '—'}</td><td>${v.cp}</td><td>${v.lv > 1 ? '<span class="dim">含前一級權益＋</span>' : ''}${v.perks.join('、') || (v.lv ? '—' : '會員基本權益')}</td></tr>`).join('')}
       </tbody></table></div>
     <div class="layout2" style="margin-top:32px">
       <div class="panel"><h3>規則說明</h3><ul class="rules">
