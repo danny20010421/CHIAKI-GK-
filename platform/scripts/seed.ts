@@ -8,7 +8,7 @@ import { setAdminCredentials } from '../src/server/modules/auth/admin-auth';
 import type { Principal, Role } from '../src/server/modules/auth/rbac';
 import { createPoolDraft } from '../src/server/modules/pool/admin';
 import { approve, requestBalanceAdjust, requestPoolPublish } from '../src/server/modules/admin/approvals';
-import { RETIRED_SEED_POOL_SLUGS, SEED_POOLS, seedReferenceData } from '../src/server/seed/reference';
+import { RETIRED_SEED_POOL_SLUGS, SEED_POOLS, seedHomeBanners, seedReferenceData } from '../src/server/seed/reference';
 import type { PoolDraftInput } from '../src/server/modules/pool/admin';
 import { deletePool, setPoolOffline } from '../src/server/modules/pool/manage';
 
@@ -47,7 +47,7 @@ await sql`UPDATE users SET age_verified_at = COALESCE(age_verified_at, now()), b
 
 const [{ coins }] = (await sql<{ coins: number }[]>`SELECT coins FROM wallets WHERE user_id = ${member.userId}`) as unknown as [{ coins: number }];
 if (coins === 0) {
-  const { approvalId } = await requestBalanceAdjust(fin1, { userId: member.userId, amount: 5000, memo: '開發示範：初始 CC幣' });
+  const { approvalId } = await requestBalanceAdjust(fin1, { userId: member.userId, amount: 5000, memo: '開發示範：初始 UC幣' });
   await approve(fin2, approvalId);
 }
 
@@ -84,10 +84,11 @@ async function retirePool(slug: string) {
 }
 for (const slug of RETIRED_SEED_POOL_SLUGS) console.log(await retirePool(slug));
 for (const draft of SEED_POOLS) console.log(await ensurePool(draft));
+for (const line of await seedHomeBanners(sql)) console.log(`banner ${line}`);
 
 console.log(`
 Seed complete.
-  會員登入（AUTH_DEV_STUB=1）：POST /api/auth/otp/verify {"phone": "0900000010", "code": "000000"}（示範會員，已年齡驗證，5000 CC幣）
+  會員登入（AUTH_DEV_STUB=1）：POST /api/auth/otp/verify {"phone": "0900000010", "code": "000000"}（示範會員，已年齡驗證，5000 UC幣）
   後台登入：POST /api/auth/admin/login {"loginId": "admin|ops|finance-a|finance-b|support", "password": "<ADMIN_INITIAL_PASSWORD>"}
   ${initialPassword ? `已設定後台密碼（scrypt 雜湊）：${credentialsSet.join(', ') || '（皆已存在，未變更）'}` : '⚠ 未設定 ADMIN_INITIAL_PASSWORD：未建立後台密碼，後台 API 將無法登入'}`);
 await closeDb();

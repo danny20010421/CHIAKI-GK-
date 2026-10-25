@@ -130,6 +130,152 @@ export function pickTickets<T extends ProbTicket>(remaining: T[], odds: LevelOdd
   return out;
 }
 
+/** Fenwick（樹狀陣列）：位置 0..n-1 的 0/1 可用旗標，支援 O(log n) 移除與「第 k 個可用位置」查詢 */
+class Fenwick {
+  private readonly tree: Int32Array;
+  private readonly size: number;
+  private readonly topBit: number;
+  total = 0;
+  constructor(available: Uint8Array) {
+    const n = available.length;
+    this.size = n;
+    this.tree = new Int32Array(n + 1);
+    for (let i = 0; i < n; i++) {
+      if (!available[i]) continue;
+      this.total++;
+      this.tree[i + 1]! += 1;
+    }
+    for (let i = 1; i <= n; i++) {
+      const j = i + (i & -i);
+      if (j <= n) this.tree[j]! += this.tree[i]!;
+    }
+    let b = 1;
+    while (b * 2 <= n) b *= 2;
+    this.topBit = n ? b : 0;
+  }
+  remove(pos: number): void {
+    for (let i = pos + 1; i <= this.size; i += i & -i) this.tree[i]! -= 1;
+    this.total--;
+  }
+  /** 第 k 個（0 起算）可用位置 */
+  kth(k: number): number {
+    let pos = 0;
+    let rem = k + 1;
+    for (let b = this.topBit; b > 0; b >>= 1) {
+      const nx = pos + b;
+      if (nx <= this.size && this.tree[nx]! < rem) {
+        pos = nx;
+        rem -= this.tree[nx]!;
+      }
+    }
+    return pos; // 0 起算位置 = (1 起算的 pos + 1) − 1
+  }
+}
+
+/** 一個候選範圍（某等級 / 無 odds 的等級 / 全部）：依籤號排序的籤，加上可用旗標的 Fenwick */
+interface Bucket {
+  nos: Int32Array;
+  tree: Fenwick;
+}
+function bucketOf(sortedNos: number[], availableOf: (no: number) => boolean): Bucket {
+  const nos = Int32Array.from(sortedNos);
+  const avail = new Uint8Array(nos.length);
+  for (let i = 0; i < nos.length; i++) avail[i] = availableOf(nos[i]!) ? 1 : 0;
+  return { nos, tree: new Fenwick(avail) };
+}
+function posIn(nos: Int32Array, no: number): number {
+  let lo = 0;
+  let hi = nos.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const v = nos[mid]!;
+    if (v === no) return mid;
+    if (v < no) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return -1;
+}
+
+/**
+ * 大型機率賞（數十萬籤）的抽選索引：與 pickTickets 完全相同的演算法與亂數用法（結果逐張一致，可驗證性不變），
+ * 但每抽一張只需 O(等級數 + log N)，不必每次掃描/複製剩餘籤表。
+ *   - 每個等級、「無 odds 的等級」、「全部」各一個依籤號排序的 Fenwick，第 k 張候選籤 = 第 k 個可用位置。
+ *   - 建立索引 O(N)（籤表依籤號排序時）；抽出後以 remove() 同步所有相關候選範圍。
+ */
+export class ProbIndex {
+  private readonly odds: LevelOdds;
+  private readonly levelBuckets = new Map<number, Bucket>();
+  private readonly rest: Bucket;
+  private readonly all: Bucket;
+  private readonly levelOfNo = new Map<number, number>();
+  private readonly available = new Set<number>();
+
+  /** tickets：整套籤表（含已抽出者，available=false）；odds：本賞池各等級固定機率（null＝平均分配） */
+  constructor(tickets: { ticketNo: number; levelNo: number; available: boolean }[], odds: LevelOdds) {
+    this.odds = odds;
+    const sorted = tickets.every((t, i) => i === 0 || tickets[i - 1]!.ticketNo < t.ticketNo) ? tickets : [...tickets].sort((a, b) => a.ticketNo - b.ticketNo);
+    const byLevel = new Map<number, number[]>();
+    const restNos: number[] = [];
+    const allNos: number[] = [];
+    for (const t of sorted) {
+      this.levelOfNo.set(t.ticketNo, t.levelNo);
+      if (t.available) this.available.add(t.ticketNo);
+      (byLevel.get(t.levelNo) ?? byLevel.set(t.levelNo, []).get(t.levelNo)!).push(t.ticketNo);
+      if ((odds.get(t.levelNo) ?? null) === null) restNos.push(t.ticketNo);
+      allNos.push(t.ticketNo);
+    }
+    const isAvail = (no: number) => this.available.has(no);
+    for (const [l, nos] of byLevel) this.levelBuckets.set(l, bucketOf(nos, isAvail));
+    this.rest = bucketOf(restNos, isAvail);
+    this.all = bucketOf(allNos, isAvail);
+  }
+
+  /** 剩餘可抽張數 */
+  get remaining(): number {
+    return this.all.tree.total;
+  }
+
+  isAvailable(ticketNo: number): boolean {
+    return this.available.has(ticketNo);
+  }
+
+  /** odds 設定是否與建立索引時相同（不同 → 呼叫端應重建） */
+  sameOdds(odds: LevelOdds): boolean {
+    if (odds.size !== this.odds.size) return false;
+    for (const [k, v] of odds) if ((this.odds.get(k) ?? null) !== (v ?? null) || !this.odds.has(k)) return false;
+    return true;
+  }
+
+  /** 標記某張籤已抽出（例如其他程序完成的抽賞）；回傳是否原本可抽 */
+  take(ticketNo: number): boolean {
+    if (!this.available.delete(ticketNo)) return false;
+    const levelNo = this.levelOfNo.get(ticketNo)!;
+    const lb = this.levelBuckets.get(levelNo)!;
+    lb.tree.remove(posIn(lb.nos, ticketNo));
+    if ((this.odds.get(levelNo) ?? null) === null) this.rest.tree.remove(posIn(this.rest.nos, ticketNo));
+    this.all.tree.remove(posIn(this.all.nos, ticketNo));
+    return true;
+  }
+
+  /** 依規則抽一張（與 pickTickets 的單張步驟相同）並移出剩餘 */
+  pickOne(rng: Rng): ProbTicket {
+    if (this.remaining <= 0) throw new Error('no tickets left');
+    const counts = [...this.odds.keys()].map((levelNo) => ({ levelNo, odds: this.odds.get(levelNo) ?? null, remaining: this.levelBuckets.get(levelNo)?.tree.total ?? 0 }));
+    const choice = choosePool(counts, rng.float());
+    const b = choice.kind === 'LEVEL' ? this.levelBuckets.get(choice.levelNo)! : choice.kind === 'REST' ? this.rest : this.all;
+    const k = rng.int(b.tree.total);
+    const ticketNo = b.nos[b.tree.kth(k)]!;
+    this.take(ticketNo);
+    return { ticketNo, levelNo: this.levelOfNo.get(ticketNo)! };
+  }
+
+  pick(rng: Rng, n: number): ProbTicket[] {
+    const out: ProbTicket[] = [];
+    for (let i = 0; i < n; i++) out.push(this.pickOne(rng));
+    return out;
+  }
+}
+
 /** 以「各獎項剩餘數」抽一次（同一規則；免費試玩與統計測試用，不需展開成逐張籤）。會將抽中獎項的 remaining 減 1。 */
 export function pickFromCounts<T extends { levelNo: number; remaining: number }>(items: T[], odds: LevelOdds, rng: Rng): T {
   const choice = choosePool(levelRemaining(items, odds), rng.float());
@@ -183,10 +329,11 @@ export interface ProbReplayInput {
 export function replayProbSet(input: ProbReplayInput): { ok: boolean; seedOk: boolean; mismatches: number[] } {
   const seedOk = seedHash(input.serverSeed) === input.seedHash;
   const odds: LevelOdds = new Map(input.levels.map((l) => [l.levelNo, l.odds]));
-  const remaining = input.layout.map((t) => ({ ...t }));
+  // 與 pickTickets 逐張一致的索引實作（大型套也能在線性時間內重算）
+  const idx = new ProbIndex(input.layout.map((t) => ({ ...t, available: true })), odds);
   const mismatches: number[] = [];
   for (const d of [...input.draws].sort((a, b) => a.nonce - b.nonce)) {
-    const got = pickTickets(remaining, odds, new ProbRng(input.serverSeed, d.clientSeed, d.nonce), d.ticketNos.length).map((t) => t.ticketNo).sort((a, b) => a - b);
+    const got = idx.pick(new ProbRng(input.serverSeed, d.clientSeed, d.nonce), d.ticketNos.length).map((t) => t.ticketNo).sort((a, b) => a - b);
     const want = [...d.ticketNos].sort((a, b) => a - b);
     if (got.join(',') !== want.join(',')) mismatches.push(d.nonce);
   }

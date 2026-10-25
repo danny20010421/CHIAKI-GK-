@@ -64,7 +64,7 @@ export interface TestUser {
 }
 
 let phoneSeq = 0;
-/** coins：可退款 CC幣（人工調整）；nonRefundableCoins：不可退款 CC幣（以客服補償入帳） */
+/** coins：可退款 UC幣（人工調整）；nonRefundableCoins：不可退款 UC幣（以客服補償入帳） */
 export async function makeUser(opts: { roles?: Role[]; coins?: number; nonRefundableCoins?: number; ageVerified?: boolean; phone?: string | null } = {}): Promise<TestUser> {
   const roles = opts.roles ?? ['MEMBER'];
   // 096 開頭：與種子（0900…）及各測試寫死的號碼（0911…、0977…、0987…、0988…）不會相撞（舊格式在 pid 尾數 00/11 時會撞號）
@@ -258,7 +258,7 @@ export async function ledgerOf(userId: string) {
     SELECT amount, balance_after, entry_type, refundable FROM wallet_ledger WHERE user_id = ${userId} ORDER BY id`;
 }
 
-/** CC幣餘額：coins = 可退款 + 不可退款 */
+/** UC幣餘額：coins = 可退款 + 不可退款 */
 export async function walletOf(userId: string) {
   const [w] = await db()<{ coins: number; nonRefundableCoins: number }[]>`SELECT coins, nonrefundable_coins AS non_refundable_coins FROM wallets WHERE user_id = ${userId}`;
   return w!;

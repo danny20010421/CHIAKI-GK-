@@ -29,6 +29,10 @@ const DEFAULTS: Record<NotificationType, Channel[]> = {
   REFERRAL_REWARD: ['IN_APP', 'WEB_PUSH', 'LINE'],
   SHIPMENT_UPDATED: ['IN_APP', 'WEB_PUSH', 'LINE', 'EMAIL'],
   FORUM_MODERATED: ['IN_APP'],
+  // VIP 禮物與優惠券：站內＋推播＋LINE＋Email（簡訊預設關閉，會員可於通知設定開啟）
+  VIP_UPGRADE_GIFT: ['IN_APP', 'WEB_PUSH', 'LINE', 'EMAIL'],
+  VIP_BIRTHDAY_GIFT: ['IN_APP', 'WEB_PUSH', 'LINE', 'EMAIL'],
+  COUPON_ISSUED: ['IN_APP', 'WEB_PUSH', 'LINE', 'EMAIL'],
 };
 
 interface Recipient {

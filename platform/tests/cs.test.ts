@@ -131,13 +131,13 @@ describe('CS tickets', () => {
     assert.ok(ap.body.approvalId);
     assert.equal((await act({ action: 'APPROVE_REFUND', kind: 'SHIPPING_CASH_REFUND', refundId: rr.id })).status, 400, 'shipping fees are refunded as coins only; no NT$ shipping refunds');
 
-    // 補償 CC幣（不可退款）：門檻內直接入帳；超過門檻 → 第二人核准
+    // 補償 UC幣（不可退款）：門檻內直接入帳；超過門檻 → 第二人核准
     const w0 = await walletOf(u.id);
     const small = await j<{ result: { status: string } }>(await act({ action: 'GRANT_COMPENSATION', coins: 100, memo: '出貨延誤補償' }));
     assert.equal(small.body.result.status, 'GRANTED');
     assert.deepEqual(await walletOf(u.id), { coins: w0.coins + 100, nonRefundableCoins: w0.nonRefundableCoins + 100 });
     assert.equal((await act({ action: 'GRANT_COMPENSATION', coins: 100, memo: '補償測試' }, ops.token)).status, 403, 'OPS lacks cs.compensation.grant');
-    // 舊欄位名 points 仍可用（視為 CC幣）
+    // 舊欄位名 points 仍可用（視為 UC幣）
     const big = await j<{ approvalId: string; result: { status: string } }>(await act({ action: 'GRANT_COMPENSATION', points: 800, memo: '大獎破損補償' }));
     assert.equal(big.body.result.status, 'PENDING_APPROVAL');
     assert.equal((await walletOf(u.id)).coins, w0.coins + 100, 'not credited before approval');

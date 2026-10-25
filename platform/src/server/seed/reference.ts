@@ -2,9 +2,10 @@ import type { Db } from '../db';
 import type { PoolDraftInput } from '../modules/pool/admin';
 import type { VipTier } from '../modules/vip/vip';
 import { canonicalJson } from '../lib/canonical';
+import { taipeiDayStart } from '../lib/taipei';
 
 /**
- * 參考資料（冪等）。所有數值皆為「範例／待營運與法遵確認」：回收值、綁定獎勵 CC幣。
+ * 參考資料（冪等）。所有數值皆為「範例／待營運與法遵確認」：回收值、綁定獎勵 UC幣。
  * 回收值為「每套 × 每獎項」設定（見各賞池 levels[].items[].recycleValue，發布後可逐套調整）。
  * 運費一律到付（2026-10 第七批）：物流方式不再有運費；寄送方式由每個獎項預設（shipMethod）。
  */
@@ -16,7 +17,7 @@ export const SHIPPING_METHODS: { method: string; label: string }[] = [
   { method: 'CVS_FAMI_C2C', label: '全家 店到店' },
 ];
 
-/** 綁定/任務獎勵（coins = 不可退款 CC幣；資料表欄位 reward_points 沿用舊名） */
+/** 綁定/任務獎勵（coins = 不可退款 UC幣；資料表欄位 reward_points 沿用舊名） */
 export const REWARD_TASKS: { code: string; title: string; coins: number; coupon: string | null }[] = [
   { code: 'BIND_LINE_OA', title: '加入 CHIAKI LINE 官方帳號', coins: 50, coupon: 'LINE-WELCOME' },
   { code: 'JOIN_LINE_COMMUNITY', title: '加入 LINE 社群', coins: 30, coupon: null },
@@ -47,7 +48,7 @@ export async function seedReferenceData(d: Db, merchantId = 'chiaki'): Promise<v
 export const RETIRED_SEED_POOL_SLUGS = ['chiaki-gk-01', 'chiaki-black-gold-guarantee'] as const;
 
 /**
- * 「超萌宮崎駿」機率賞（前台 id: gb；自製、PROB）：每套 2000 籤、每抽 40 CC幣。
+ * 「超萌宮崎駿」機率賞（前台 id: gb；自製、PROB）：每套 2000 籤、每抽 40 UC幣。
  * 大獎、2 獎為固定單抽機率（1/30、1/50；抽完後其機率滾入其餘獎項），其餘依剩餘籤數平均分配。
  * 寄送方式：未指定 → 大獎（等級 1，大件）宅配，其餘 7-11。
  */
@@ -71,7 +72,7 @@ export const PROB_SAMPLE_POOL: PoolDraftInput = {
 };
 
 /**
- * 「雲頂終結谷」機率賞（前台 id: nr；自製、PROB、IP 火影忍者）：每套 20,300 籤、每抽 200 CC幣。
+ * 「雲頂終結谷」機率賞（前台 id: nr；自製、PROB、IP 火影忍者）：每套 20,300 籤、每抽 200 UC幣。
  * 4 獎「火影墨影霓亂徽章」固定單抽機率 70%（抽完後滾入其餘獎項），其餘依剩餘籤數平均分配。
  * 等級：大獎=1、2 獎=2、3 獎=3（火影盲盒隨機款，2026-10 第八批新增）、4 獎=4（非小獎）、5 獎=5。
  */
@@ -125,7 +126,7 @@ function officialLevels(items: OfficialItem[]): PoolDraftInput['levels'] {
   }));
 }
 
-/** 「宿命的雙極」官方一番賞（前台 id: bk；IP 烙印勇士）：每抽 420 CC幣，每套 80 籤；A–E 宅配、F–I 7-11。 */
+/** 「宿命的雙極」官方一番賞（前台 id: bk；IP 烙印勇士）：每抽 420 UC幣，每套 80 籤；A–E 宅配、F–I 7-11。 */
 export const BK_POOL: PoolDraftInput = {
   slug: 'bk-berserk-dual-poles',
   title: '宿命的雙極',
@@ -150,7 +151,7 @@ export const BK_POOL: PoolDraftInput = {
   guarantee: null,
 };
 
-/** 「神樂鉢」官方一番賞（前台 id: kg；IP 神樂鉢）：每抽 420 CC幣，每套 80 籤；A–C 宅配，其餘（含最後賞）7-11。 */
+/** 「神樂鉢」官方一番賞（前台 id: kg；IP 神樂鉢）：每抽 420 UC幣，每套 80 籤；A–C 宅配，其餘（含最後賞）7-11。 */
 export const KG_POOL: PoolDraftInput = {
   slug: 'kg-kagurabachi',
   title: '神樂鉢',
@@ -175,18 +176,97 @@ export const KG_POOL: PoolDraftInput = {
 };
 
 /**
- * VIP 等級預設值（migration 20261103000000 已寫入 vip_tiers；後台可改）。seedReferenceData 只補缺漏的等級，不覆蓋後台設定。
- * monthlyCoupons.discountPct：5 = 95折、10 = 9折、15 = 85折。perks 為該等級「新增」的權益（較高等級自動包含）。
+ * VIP 等級預設值（業主 2026-10 第十批；migration 20261105000000 已更新 vip_tiers；後台可改）。seedReferenceData 只補缺漏的等級，不覆蓋後台設定。
+ * monthlyCoupons.discountPct：5 = 95折、10 = 9折、15 = 85折、20 = 8折。perks 為該等級「新增」的權益（較高等級自動包含）。
+ * extraStorageDays 為該等級的「總」加碼寄存天數（不累加）。
  */
 export const VIP_TIER_DEFAULTS: VipTier[] = [
   { level: 0, name: '新手籤', spendThreshold: 0, upgradeGiftCoins: 0, birthdayGiftCoins: 0, monthlyCoupons: [], extraStorageDays: 0, perks: [] },
-  { level: 1, name: '銅籤', spendThreshold: 3000, upgradeGiftCoins: 30, birthdayGiftCoins: 50, monthlyCoupons: [{ discountPct: 5, qty: 1 }], extraStorageDays: 0, perks: [] },
-  { level: 2, name: '銀籤', spendThreshold: 10000, upgradeGiftCoins: 100, birthdayGiftCoins: 100, monthlyCoupons: [{ discountPct: 5, qty: 2 }], extraStorageDays: 0, perks: [{ code: 'EARLY_NOTICE', label: '新賞提前 1 小時通知' }] },
-  { level: 3, name: '金籤', spendThreshold: 30000, upgradeGiftCoins: 300, birthdayGiftCoins: 300, monthlyCoupons: [{ discountPct: 10, qty: 2 }], extraStorageDays: 15, perks: [{ code: 'LIVE_ODDS', label: '賞池頁即時機率顯示' }] },
-  { level: 4, name: '白金籤', spendThreshold: 80000, upgradeGiftCoins: 800, birthdayGiftCoins: 600, monthlyCoupons: [{ discountPct: 10, qty: 3 }], extraStorageDays: 15, perks: [{ code: 'PRIORITY_SHIPPING', label: '優先出貨' }] },
-  { level: 5, name: '鑽石籤', spendThreshold: 200000, upgradeGiftCoins: 2000, birthdayGiftCoins: 1200, monthlyCoupons: [{ discountPct: 10, qty: 3 }, { discountPct: 15, qty: 1 }], extraStorageDays: 30, perks: [{ code: 'DEDICATED_CS', label: '專屬客服' }] },
-  { level: 6, name: '黑金籤', spendThreshold: 500000, upgradeGiftCoins: 5000, birthdayGiftCoins: 3000, monthlyCoupons: [{ discountPct: 15, qty: 3 }], extraStorageDays: 30, perks: [{ code: 'EXCLUSIVE_EVENTS', label: '專屬活動與限定賞池' }] },
+  { level: 1, name: '銅籤', spendThreshold: 3_000, upgradeGiftCoins: 50, birthdayGiftCoins: 50, monthlyCoupons: [{ discountPct: 5, qty: 1 }], extraStorageDays: 0, perks: [] },
+  { level: 2, name: '銀籤', spendThreshold: 30_000, upgradeGiftCoins: 100, birthdayGiftCoins: 100, monthlyCoupons: [{ discountPct: 5, qty: 2 }], extraStorageDays: 0, perks: [{ code: 'BIRTHDAY_GIFT', label: '生日禮' }] },
+  { level: 3, name: '金籤', spendThreshold: 200_000, upgradeGiftCoins: 500, birthdayGiftCoins: 500, monthlyCoupons: [{ discountPct: 5, qty: 2 }], extraStorageDays: 0, perks: [{ code: 'LIVE_ODDS', label: '賞池頁即時機率顯示' }] },
+  { level: 4, name: '白金籤', spendThreshold: 500_000, upgradeGiftCoins: 1_000, birthdayGiftCoins: 2_000, monthlyCoupons: [{ discountPct: 10, qty: 3 }], extraStorageDays: 7, perks: [{ code: 'FREE_STORAGE_PLUS_7', label: '免費保管期限 +7 天' }] },
+  {
+    level: 5,
+    name: '鑽石籤',
+    spendThreshold: 1_000_000,
+    upgradeGiftCoins: 2_500,
+    birthdayGiftCoins: 5_000,
+    monthlyCoupons: [{ discountPct: 15, qty: 3 }, { discountPct: 20, qty: 1 }],
+    extraStorageDays: 14,
+    perks: [{ code: 'DEDICATED_CS', label: '專屬客服' }],
+  },
+  { level: 6, name: '黑金籤', spendThreshold: 2_000_000, upgradeGiftCoins: 5_000, birthdayGiftCoins: 10_000, monthlyCoupons: [{ discountPct: 20, qty: 3 }], extraStorageDays: 14, perks: [{ code: 'EXCLUSIVE_EVENTS', label: '專屬活動與限定賞池' }] },
 ];
 
+/**
+ * 「世界之王」卡牌機率賞（前台 id: wk；自製、PROB、IP 航海王、全部獎項標籤「卡牌」）：每抽 200 UC幣，每套 200,010 籤，抽包 1 / 10 / 100。
+ * 4 獎「隨機 SR 卡」固定單抽機率 50%（抽完後滾入其餘獎項），其餘依剩餘籤數平均分配；抽賞演出為影片（VIDEO）。
+ * 寄送方式：大獎、2 獎（PSA10 鑑定卡）宅配，其餘 7-11。
+ */
+export const WK_POOL: PoolDraftInput = {
+  slug: 'wk-world-king',
+  title: '世界之王',
+  ip: '航海王',
+  description: 'PSA10 鑑定漫畫卡大獎：尼卡（回收值 300,000）、洛克斯（160,000），2 獎女帝、紅髮。50% 機率直接獲得 4 獎「隨機 SR 卡」。',
+  source: 'CUSTOM',
+  playType: 'PROB',
+  priceCoins: 200,
+  setCount: 1,
+  levels: [
+    {
+      levelNo: 1,
+      name: '大獎',
+      items: [
+        { name: 'PSA10 漫畫尼卡', qtyPerSet: 1, recycleValue: 300_000, tag: '卡牌', shipMethod: 'home' },
+        { name: 'PSA10 漫畫洛克斯', qtyPerSet: 1, recycleValue: 160_000, tag: '卡牌', shipMethod: 'home' },
+      ],
+    },
+    {
+      levelNo: 2,
+      name: '2 獎',
+      items: [
+        { name: 'PSA10 漫畫女帝', qtyPerSet: 1, recycleValue: 50_000, tag: '卡牌', shipMethod: 'home' },
+        { name: 'PSA10 漫畫紅髮', qtyPerSet: 1, recycleValue: 50_000, tag: '卡牌', shipMethod: 'home' },
+      ],
+    },
+    { levelNo: 3, name: '3 獎', items: [{ name: '隨機未開封卡盒', qtyPerSet: 1, recycleValue: 3_000, tag: '卡牌', shipMethod: 'c711' }] },
+    { levelNo: 4, name: '4 獎', isSmall: false, odds: 0.5, items: [{ name: '隨機 SR 卡', qtyPerSet: 100_005, recycleValue: 250, tag: '卡牌', shipMethod: 'c711' }] },
+    { levelNo: 5, name: '5 獎', items: [{ name: '隨機普卡', qtyPerSet: 100_000, recycleValue: 100, tag: '卡牌', shipMethod: 'c711' }] },
+  ],
+  lastPrize: null,
+  guarantee: null,
+  drawPacks: [1, 10, 100],
+  animation: 'VIDEO',
+};
+
+/** 首頁橫幅（種子；上架期間以台灣日期計，結束日當天仍上架）。圖片暫用站內路徑，正式圖請於後台上傳素材後替換。 */
+export const HOME_BANNERS: { title: string; linkUrl: string; openInNewTab: boolean; sortOrder: number; startDate: string; endDate: string; desktopImageUrl: string }[] = [
+  { title: 'CHIAKI 萬聖百鬼夜', linkUrl: '/lobby', openInNewTab: false, sortOrder: 1, startDate: '2026-10-23', endDate: '2026-12-31', desktopImageUrl: '/media/banners/halloween.jpg' },
+  {
+    title: '品牌好友強力推薦・追蹤按讚抽 1000 UC幣',
+    linkUrl: 'https://www.instagram.com/chiaki_gk.studies/',
+    openInNewTab: true,
+    sortOrder: 2,
+    startDate: '2026-10-23',
+    endDate: '2026-12-31',
+    desktopImageUrl: '/media/banners/friends-ig.jpg',
+  },
+];
+
+/** 首頁橫幅種子（冪等：同標題已存在則略過，不覆蓋後台修改） */
+export async function seedHomeBanners(d: Db, merchantId = 'chiaki'): Promise<string[]> {
+  const out: string[] = [];
+  for (const b of HOME_BANNERS) {
+    const rows = await d`
+      INSERT INTO banners (merchant_id, title, alt_text, link_url, open_in_new_tab, starts_at, ends_at, enabled, sort_order, desktop_image_url)
+      SELECT ${merchantId}, ${b.title}, ${b.title}, ${b.linkUrl}, ${b.openInNewTab}, ${taipeiDayStart(b.startDate)}, ${taipeiDayStart(b.endDate, 1)}, true, ${b.sortOrder}, ${b.desktopImageUrl}
+      WHERE NOT EXISTS (SELECT 1 FROM banners WHERE title = ${b.title})
+      RETURNING id`;
+    out.push(`${b.title}: ${rows.length ? 'created' : 'exists'}`);
+  }
+  return out;
+}
+
 /** 開發/展示用種子賞池（scripts/seed.ts 依序建立並經雙人覆核發布） */
-export const SEED_POOLS: readonly PoolDraftInput[] = [PROB_SAMPLE_POOL, NR_POOL, BK_POOL, KG_POOL];
+export const SEED_POOLS: readonly PoolDraftInput[] = [PROB_SAMPLE_POOL, NR_POOL, WK_POOL, BK_POOL, KG_POOL];

@@ -25,20 +25,20 @@ const T: Record<NotificationType, (d: Data) => Rendered> = {
   }),
   STORAGE_EXPIRY_7D: (d) => ({
     title: `獎品寄存將於 ${n(d.warnDays)} 天內到期`,
-    body: `${n(d.count)} 件獎品寄存將於 ${s(d.day)} 起陸續到期，請於期限前申請出貨或回收；到期未處理的可回收獎品將依回收值自動轉為CC幣。`,
+    body: `${n(d.count)} 件獎品寄存將於 ${s(d.day)} 起陸續到期，請於期限前申請出貨或回收；到期未處理的可回收獎品將依回收值自動轉為UC幣。`,
     sms: `【CHIAKI】您有 ${n(d.count)} 件獎品寄存將於 ${s(d.day)} 起到期，請儘速申請出貨。`,
     url: '/me/warehouse',
   }),
   STORAGE_EXPIRY_TODAY: (d) => ({
     title: '獎品寄存今日到期',
-    body: `${n(d.count)} 件獎品寄存今日（${s(d.day)}）到期，到期未出貨的可回收獎品將依回收值自動轉為CC幣。`,
+    body: `${n(d.count)} 件獎品寄存今日（${s(d.day)}）到期，到期未出貨的可回收獎品將依回收值自動轉為UC幣。`,
     sms: `【CHIAKI】您有 ${n(d.count)} 件獎品寄存今日到期，請儘速申請出貨。`,
     url: '/me/warehouse',
   }),
   STORAGE_AUTO_CONVERTED: (d) => ({
-    title: '寄存到期，獎品已自動轉為CC幣',
-    body: `${n(d.count)} 件獎品寄存已到期，已依各獎項回收值轉為 ${n(d.totalCoins)} CC幣（此CC幣不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
-    sms: `【CHIAKI】${n(d.count)} 件到期獎品已轉為 ${n(d.totalCoins)} CC幣（不可退款）。`,
+    title: '寄存到期，獎品已自動轉為UC幣',
+    body: `${n(d.count)} 件獎品寄存已到期，已依各獎項回收值轉為 ${n(d.totalCoins)} UC幣（此UC幣不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
+    sms: `【CHIAKI】${n(d.count)} 件到期獎品已轉為 ${n(d.totalCoins)} UC幣（不可退款）。`,
     url: '/me/wallet',
   }),
   STORAGE_EXPIRED_HOLD: (d) => ({
@@ -79,11 +79,38 @@ const T: Record<NotificationType, (d: Data) => Rendered> = {
   }),
   REFERRAL_REWARD: (d) => ({
     title: '邀請獎勵已入帳',
-    body: `恭喜！您邀請的 ${n(d.count)} 位好友皆已完成註冊與手機驗證，${n(d.coins)} CC幣已入帳（不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
-    sms: `【CHIAKI】邀請獎勵 ${n(d.coins)} CC幣已入帳。`,
+    body: `恭喜！您邀請的 ${n(d.count)} 位好友皆已完成註冊與手機驗證，${n(d.coins)} UC幣已入帳（不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
+    sms: `【CHIAKI】邀請獎勵 ${n(d.coins)} UC幣已入帳。`,
     url: '/me/referral',
   }),
+  VIP_UPGRADE_GIFT: (d) => ({
+    title: `恭喜升級 VIP${n(d.level)} ${s(d.name)}`,
+    body: `您已升級為 VIP${n(d.level)}「${s(d.name)}」，升級禮 ${n(d.coins)} UC幣已入帳（不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
+    sms: `【CHIAKI】恭喜升級 VIP${n(d.level)}，升級禮 ${n(d.coins)} UC幣已入帳。`,
+    url: '/me/vip',
+  }),
+  VIP_BIRTHDAY_GIFT: (d) => ({
+    title: '生日快樂！生日禮已入帳',
+    body: `CHIAKI 祝您生日快樂！VIP${n(d.level)}「${s(d.name)}」生日禮 ${n(d.coins)} UC幣已入帳（不可退款・無法轉換，如有疑問請聯絡官方小編）。`,
+    sms: `【CHIAKI】生日快樂！生日禮 ${n(d.coins)} UC幣已入帳。`,
+    url: '/me/wallet',
+  }),
+  COUPON_ISSUED: (d) => {
+    const until = d.expiresAt ? taipeiDayOf(d.expiresAt) : null;
+    return {
+      title: `您獲得 ${n(d.count)} 張優惠券`,
+      body: `${s(d.summary)} 已存入「我的優惠券」${until ? `，有效至 ${until}` : ''}，抽賞結帳時可折抵。`,
+      sms: `【CHIAKI】您獲得 ${n(d.count)} 張優惠券：${s(d.summary)}`,
+      url: '/me/coupons',
+    };
+  },
 };
+
+/** 到期時間（不含）→ 台灣日期的最後有效日 YYYY-MM-DD */
+function taipeiDayOf(v: unknown): string {
+  const t = new Date(v instanceof Date ? v.getTime() : String(v)).getTime() - 1 + 8 * 3600_000;
+  return new Date(t).toISOString().slice(0, 10);
+}
 
 export function renderTemplate(type: NotificationType, data: Data): Rendered {
   return T[type](data);

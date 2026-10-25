@@ -75,7 +75,7 @@ describe('member journey over HTTP route handlers', () => {
     assert.equal(board.body.tickets.find((t) => t.no === 1)!.state, 'TAKEN');
 
     const wallet = await j<{ currency: string; coins: number; refundableCoins: number; nonRefundableCoins: number; ledger: { entryType: string }[] }>(await walletRoute(apiRequest('GET', '/api/me/wallet', { token }), none));
-    assert.deepEqual([wallet.body.currency, wallet.body.coins, wallet.body.refundableCoins, wallet.body.nonRefundableCoins], ['CC幣', 800, 800, 0]);
+    assert.deepEqual([wallet.body.currency, wallet.body.coins, wallet.body.refundableCoins, wallet.body.nonRefundableCoins], ['UC幣', 800, 800, 0]);
     assert.ok(!('points' in wallet.body), 'no separate platform points');
     assert.deepEqual(wallet.body.ledger.map((l) => l.entryType), ['DRAW_DEBIT', 'TOPUP']);
 

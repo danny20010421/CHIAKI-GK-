@@ -79,8 +79,8 @@ describe('pool publishing (DB)', () => {
   };
   const getPool = async (slug: string) => (await (await poolRoute(apiRequest('GET', `/api/pools/${slug}`), ctx({ id: slug }))).json()) as PubPool;
 
-  it('seed pools: only gb (宮崎駿), nr, bk, kg; old placeholder pools removed', async () => {
-    assert.deepEqual(SEED_POOLS.map((p) => p.slug), ['chiaki-miyazaki-prob', 'nr-valley-of-the-end', 'bk-berserk-dual-poles', 'kg-kagurabachi']);
+  it('seed pools: only gb (宮崎駿), nr, wk (世界之王), bk, kg; old placeholder pools removed', async () => {
+    assert.deepEqual(SEED_POOLS.map((p) => p.slug), ['chiaki-miyazaki-prob', 'nr-valley-of-the-end', 'wk-world-king', 'bk-berserk-dual-poles', 'kg-kagurabachi']);
     assert.equal(PROB_SAMPLE_POOL.playType, 'PROB');
   });
 

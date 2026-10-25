@@ -3,6 +3,7 @@ import { config } from '../../config';
 import { transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
 import { postLedger } from '../wallet/wallet';
+import { memberCouponLabel, notifyCouponsIssued } from '../marketing/coupons';
 
 /**
  * 綁定獎勵：每位會員每個任務只能領取一次（PK(user_id, task_code) 保證，並發安全）。
@@ -37,13 +38,22 @@ export async function claimReward(userId: string, code: RewardTaskCode, evidence
       INSERT INTO reward_claims (user_id, task_code, evidence) VALUES (${userId}, ${code}, ${evidence ?? null})
       ON CONFLICT DO NOTHING RETURNING task_code`;
     if (!ins.length) throw new AppError('ALREADY_CLAIMED', '此任務獎勵已領取');
-    // 綁定/任務獎勵 → 不可退款 CC幣（reward_tasks.reward_points 欄位沿用舊名，單位為 CC幣）
+    // 綁定/任務獎勵 → 不可退款 UC幣（reward_tasks.reward_points 欄位沿用舊名，單位為 UC幣）
     let coinsAfter: number | null = null;
     if (task.rewardPoints > 0) {
       coinsAfter = (await postLedger(tx, { userId, amount: task.rewardPoints, entryType: 'BIND_REWARD', refType: 'reward_claim', refId: `${userId}:${code}`, merchantId: task.merchantId })).balanceAfter;
     }
     if (task.couponCode) {
-      await tx`INSERT INTO user_coupons (merchant_id, user_id, code, source) VALUES (${task.merchantId}, ${userId}, ${task.couponCode}, ${`reward:${code}`})`;
+      // 任務贈券：代碼對應到有效的優惠券定義 → 連結（可於抽賞結帳使用）並通知；否則僅記錄（不可使用）
+      const [def] = await tx<{ id: string; kind: 'pct' | 'amt'; value: number; expiresAt: Date | null }[]>`
+        SELECT id, kind, value, expires_at FROM coupons WHERE code = ${task.couponCode} AND deleted_at IS NULL AND enabled AND kind IN ('pct', 'amt')`;
+      const [uc] = await tx<{ id: string }[]>`
+        INSERT INTO user_coupons (merchant_id, user_id, code, source, coupon_id) VALUES (${task.merchantId}, ${userId}, ${task.couponCode}, ${`reward:${code}`}, ${def?.id ?? null})
+        ON CONFLICT DO NOTHING RETURNING id`;
+      if (def && uc) {
+        await tx`UPDATE coupons SET issued_count = issued_count + 1, updated_at = now() WHERE id = ${def.id}`;
+        await notifyCouponsIssued(tx, { userId, merchantId: task.merchantId, labels: [memberCouponLabel(def.kind, def.value)], expiresAt: def.expiresAt, dedupeOn: { userCouponId: uc.id } });
+      }
     }
     await appendAudit(tx, { actorType: 'USER', actorId: userId, action: 'REWARD_CLAIMED', entityType: 'reward_claim', entityId: `${userId}:${code}`, payload: { code, coins: task.rewardPoints, coupon: task.couponCode } });
     return { code, coins: task.rewardPoints, refundable: false, coupon: task.couponCode, coinsAfter };

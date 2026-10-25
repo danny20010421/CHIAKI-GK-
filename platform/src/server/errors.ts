@@ -39,7 +39,8 @@ export type ErrorCode =
   | 'DRAW_PACK_NOT_ALLOWED'
   | 'HAS_SALES'
   | 'TEST_SITE'
-  | 'TICKET_PICK_DISABLED';
+  | 'TICKET_PICK_DISABLED'
+  | 'COUPON_NOT_USABLE';
 
 const STATUS: Record<ErrorCode, number> = {
   VALIDATION: 400,
@@ -83,6 +84,7 @@ const STATUS: Record<ErrorCode, number> = {
   HAS_SALES: 409,
   TEST_SITE: 403,
   TICKET_PICK_DISABLED: 403,
+  COUPON_NOT_USABLE: 422,
 };
 
 /** 可預期的業務錯誤：會轉成乾淨的 JSON 錯誤回應，且交易一律 rollback。 */

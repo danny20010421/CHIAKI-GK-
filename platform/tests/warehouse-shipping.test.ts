@@ -1,5 +1,5 @@
 /**
- * 中獎倉庫：回收 → 不可退款 CC幣；出貨：寄送方式由獎項預設（會員不可選）、不同方式拆單、運費到付；直購商品出貨。
+ * 中獎倉庫：回收 → 不可退款 UC幣；出貨：寄送方式由獎項預設（會員不可選）、不同方式拆單、運費到付；直購商品出貨。
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -56,7 +56,7 @@ async function winItems(coins = 5000) {
   return { u, of, items, poolId };
 }
 
-describe('recycle → non-refundable CC幣', () => {
+describe('recycle → non-refundable UC幣', () => {
   it('credits the set-prize recycle value as non-refundable coins; irreversible; non-recyclable prizes rejected atomically', async () => {
     const { u, of } = await winItems();
     const before = await walletOf(u.id);
@@ -65,7 +65,7 @@ describe('recycle → non-refundable CC幣', () => {
     const r = await recycleItems(u.id, [...of('C'), of('D')[0]!]);
     assert.equal(r.coins, 300 * 2 + 150);
     assert.equal(r.coinsAfter, before.coins + 750);
-    // 回收只入「不可退款」CC幣；運費到付 → 不再有逐件運費退還
+    // 回收只入「不可退款」UC幣；運費到付 → 不再有逐件運費退還
     assert.deepEqual(await walletOf(u.id), { coins: before.coins + 750, nonRefundableCoins: before.nonRefundableCoins + 750 });
     assert.ok(!('shippingRefundCoins' in r));
     const led = (await ledgerOf(u.id)).filter((l) => l.entryType === 'RECYCLE_CREDIT');
@@ -82,7 +82,7 @@ describe('recycle → non-refundable CC幣', () => {
 
 describe('shipments — preset ship method per prize, freight collect', () => {
   it('warehouse items carry the preset method; a mixed request splits into one shipment per method with its own destination; no coins charged', async () => {
-    const { u, of } = await winItems(600); // 6 籤 × 100 → 0 CC幣：運費到付，申請出貨不需任何餘額
+    const { u, of } = await winItems(600); // 6 籤 × 100 → 0 UC幣：運費到付，申請出貨不需任何餘額
     assert.equal((await walletOf(u.id)).coins, 0);
     const methods = Object.fromEntries((await listWarehouse(db(), u.id)).map((i) => [i.id, i.shipMethod]));
     assert.equal(methods[of('A')[0]!], 'home', 'level 1 / bulky default → home');

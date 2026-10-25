@@ -53,7 +53,7 @@ async function setVip(userId: string, level: number, spend = 0) {
   await db()`INSERT INTO vip_members (user_id, level, qualifying_spend, lifetime_spend) VALUES (${userId}, ${level}, ${spend}, ${spend})
              ON CONFLICT (user_id) DO UPDATE SET level = EXCLUDED.level, qualifying_spend = EXCLUDED.qualifying_spend`;
 }
-/** 1000 CC幣 / 抽、40 籤（全部可回收：小獎 50、中獎 400） */
+/** 1000 UC幣 / 抽、40 籤（全部可回收：小獎 50、中獎 400） */
 const bigPricePool = () => publishPool(customPool({ priceCoins: 1000 }));
 
 describe('VIP tiers (pure + seeded defaults)', () => {
@@ -61,32 +61,41 @@ describe('VIP tiers (pure + seeded defaults)', () => {
     const tiers = await loadTiers(db());
     assert.deepEqual(tiers, VIP_TIER_DEFAULTS);
     assert.deepEqual(tiers.map((t) => [t.level, t.name, t.spendThreshold]), [
-      [0, '新手籤', 0], [1, '銅籤', 3000], [2, '銀籤', 10000], [3, '金籤', 30000], [4, '白金籤', 80000], [5, '鑽石籤', 200000], [6, '黑金籤', 500000],
+      [0, '新手籤', 0], [1, '銅籤', 3_000], [2, '銀籤', 30_000], [3, '金籤', 200_000], [4, '白金籤', 500_000], [5, '鑽石籤', 1_000_000], [6, '黑金籤', 2_000_000],
     ]);
-    assert.deepEqual([0, 2999, 3000, 9999, 10000, 29999, 30000, 79999, 80000, 199999, 200000, 499999, 500000, 9e9].map((s) => tierForSpend(tiers, s).level), [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6]);
+    assert.deepEqual(tiers.map((t) => [t.upgradeGiftCoins, t.birthdayGiftCoins]), [[0, 0], [50, 50], [100, 100], [500, 500], [1000, 2000], [2500, 5000], [5000, 10000]]);
+    assert.deepEqual(
+      tiers.map((t) => t.monthlyCoupons.map((c) => `${couponLabel(c.discountPct)}×${c.qty}`).join('+')),
+      ['', '95折券×1', '95折券×2', '95折券×2', '9折券×3', '85折券×3+8折券×1', '8折券×3'],
+    );
+    assert.deepEqual(
+      [0, 2999, 3000, 29_999, 30_000, 199_999, 200_000, 499_999, 500_000, 999_999, 1_000_000, 1_999_999, 2_000_000, 9e9].map((s) => tierForSpend(tiers, s).level),
+      [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6],
+    );
     assert.equal(oddsUnlockLevel(tiers), 3);
     assert.deepEqual(cumulativePerks(tiers, 1), []);
-    assert.deepEqual(cumulativePerks(tiers, 4).map((p) => p.label), ['新賞提前 1 小時通知', '賞池頁即時機率顯示', '優先出貨']);
-    assert.deepEqual([5, 10, 15].map(couponLabel), ['95折券', '9折券', '85折券']);
-    assert.deepEqual(tiers.map((t) => t.extraStorageDays), [0, 0, 0, 15, 15, 30, 30]);
+    assert.deepEqual(cumulativePerks(tiers, 4).map((p) => p.label), ['生日禮', '賞池頁即時機率顯示', '免費保管期限 +7 天']);
+    assert.deepEqual(cumulativePerks(tiers, 6).map((p) => p.code), ['BIRTHDAY_GIFT', 'LIVE_ODDS', 'FREE_STORAGE_PLUS_7', 'DEDICATED_CS', 'EXCLUSIVE_EVENTS']);
+    assert.deepEqual([5, 10, 15, 20].map(couponLabel), ['95折券', '9折券', '85折券', '8折券']);
+    assert.deepEqual(tiers.map((t) => t.extraStorageDays), [0, 0, 0, 0, 7, 14, 14], 'totals per tier, not additive');
   });
 });
 
 describe('VIP — draw spend, upgrade gifts', () => {
-  it('counts both refundable and non-refundable spend; crossing 3,000 → VIP1 + 30 non-refundable CC幣 in the same settle', async () => {
+  it('counts both refundable and non-refundable spend; crossing 3,000 → VIP1 + 50 non-refundable UC幣 in the same settle', async () => {
     const poolId = await bigPricePool();
     const u = await makeUser({ coins: 2000, nonRefundableCoins: 1500 });
     const r1 = await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 2) });
     assert.deepEqual([r1.response.vip.level, r1.response.vip.upgraded, r1.response.vip.gifts], [0, false, []]);
     assert.equal((await memberOf(u.id))!.qualifyingSpend, 2000, 'NR 1500 + refundable 500 both count');
     const r2 = await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 1) });
-    assert.deepEqual(r2.response.vip, { previousLevel: 0, level: 1, levelName: '銅籤', upgraded: true, spend: 3000, gifts: [{ level: 1, name: '銅籤', coins: 30 }], giftCoins: 30 });
-    assert.equal(r2.response.coinsAfter, 3500 - 3000 + 30, 'coinsAfter includes the gift');
+    assert.deepEqual(r2.response.vip, { previousLevel: 0, level: 1, levelName: '銅籤', upgraded: true, spend: 3000, gifts: [{ level: 1, name: '銅籤', coins: 50 }], giftCoins: 50 });
+    assert.equal(r2.response.coinsAfter, 3500 - 3000 + 50, 'coinsAfter includes the gift');
     const w = await walletOf(u.id);
-    assert.deepEqual([w.coins, w.nonRefundableCoins], [530, 30], 'gift is non-refundable');
+    assert.deepEqual([w.coins, w.nonRefundableCoins], [550, 50], 'gift is non-refundable');
     const gift = (await ledgerOf(u.id)).filter((l) => l.entryType === 'VIP_UPGRADE_GIFT');
-    assert.deepEqual(gift.map((g) => [g.amount, g.refundable]), [[30, false]]);
-    assert.deepEqual(await grantsOf(u.id), [{ kind: 'UPGRADE', period: 'L1', level: 1, coins: 30 }]);
+    assert.deepEqual(gift.map((g) => [g.amount, g.refundable]), [[50, false]]);
+    assert.deepEqual(await grantsOf(u.id), [{ kind: 'UPGRADE', period: 'L1', level: 1, coins: 50 }]);
     assert.ok((await reconcileWallets(db(), u.id)).every((r) => r.ok));
   });
 
@@ -96,21 +105,28 @@ describe('VIP — draw spend, upgrade gifts', () => {
     const k = key();
     const nos = await pickTickets(poolId, 31);
     const r = await executeDraw(u.id, k, { poolId, setNo: 1, ticketNos: nos });
-    assert.deepEqual(r.response.vip.gifts.map((g) => [g.level, g.coins]), [[1, 30], [2, 100], [3, 300]]);
-    assert.equal(r.response.vip.level, 3);
-    assert.equal(r.response.coinsAfter, 40_000 - 31_000 + 430);
+    assert.deepEqual(r.response.vip.gifts.map((g) => [g.level, g.coins]), [[1, 50], [2, 100]]);
+    assert.equal(r.response.vip.level, 2);
+    assert.equal(r.response.coinsAfter, 40_000 - 31_000 + 150);
     const replay = await executeDraw(u.id, k, { poolId, setNo: 1, ticketNos: nos });
     assert.equal(replay.replayed, true);
     assert.deepEqual(replay.response.vip, r.response.vip);
     const again = await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 1) });
-    assert.deepEqual([again.response.vip.level, again.response.vip.gifts], [3, []]);
-    assert.deepEqual((await grantsOf(u.id, 'UPGRADE')).map((g) => g.period), ['L1', 'L2', 'L3']);
-    assert.equal((await walletOf(u.id)).coins, 40_000 - 32_000 + 430);
-    assert.equal((await ledgerOf(u.id)).filter((l) => l.entryType === 'VIP_UPGRADE_GIFT').length, 3);
-    // 金籤 +15 天：在 VIP3 期間入庫的獎品寄存 30 + 15 天
-    const items = await db()<{ days: number }[]>`
-      SELECT round(extract(epoch FROM storage_expires_at - created_at) / 86400)::int AS days FROM warehouse_items WHERE draw_id = ${r.response.drawId}`;
-    assert.ok(items.length === 31 && items.every((i) => i.days === 45), JSON.stringify(items.slice(0, 3)));
+    assert.deepEqual([again.response.vip.level, again.response.vip.gifts], [2, []]);
+    assert.deepEqual((await grantsOf(u.id, 'UPGRADE')).map((g) => g.period), ['L1', 'L2']);
+    assert.equal((await walletOf(u.id)).coins, 40_000 - 32_000 + 150);
+    assert.equal((await ledgerOf(u.id)).filter((l) => l.entryType === 'VIP_UPGRADE_GIFT').length, 2);
+    const days = async (drawId: string) =>
+      db()<{ days: number }[]>`SELECT round(extract(epoch FROM storage_expires_at - created_at) / 86400)::int AS days FROM warehouse_items WHERE draw_id = ${drawId}`;
+    // 銀籤：無加碼 → 一般 30 天
+    const items = await days(r.response.drawId);
+    assert.ok(items.length === 31 && items.every((i) => i.days === 30), JSON.stringify(items.slice(0, 3)));
+    // 跨過 500,000 → 白金籤：逐級補發 L1–L4，該筆入庫的獎品寄存 30 + 7 天
+    const p4 = await makeUser({ coins: 1000 });
+    await setVip(p4.id, 3, 499_500);
+    const r4 = await executeDraw(p4.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 1) });
+    assert.deepEqual([r4.response.vip.level, r4.response.vip.gifts.map((g) => [g.level, g.coins])], [4, [[1, 50], [2, 100], [3, 500], [4, 1000]]]);
+    assert.deepEqual((await days(r4.response.drawId)).map((i) => i.days), [37]);
     // VIP0 會員：一般 30 天
     const v0 = await makeUser({ coins: 1000 });
     const r0 = await executeDraw(v0.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 1) });
@@ -124,9 +140,9 @@ describe('VIP — draw spend, upgrade gifts', () => {
     await setVip(u.id, 0, 2500);
     const results = await Promise.all([p1, p2, p3].map(async (poolId) => executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 1) })));
     assert.equal(results.filter((r) => r.response.vip.upgraded).length, 1);
-    assert.deepEqual(await grantsOf(u.id), [{ kind: 'UPGRADE', period: 'L1', level: 1, coins: 30 }]);
+    assert.deepEqual(await grantsOf(u.id), [{ kind: 'UPGRADE', period: 'L1', level: 1, coins: 50 }]);
     assert.equal((await memberOf(u.id))!.qualifyingSpend, 5500);
-    assert.equal((await walletOf(u.id)).coins, 10_000 - 3000 + 30);
+    assert.equal((await walletOf(u.id)).coins, 10_000 - 3000 + 50);
     assert.ok((await reconcileWallets(db(), u.id)).every((r) => r.ok));
   });
 
@@ -150,7 +166,7 @@ describe('VIP — birthday gifts, monthly coupons, annual re-rating (job functio
     const u = await makeUser();
     const v0 = await makeUser();
     await db()`UPDATE users SET birth_date = '1990-11-15' WHERE id IN (${u.id}, ${v0.id})`;
-    await setVip(u.id, 2, 12_000);
+    await setVip(u.id, 2, 32_000);
     await setVip(v0.id, 0, 100);
     const oct31Taipei = new Date('2026-10-31T15:59:00Z'); // 台灣 10/31 23:59
     const nov1Taipei = new Date('2026-10-31T16:30:00Z'); // 台灣 11/1 00:30（UTC 仍為 10/31）
@@ -160,12 +176,12 @@ describe('VIP — birthday gifts, monthly coupons, annual re-rating (job functio
     await runVipBirthdayGifts(new Date('2026-11-20T04:00:00Z'));
     assert.deepEqual(await grantsOf(u.id, 'BIRTHDAY'), [{ kind: 'BIRTHDAY', period: '2026', level: 2, coins: 100 }]);
     assert.equal((await grantsOf(v0.id)).length, 0);
-    await setVip(u.id, 3, 31_000);
+    await setVip(u.id, 3, 210_000);
     await runVipBirthdayGifts(new Date('2027-11-02T04:00:00Z'));
-    assert.deepEqual((await grantsOf(u.id, 'BIRTHDAY')).map((g) => [g.period, g.coins]), [['2026', 100], ['2027', 300]]);
+    assert.deepEqual((await grantsOf(u.id, 'BIRTHDAY')).map((g) => [g.period, g.coins]), [['2026', 100], ['2027', 500]]);
     const led = (await ledgerOf(u.id)).filter((l) => l.entryType === 'VIP_BIRTHDAY_GIFT');
-    assert.deepEqual(led.map((l) => [l.amount, l.refundable]), [[100, false], [300, false]]);
-    assert.deepEqual(await walletOf(u.id), { coins: 400, nonRefundableCoins: 400 });
+    assert.deepEqual(led.map((l) => [l.amount, l.refundable]), [[100, false], [500, false]]);
+    assert.deepEqual(await walletOf(u.id), { coins: 600, nonRefundableCoins: 600 });
     // 並行執行同一天的工作：仍只發一次
     const w = await makeUser();
     await db()`UPDATE users SET birth_date = '1991-11-01' WHERE id = ${w.id}`;
@@ -180,7 +196,7 @@ describe('VIP — birthday gifts, monthly coupons, annual re-rating (job functio
     const v5 = await makeUser();
     const v0 = await makeUser();
     await setVip(v1.id, 1, 3000);
-    await setVip(v5.id, 5, 200_000);
+    await setVip(v5.id, 5, 1_000_000);
     await setVip(v0.id, 0, 10);
     const now = new Date('2026-10-31T16:05:00Z'); // 台灣 2026-11-01 00:05
     const r = await runVipMonthlyCoupons(now);
@@ -189,7 +205,7 @@ describe('VIP — birthday gifts, monthly coupons, annual re-rating (job functio
       db()<{ label: string; discountPct: number; validFrom: Date; expiresAt: Date }[]>`
         SELECT label, discount_pct, valid_from, expires_at FROM vip_coupons WHERE user_id = ${id} ORDER BY discount_pct, label`;
     assert.deepEqual((await coupons(v1.id)).map((c) => c.label), ['95折券']);
-    assert.deepEqual((await coupons(v5.id)).map((c) => [c.label, c.discountPct]), [['9折券', 10], ['9折券', 10], ['9折券', 10], ['85折券', 15]]);
+    assert.deepEqual((await coupons(v5.id)).map((c) => [c.label, c.discountPct]), [['85折券', 15], ['85折券', 15], ['85折券', 15], ['8折券', 20]]);
     assert.equal((await coupons(v0.id)).length, 0);
     const c = (await coupons(v5.id))[0]!;
     assert.equal(c.validFrom.toISOString(), '2026-10-31T16:00:00.000Z');
@@ -209,27 +225,27 @@ describe('VIP — birthday gifts, monthly coupons, annual re-rating (job functio
 
   it('annual re-rating on Jan 1: previous 12 months spend, drops at most one level, resets qualifying spend, idempotent', async () => {
     const [a, b, c, d] = [await makeUser(), await makeUser(), await makeUser(), await makeUser()];
-    await setVip(a.id, 4, 90_000);
-    await setVip(b.id, 2, 15_000);
+    await setVip(a.id, 4, 520_000);
+    await setVip(b.id, 2, 35_000);
     await setVip(c.id, 1, 3_500);
     await setVip(d.id, 0, 0);
     const ev = async (userId: string, amount: number, at: string) =>
       db()`INSERT INTO vip_spend_events (user_id, draw_id, kind, ref_id, amount, occurred_at) VALUES (${userId}, ${randomUUID()}, 'DRAW', ${randomUUID()}, ${amount}, ${at})`;
-    await ev(a.id, 85_000, '2025-06-01T00:00:00Z'); // 兩年前：不計
+    await ev(a.id, 515_000, '2025-06-01T00:00:00Z'); // 兩年前：不計
     await ev(a.id, 5_000, '2026-06-01T00:00:00Z'); // 2026 年：VIP1 水準
-    await ev(b.id, 12_000, '2026-03-01T00:00:00Z'); // 維持 VIP2
+    await ev(b.id, 32_000, '2026-03-01T00:00:00Z'); // 維持 VIP2
     await ev(b.id, 700, '2025-12-31T15:59:00Z'); // 台灣 2025-12-31 23:59：不在 2026 期間內
     await ev(c.id, 500, '2026-12-31T16:01:00Z'); // 台灣 2027-01-01 00:01：評等後的花費
-    await ev(d.id, 35_000, '2026-09-01T00:00:00Z'); // 門檻調整等情況：期間花費達 VIP3 → 升級並補發升級禮
+    await ev(d.id, 35_000, '2026-09-01T00:00:00Z'); // 門檻調整等情況：期間花費達 VIP2 → 升級並補發升級禮
     const jan1 = new Date('2026-12-31T16:05:00Z'); // 台灣 2027-01-01 00:05
     const r = await runVipAnnualRerating(jan1);
     assert.equal(r.year, 2027);
-    assert.deepEqual(await memberOf(a.id), { level: 3, qualifyingSpend: 30_000, lifetimeSpend: 90_000 }, 'VIP4 → VIP3 only (computed VIP1)');
-    assert.deepEqual(await memberOf(b.id), { level: 2, qualifyingSpend: 12_000, lifetimeSpend: 15_000 });
+    assert.deepEqual(await memberOf(a.id), { level: 3, qualifyingSpend: 200_000, lifetimeSpend: 520_000 }, 'VIP4 → VIP3 only (computed VIP1)');
+    assert.deepEqual(await memberOf(b.id), { level: 2, qualifyingSpend: 32_000, lifetimeSpend: 35_000 });
     assert.deepEqual(await memberOf(c.id), { level: 0, qualifyingSpend: 500, lifetimeSpend: 3_500 });
-    assert.equal((await memberOf(d.id))!.level, 3);
-    assert.deepEqual((await grantsOf(d.id, 'UPGRADE')).map((g) => g.period), ['L1', 'L2', 'L3']);
-    assert.equal((await walletOf(d.id)).coins, 430);
+    assert.equal((await memberOf(d.id))!.level, 2);
+    assert.deepEqual((await grantsOf(d.id, 'UPGRADE')).map((g) => g.period), ['L1', 'L2']);
+    assert.equal((await walletOf(d.id)).coins, 150);
     const ratings = await db()<{ userId: string; fromLevel: number; computedLevel: number; toLevel: number; windowSpend: number }[]>`
       SELECT user_id, from_level, computed_level, to_level, window_spend FROM vip_ratings WHERE year = 2027 AND user_id IN (${a.id}, ${b.id})`;
     assert.deepEqual(ratings.find((x) => x.userId === a.id), { userId: a.id, fromLevel: 4, computedLevel: 1, toLevel: 3, windowSpend: 5_000 });
@@ -240,13 +256,13 @@ describe('VIP — birthday gifts, monthly coupons, annual re-rating (job functio
     // 隔年（2028/1/1）：2027 年無花費 → 再降一級
     await runVipAnnualRerating(new Date('2027-12-31T16:30:00Z'));
     assert.equal((await memberOf(a.id))!.level, 2);
-    assert.equal((await memberOf(a.id))!.qualifyingSpend, 10_000, 'reset to the VIP2 threshold');
+    assert.equal((await memberOf(a.id))!.qualifyingSpend, 30_000, 'reset to the VIP2 threshold');
     // 降級後再升回：同一等級的升級禮一生只發一次
-    const poolId = await bigPricePool();
-    await transaction((tx) => postLedger(tx, { userId: a.id, amount: 20_000, entryType: 'ADMIN_ADJUST', refType: 'test_seed', refId: randomUUID() }));
+    const poolId = await publishPool(customPool({ priceCoins: 10_000 }));
+    await transaction((tx) => postLedger(tx, { userId: a.id, amount: 200_000, entryType: 'ADMIN_ADJUST', refType: 'test_seed', refId: randomUUID() }));
     await db()`INSERT INTO vip_gift_grants (user_id, kind, period, level) VALUES (${a.id}, 'UPGRADE', 'L1', 1), (${a.id}, 'UPGRADE', 'L2', 2), (${a.id}, 'UPGRADE', 'L3', 3)`;
     const back = await executeDraw(a.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 20) });
-    assert.deepEqual([back.response.vip.previousLevel, back.response.vip.level], [2, 3], '10,000 + 20,000 → back to VIP3');
+    assert.deepEqual([back.response.vip.previousLevel, back.response.vip.level], [2, 3], '30,000 + 200,000 → back to VIP3');
     assert.deepEqual(back.response.vip.gifts, [], 'L3 gift already received once');
   });
 });
@@ -254,8 +270,8 @@ describe('VIP — birthday gifts, monthly coupons, annual re-rating (job functio
 describe('VIP — member and admin API', () => {
   it('GET /api/me/vip: level, spend, next threshold, progress, perks, gift history', async () => {
     const poolId = await bigPricePool();
-    const u = await makeUser({ coins: 20_000 });
-    await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 12) });
+    const u = await makeUser({ coins: 40_000 });
+    await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: await pickTickets(poolId, 35) });
     const res = await vipRoute(apiRequest('GET', '/api/me/vip', { token: u.token }), none);
     assert.equal(res.status, 200);
     const v = (await res.json()) as {
@@ -263,14 +279,14 @@ describe('VIP — member and admin API', () => {
       perks: { code: string }[]; benefits: { oddsVisible: boolean; extraStorageDays: number; monthlyCoupons: { label: string; qty: number }[] };
       oddsUnlockLevel: number; gifts: { kind: string; period: string; coins: number; refundable: boolean }[]; tiers: unknown[];
     };
-    assert.deepEqual([v.level, v.name, v.spend, v.nextThreshold], [2, '銀籤', 12_000, 30_000]);
-    assert.deepEqual(v.nextLevel, { level: 3, name: '金籤', spendThreshold: 30_000, remaining: 18_000 });
-    assert.equal(v.progress, 0.1, '(12,000 − 10,000) / (30,000 − 10,000)');
-    assert.deepEqual(v.perks.map((p) => p.code), ['EARLY_NOTICE']);
+    assert.deepEqual([v.level, v.name, v.spend, v.nextThreshold], [2, '銀籤', 35_000, 200_000]);
+    assert.deepEqual(v.nextLevel, { level: 3, name: '金籤', spendThreshold: 200_000, remaining: 165_000 });
+    assert.equal(v.progress, 0.0294, '(35,000 − 30,000) / (200,000 − 30,000)');
+    assert.deepEqual(v.perks.map((p) => p.code), ['BIRTHDAY_GIFT']);
     assert.deepEqual(v.benefits.monthlyCoupons.map((c) => [c.label, c.qty]), [['95折券', 2]]);
     assert.equal(v.benefits.oddsVisible, false);
     assert.equal(v.oddsUnlockLevel, 3);
-    assert.deepEqual(v.gifts.map((g) => [g.kind, g.period, g.coins, g.refundable]).sort(), [['UPGRADE', 'L1', 30, false], ['UPGRADE', 'L2', 100, false]]);
+    assert.deepEqual(v.gifts.map((g) => [g.kind, g.period, g.coins, g.refundable]).sort(), [['UPGRADE', 'L1', 50, false], ['UPGRADE', 'L2', 100, false]]);
     assert.equal(v.tiers.length, 7);
     const fresh = await makeUser();
     const f = (await (await vipRoute(apiRequest('GET', '/api/me/vip', { token: fresh.token }), none)).json()) as { level: number; spend: number; progress: number; gifts: unknown[] };
@@ -301,7 +317,7 @@ describe('VIP — member and admin API', () => {
     assert.match(a!.payloadJson, /"before":\{[^}]*"birthdayGiftCoins":50/);
     // 即時機率改由 VIP2 解鎖（移動 LIVE_ODDS 權益）
     assert.equal((await patch('3', { perks: [] })).status, 200);
-    assert.equal((await patch('2', { perks: [{ code: 'EARLY_NOTICE', label: '新賞提前 1 小時通知' }, { code: 'LIVE_ODDS', label: '賞池頁即時機率顯示' }] })).status, 200);
+    assert.equal((await patch('2', { perks: [{ code: 'BIRTHDAY_GIFT', label: '生日禮' }, { code: 'LIVE_ODDS', label: '賞池頁即時機率顯示' }] })).status, 200);
     assert.equal(oddsUnlockLevel(await loadTiers(db())), 2);
     // 還原預設（其他測試依賴預設值）
     for (const t of VIP_TIER_DEFAULTS.slice(1, 4)) {

@@ -10,7 +10,7 @@ export const GET = route(async (req: Request) => {
   return json(await listCouponsAdmin(p, { includeDeleted: query(req).get('includeDeleted') === '1' }));
 });
 
-/** POST /api/admin/coupons — { code (A–Z0–9 4–16), kind: pct|amt|ship, value, minSpend?, issueLimit?, expiresAt?, enabled? } */
+/** POST /api/admin/coupons — { code (A–Z0–9 4–16), kind: pct（1–90%）| amt（折抵 UC幣），value, minSpend?, issueLimit?, expiresAt?, enabled? } */
 export const POST = route(async (req: Request) => {
   const p = await requirePrincipal(req);
   return json(await createCoupon(p, await body(req, CouponSchema)), 201);

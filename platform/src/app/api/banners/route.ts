@@ -5,5 +5,8 @@ import { liveBanners } from '@/server/modules/marketing/marketing';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** GET /api/banners — 首頁橫幅（啟用且在上架期間內，依排序；桌機 3:1 圖、手機圖選填） */
+/**
+ * GET /api/banners — 首頁橫幅（啟用且在上架期間內，依 sortOrder）：
+ * { banners: [{ id, title, altText, linkUrl, openInNewTab, external, desktopImageUrl, mobileImageUrl|null, sortOrder, startsAt, endsAt }] }
+ */
 export const GET = route(async () => json({ banners: await liveBanners(db()) }));

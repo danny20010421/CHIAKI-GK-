@@ -12,7 +12,7 @@
 //   `npx prisma migrate resolve --applied 20261026000000_image_assets` 與
 //   `npx prisma migrate resolve --applied 20261027000000_item_refunds_categories_ip_catalog` 與
 //   `npx prisma migrate resolve --applied 20261028000000_ip_categories_five` 標記既有 migration（之後的 migration 依目錄名稱同樣標記，
-//   最新為 20261102000000_ship_methods_freight_collect_cc_coins）。
+//   最新為 20261105000000_checkin_streak_vip_tiers_uc_coins）。
 // 檢視 member_draw_history（會員可見的近 90 天抽賞紀錄）未列於此（Prisma 視圖需 previewFeatures = ["views"]）。
 // 關聯欄位（relation fields）刻意省略：外鍵已在 SQL migration 中定義。
 
@@ -233,6 +233,11 @@ model Draw {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   probClientSeed String? @map("prob_client_seed")
   probNonce      Int?    @map("prob_nonce")
+  /// 優惠券折抵（amount_coins 為小計；實付 = amount_coins − discount_coins）
+  discountCoins  BigInt  @default(0) @map("discount_coins")
+  /// 使用的會員優惠券（coupon_source VIP → vip_coupons.id；CODE → user_coupons.id）
+  couponId       String? @map("coupon_id") @db.Uuid
+  couponSource   String? @map("coupon_source")
   @@unique([userId, idempotencyKey])
   @@map("draws")
 }
@@ -414,6 +419,8 @@ model Pool {
   deleteReason String?   @map("delete_reason")
   sourceNote    String @default("") @map("source_note")
   itemCondition String @default("") @map("item_condition")
+  /// 抽賞演出：KUJI（籤紙）/ VIDEO（影片，卡牌賞池）
+  animation     String @default("KUJI")
   @@map("pools")
 }
 
@@ -744,6 +751,10 @@ model UserCoupon {
   source     String
   status     String   @default("ACTIVE")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  couponId      String?   @map("coupon_id") @db.Uuid
+  usedAt        DateTime? @map("used_at") @db.Timestamptz(6)
+  usedDrawId    String?   @map("used_draw_id") @db.Uuid
+  discountCoins BigInt?   @map("discount_coins")
   @@map("user_coupons")
 }
 
@@ -912,8 +923,12 @@ model Banner {
   endsAt         DateTime? @map("ends_at") @db.Timestamptz(6)
   enabled        Boolean   @default(true)
   sortOrder      Int       @default(0) @map("sort_order")
-  desktopAssetId String    @map("desktop_asset_id") @db.Uuid
+  desktopAssetId String?   @map("desktop_asset_id") @db.Uuid
   mobileAssetId  String?   @map("mobile_asset_id") @db.Uuid
+  /// 圖片網址（https:// 或站內路徑）；桌機圖須有素材 id 或網址其一
+  desktopImageUrl String?  @map("desktop_image_url")
+  mobileImageUrl  String?  @map("mobile_image_url")
+  openInNewTab    Boolean  @default(false) @map("open_in_new_tab")
   createdBy      String?   @map("created_by") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
@@ -1016,6 +1031,9 @@ model VipCoupon {
   validFrom   DateTime @map("valid_from") @db.Timestamptz(6)
   expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  usedAt        DateTime? @map("used_at") @db.Timestamptz(6)
+  usedDrawId    String?   @map("used_draw_id") @db.Uuid
+  discountCoins BigInt?   @map("discount_coins")
   @@map("vip_coupons")
 }
 
@@ -1034,12 +1052,14 @@ model VipRating {
 model MemberCheckin {
   userId    String   @map("user_id") @db.Uuid
   day       DateTime @db.Date
-  weekStart DateTime @map("week_start") @db.Date
+  /// 舊規則（每週一重算）的週起始日；連續簽到（2026-10 第十批）起不再寫入
+  weekStart DateTime? @map("week_start") @db.Date
+  /// 連續簽到天數（含當天）；seq = 7 天循環中的位置 ((streak − 1) % 7) + 1
+  streak    Int
   seq       Int
   coins     Int
   ledgerId  BigInt   @map("ledger_id")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   @@id([userId, day])
-  @@unique([userId, weekStart, seq])
   @@map("member_checkins")
 }

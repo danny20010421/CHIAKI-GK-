@@ -104,7 +104,7 @@ export interface ShipmentPart {
 }
 
 /**
- * 申請出貨（可合併多件）。運費到付：不收任何 CC幣。
+ * 申請出貨（可合併多件）。運費到付：不收任何 UC幣。
  * 物品依寄送方式分組 → 每組一張出貨單（同一次申請共用 request_id），每張各自檢查該物流方式的件數上限。
  */
 export async function requestShipment(userId: string, input: unknown) {

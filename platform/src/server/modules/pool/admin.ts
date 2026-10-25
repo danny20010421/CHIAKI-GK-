@@ -13,27 +13,35 @@ import { linkPoolIp } from '../catalog/ips';
 import { resolveBulky, TagSchema } from '../catalog/tags';
 import { DEFAULT_SHIPPING_NOTE, resolveShipMethod, ShipMethodSchema } from '../shipping/methods';
 
-/** 每套籤數上限（2026-10 第七批 10,000 → 20,000；第八批 → 30,000：雲頂終結谷新增 3 獎後每套 20,300 籤） */
-export const MAX_TICKETS_PER_SET = 30_000;
+/**
+ * 每套籤數上限（2026-10 第七批 10,000 → 20,000；第八批 → 30,000；第九批 → 300,000：卡牌賞池「世界之王」每套 200,010 籤）。
+ * 大型套的機率抽選使用記憶體索引（pool/prob.ts ProbIndex、draw/prob-cache.ts），每抽不掃描籤表。
+ */
+export const MAX_TICKETS_PER_SET = 300_000;
 export const RecycleValueSchema = z.number().int().min(0).max(10_000_000);
 export const PrizeNameSchema = z.string().trim().min(1).max(200);
 export const LevelNameSchema = z.string().trim().min(1, '等級名稱不可空白').max(50);
 /** 獎項圖片：https:// 網址或站內路徑（例如上傳後的 /api/assets/:id） */
 export const ImageUrlSchema = z.string().max(2000).regex(/^(https:\/\/|\/)\S*$/, '圖片須為 https:// 網址或站內路徑（如 /api/assets/:id）');
 
-/** 快速抽包：1、3、5、10、20、all 的子集合（預設 1、5、10） */
-export const DRAW_PACK_VALUES = ['1', '3', '5', '10', '20', 'all'] as const;
+/** 快速抽包：1、3、5、10、20、100、all 的子集合（預設 1、5、10） */
+export const DRAW_PACK_VALUES = ['1', '3', '5', '10', '20', '100', 'all'] as const;
 export type DrawPack = (typeof DRAW_PACK_VALUES)[number];
 export const DEFAULT_DRAW_PACKS: DrawPack[] = ['1', '5', '10'];
 export const DrawPacksSchema = z
-  .array(z.union([z.literal(1), z.literal(3), z.literal(5), z.literal(10), z.literal(20), z.literal('all'), z.enum(DRAW_PACK_VALUES)]))
+  .array(z.union([z.literal(1), z.literal(3), z.literal(5), z.literal(10), z.literal(20), z.literal(100), z.literal('all'), z.enum(DRAW_PACK_VALUES)]))
   .min(1, '至少一個抽包選項')
-  .max(6)
+  .max(DRAW_PACK_VALUES.length)
   .transform((a) => DRAW_PACK_VALUES.filter((v) => a.map(String).includes(v)) as DrawPack[]);
 /** 對外輸出：數字 + 'all' */
 export function drawPacksOut(packs: string[]): (number | 'all')[] {
   return DRAW_PACK_VALUES.filter((v) => packs.includes(v)).map((v) => (v === 'all' ? 'all' : Number(v)));
 }
+
+/** 抽賞演出：KUJI（籤紙，預設）/ VIDEO（播放抽卡影片，卡牌賞池）；只影響前台演出，隨時可改 */
+export const POOL_ANIMATIONS = ['KUJI', 'VIDEO'] as const;
+export type PoolAnimation = (typeof POOL_ANIMATIONS)[number];
+export const AnimationSchema = z.enum(POOL_ANIMATIONS);
 
 export const PrizeItemSchema = z.object({
   name: PrizeNameSchema,
@@ -116,6 +124,7 @@ export const PoolDraftSchema = z
       .default(null),
     drawPacks: DrawPacksSchema.optional(),
     shippingNote: z.string().max(500).optional(),
+    animation: AnimationSchema.default('KUJI'),
   })
   .superRefine((v, ctx) => {
     const nos = v.levels.map((l) => l.levelNo);
@@ -176,10 +185,10 @@ export async function createPoolDraft(actor: Principal, input: PoolDraftInput): 
   return transaction(async (tx) => {
     const [pool] = await tx<{ id: string }[]>`
       INSERT INTO pools (slug, title, ip, description, terms, source, play_type, price_coins, set_count, created_by,
-                         shipping_note, draw_packs, source_note, item_condition)
+                         shipping_note, draw_packs, source_note, item_condition, animation)
       VALUES (${v.slug}, ${v.title}, ${v.ip}, ${v.description}, ${v.terms}, ${v.source}, ${v.playType}, ${v.priceCoins}, ${v.setCount},
               ${actor.userId}, ${v.shippingNote ?? DEFAULT_SHIPPING_NOTE[v.source]},
-              ${v.drawPacks ?? DEFAULT_DRAW_PACKS}::text[], ${v.sourceNote}, ${v.condition})
+              ${v.drawPacks ?? DEFAULT_DRAW_PACKS}::text[], ${v.sourceNote}, ${v.condition}, ${v.animation})
       RETURNING id`;
     const poolId = pool!.id;
     if (v.ipId) await linkPoolIp(tx, poolId, v.ipId);
@@ -210,7 +219,7 @@ export async function createPoolDraft(actor: Principal, input: PoolDraftInput): 
       entityType: 'pool',
       entityId: poolId,
       payload: {
-        slug: v.slug, playType: v.playType, source: v.source, priceCoins: v.priceCoins, setCount: v.setCount,
+        slug: v.slug, playType: v.playType, source: v.source, priceCoins: v.priceCoins, setCount: v.setCount, animation: v.animation,
         levels: v.levels.map((l) => ({ levelNo: l.levelNo, name: l.name, items: l.items.length })),
         freightCollect: true,
       },
@@ -401,8 +410,10 @@ export const PoolSettingsSchema = z
     sourceNote: z.string().trim().max(200).optional(),
     condition: z.string().trim().max(200).optional(),
     ipId: z.string().uuid().nullable().optional(),
-    /** 快速抽包選項（1、3、5、10、20、all 的子集合）；隨時可改 */
+    /** 快速抽包選項（1、3、5、10、20、100、all 的子集合）；隨時可改 */
     drawPacks: DrawPacksSchema.optional(),
+    /** 抽賞演出（KUJI / VIDEO）；隨時可改 */
+    animation: AnimationSchema.optional(),
     /** 最後賞（null = 移除）：只在草稿階段可改 */
     lastPrize: LastPrizeSchema.nullable().optional(),
   })
@@ -414,8 +425,8 @@ export async function updatePoolSettings(actor: Principal, idOrSlug: string, inp
   const v = PoolSettingsSchema.parse(input);
   return transaction(async (tx) => {
     const p = await lockPublishedPool(tx, idOrSlug);
-    const [before] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null; description: string; sourceNote: string; condition: string }[]>`
-      SELECT shipping_note, ip_id, draw_packs, last_prize_name, description, source_note, item_condition AS condition FROM pools WHERE id = ${p.id}`;
+    const [before] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null; description: string; sourceNote: string; condition: string; animation: PoolAnimation }[]>`
+      SELECT shipping_note, ip_id, draw_packs, last_prize_name, description, source_note, item_condition AS condition, animation FROM pools WHERE id = ${p.id}`;
     if (v.lastPrize !== undefined) {
       if (p.status !== 'DRAFT') throw new AppError('STRUCTURE_LOCKED', '最後賞屬於賞池結構，只能在草稿階段修改（已發布賞池的籤表與規則已承諾）');
       await tx`DELETE FROM set_prizes WHERE prize_id IN (SELECT id FROM pool_prizes WHERE pool_id = ${p.id} AND kind = 'LAST')`;
@@ -429,9 +440,10 @@ export async function updatePoolSettings(actor: Principal, idOrSlug: string, inp
     if (v.condition !== undefined) await tx`UPDATE pools SET item_condition = ${v.condition} WHERE id = ${p.id}`;
     if (v.ipId !== undefined) await linkPoolIp(tx, p.id, v.ipId);
     if (v.drawPacks !== undefined) await tx`UPDATE pools SET draw_packs = ${v.drawPacks}::text[] WHERE id = ${p.id}`;
+    if (v.animation !== undefined) await tx`UPDATE pools SET animation = ${v.animation} WHERE id = ${p.id}`;
     await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'POOL_SETTINGS_UPDATED', entityType: 'pool', entityId: p.id, payload: { before, ...v } });
-    const [after] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null; description: string; sourceNote: string; condition: string }[]>`
-      SELECT shipping_note, ip_id, draw_packs, last_prize_name, description, source_note, item_condition AS condition FROM pools WHERE id = ${p.id}`;
+    const [after] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null; description: string; sourceNote: string; condition: string; animation: PoolAnimation }[]>`
+      SELECT shipping_note, ip_id, draw_packs, last_prize_name, description, source_note, item_condition AS condition, animation FROM pools WHERE id = ${p.id}`;
     return {
       poolId: p.id,
       shippingNote: after!.shippingNote,
@@ -440,6 +452,7 @@ export async function updatePoolSettings(actor: Principal, idOrSlug: string, inp
       condition: after!.condition,
       ipId: after!.ipId,
       drawPacks: drawPacksOut(after!.drawPacks),
+      animation: after!.animation,
       lastPrizeName: after!.lastPrizeName,
     };
   });

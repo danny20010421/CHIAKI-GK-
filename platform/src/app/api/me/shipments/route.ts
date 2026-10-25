@@ -13,7 +13,7 @@ export const GET = route(async (req: Request) => {
 });
 
 /**
- * POST /api/me/shipments — 申請出貨（可合併多件；運費到付，不扣 CC幣）
+ * POST /api/me/shipments — 申請出貨（可合併多件；運費到付，不扣 UC幣）
  * { itemIds, destinations?: { home?: {addressId}|{recipientName, recipientPhone, address}, c711?: {...cvsStoreId}, fami?: {...cvsStoreId} } }
  * 寄送方式由獎項預設（不可自選）；不同寄送方式的物品會拆成多張出貨單（回應 shipments[]）。
  */

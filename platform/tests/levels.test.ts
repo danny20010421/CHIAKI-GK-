@@ -84,9 +84,9 @@ describe('admin: levels & items while DRAFT', () => {
     assert.equal((await patchLevel(id, 6, { name: '參加獎', isSmall: false })).status, 200);
     const moved = await j<{ levelNo: number; qtyPerSet: number }>(await patchPrize(it1.body.prizeId, { levelNo: 6, qtyPerSet: 4 }));
     assert.deepEqual([moved.status, moved.body.levelNo, moved.body.qtyPerSet], [200, 6, 4]);
-    assert.equal((await patchPrize(it1.body.prizeId, { qtyPerSet: 30_001 })).status, 400);
-    const grown = await patchPrize(it1.body.prizeId, { qtyPerSet: 29_990 });
-    assert.equal(grown.status, 400, 'max 30,000 tickets per set');
+    assert.equal((await patchPrize(it1.body.prizeId, { qtyPerSet: 300_001 })).status, 400);
+    const grown = await patchPrize(it1.body.prizeId, { qtyPerSet: 299_990 });
+    assert.equal(grown.status, 400, 'max 300,000 tickets per set');
     assert.equal(await errCode(grown), 'VALIDATION');
     assert.equal((await prizeDelete(apiRequest('DELETE', `/api/admin/prizes/${it1.body.prizeId}`, { token: ops.token }), ctx({ id: it1.body.prizeId }))).status, 200);
     assert.equal((await levelDelete(apiRequest('DELETE', `/api/admin/pools/${id}/levels/6`, { token: ops.token }), ctx({ id, levelNo: '6' }))).status, 200);

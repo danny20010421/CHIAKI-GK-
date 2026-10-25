@@ -22,7 +22,7 @@ export const PERMISSIONS = [
   'pool.config.manage', // 發布後營運設定：每套運費、每套獎項回收值、出貨時程說明
   'jobs.run', // 手動觸發排程工作（寄存到期掃描、抽賞紀錄封存、通知派送）
   'cs.ticket.manage', // 客服工單：檢視、回覆、指派、狀態
-  'cs.compensation.grant', // 客服補償 CC幣（不可退款；超過門檻需第二人核准）
+  'cs.compensation.grant', // 客服補償 UC幣（不可退款；超過門檻需第二人核准）
   'cs.compensation.approve',
   'storage.extend', // 延長寄存期限
   'shipment.resend', // 退件/異常重新出貨

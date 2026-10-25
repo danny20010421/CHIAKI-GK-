@@ -49,7 +49,7 @@ describe('binding rewards (綁定獎勵)', () => {
     const rs = await Promise.allSettled(Array.from({ length: 8 }, () => claimReward(u.id, 'BIND_LINE_OA')));
     assert.equal(rs.filter((r) => r.status === 'fulfilled').length, 1);
     assert.ok(rs.filter((r) => r.status === 'rejected').every((r) => (r as PromiseRejectedResult).reason.code === 'ALREADY_CLAIMED'));
-    assert.deepEqual(await walletOf(u.id), { coins: 50, nonRefundableCoins: 50 }, 'binding rewards are non-refundable CC幣');
+    assert.deepEqual(await walletOf(u.id), { coins: 50, nonRefundableCoins: 50 }, 'binding rewards are non-refundable UC幣');
     const coupons = await db()`SELECT code FROM user_coupons WHERE user_id = ${u.id}`;
     assert.deepEqual(coupons.map((c) => c.code), ['LINE-WELCOME']);
     await claimReward(u.id, 'BIND_PHONE');

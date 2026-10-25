@@ -284,7 +284,7 @@ interface FullShipment {
 /**
  * 後台更正出貨單：出貨方式（含大件不可改超商）、物流商、追蹤編號、收件人、狀態（可回退、可改為 配送異常/退件/遺失/破損）。
  * 需要原因：狀態回退、改為例外狀態、從例外狀態改回、修改既有追蹤編號、改出貨方式。
- * 每次更正都寫入出貨事件紀錄（會員可見）與稽核鏈；可選擇通知會員。運費一律到付，更正不涉及任何 CC幣。
+ * 每次更正都寫入出貨事件紀錄（會員可見）與稽核鏈；可選擇通知會員。運費一律到付，更正不涉及任何 UC幣。
  */
 export async function correctShipment(actor: Principal, shipmentId: string, input: z.input<typeof CorrectionSchema>) {
   requirePermission(actor, 'shipment.manage');

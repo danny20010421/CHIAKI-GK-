@@ -13,7 +13,7 @@ import { requirePermission, type Principal } from '../auth/rbac';
 /**
  * 中獎倉庫。狀態機（資料庫 trigger 同步強制）：
  *   STORED → SHIP_REQUESTED → SHIPPED → DELIVERED
- *   STORED → RECYCLED（會員回收、寄存到期自動轉換 → 不可退款 CC幣；皆不可逆）
+ *   STORED → RECYCLED（會員回收、寄存到期自動轉換 → 不可退款 UC幣；皆不可逆）
  * 寄存：自入庫起免費保管 STORAGE_FREE_DAYS（預設 30）天，見 storage.ts。
  */
 export type ItemStatus = 'STORED' | 'SHIP_REQUESTED' | 'SHIPPED' | 'DELIVERED' | 'RECYCLED';
@@ -40,7 +40,7 @@ export interface WarehouseItem {
   imageUrl: string | null;
   status: ItemStatus;
   shipmentId: string | null;
-  /** 目前此套此獎項的回收值（CC幣，不可退款） */
+  /** 目前此套此獎項的回收值（UC幣，不可退款） */
   recycleValue: number | null;
   recyclable: boolean;
   recycledCoins: number | null;
@@ -90,7 +90,7 @@ export async function lockStoredItems(tx: Tx, userId: string, itemIds: string[])
 
 export interface RecycleResult {
   batchId: string;
-  /** 本次回收入帳的 CC幣（不可退款） */
+  /** 本次回收入帳的 UC幣（不可退款） */
   coins: number;
   coinsAfter: number;
   items: { id: string; prizeName: string; levelNo: number | null; isSmall: boolean; coins: number }[];
@@ -99,7 +99,7 @@ export interface RecycleResult {
 const RECYCLE_SCOPE = 'recycle';
 
 /**
- * 會員主動回收 → 不可退款 CC幣（帳本 RECYCLE_CREDIT，不可逆）。回收值依「該套 × 該獎項」的後台設定（set_prizes），
+ * 會員主動回收 → 不可退款 UC幣（帳本 RECYCLE_CREDIT，不可逆）。回收值依「該套 × 該獎項」的後台設定（set_prizes），
  * recyclable=false 或無設定（例如直購商品）者不可回收。運費到付，回收不涉及任何運費退還。
  * 冪等：可帶 Idempotency-Key（同鍵同內容重送 → 回傳同一結果、不重複入帳）；未帶鍵時，物品狀態機也保證同一件只能回收一次。
  */
@@ -139,7 +139,7 @@ export async function recycleItems(userId: string, itemIds: string[], opts: { id
     let coinsAfter: number;
     if (total > 0) {
       coinsAfter = (
-        await postLedger(tx, { userId, amount: total, entryType: 'RECYCLE_CREDIT', refType: 'recycle_batch', refId: batchId, memo: `回收 ${priced.length} 件（不可退款 CC幣）` })
+        await postLedger(tx, { userId, amount: total, entryType: 'RECYCLE_CREDIT', refType: 'recycle_batch', refId: batchId, memo: `回收 ${priced.length} 件（不可退款 UC幣）` })
       ).balanceAfter;
     } else {
       coinsAfter = (await tx<{ coins: number }[]>`SELECT coins FROM wallets WHERE user_id = ${userId}`)[0]!.coins;

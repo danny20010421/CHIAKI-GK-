@@ -5,15 +5,18 @@ import { listNotifications, markNotificationsRead, MarkReadSchema } from '@/serv
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** GET /api/me/notifications?unread=1 — 站內通知（寄存到期提醒、自動轉換結果…） */
+/**
+ * GET /api/me/notifications?limit=20&cursor=<nextCursor>&unread=1 — 站內通知（新到舊、游標分頁）：
+ * { notifications: [{ id, type, title, body, link, unread, readAt, createdAt, payload }], unreadCount, nextCursor|null }
+ */
 export const GET = route(async (req: Request) => {
   const p = await requirePrincipal(req);
-  return json({ notifications: await listNotifications(db(), p.userId, query(req).get('unread') === '1') });
+  const q = query(req);
+  return json(await listNotifications(db(), p.userId, { limit: q.has('limit') ? Number(q.get('limit')) : undefined, cursor: q.get('cursor') ?? undefined, unreadOnly: q.get('unread') === '1' }));
 });
 
-/** POST /api/me/notifications — 標記已讀 { ids: uuid[] } */
+/** POST /api/me/notifications — 標記已讀（同 /api/me/notifications/read）{ ids: uuid[] } 或 { all: true } → { updated, unreadCount } */
 export const POST = route(async (req: Request) => {
   const p = await requirePrincipal(req);
-  const b = await body(req, MarkReadSchema);
-  return json(await markNotificationsRead(db(), p.userId, b.ids));
+  return json(await markNotificationsRead(db(), p.userId, await body(req, MarkReadSchema)));
 });

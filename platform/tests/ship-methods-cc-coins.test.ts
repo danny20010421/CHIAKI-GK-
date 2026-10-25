@@ -1,8 +1,8 @@
 /**
  * 業主 2026-10 第七批：
  *  1. 寄送方式逐件預設（home / c711 / fami）：後台建立/編輯時設定、未設定的預設值、賞池一有銷售即鎖定（應用層＋資料庫 trigger）。
- *  2. 單一貨幣 CC幣：餘額 = 可退款 + 不可退款；抽賞先扣不可退款；只有可退款可申請退款；獎勵/贈送/補償/回收皆不可退款。
- *  3. migration 20261102：既有平台點數 → 不可退款 CC幣（帳本鏈與對帳一致）、獎項寄送方式回填。
+ *  2. 單一貨幣 UC幣：餘額 = 可退款 + 不可退款；抽賞先扣不可退款；只有可退款可申請退款；獎勵/贈送/補償/回收皆不可退款。
+ *  3. migration 20261102：既有平台點數 → 不可退款 UC幣（帳本鏈與對帳一致）、獎項寄送方式回填。
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -87,7 +87,7 @@ describe('rule 1 — ship method preset per prize', () => {
   });
 });
 
-describe('rule 3 — one currency (CC幣)', () => {
+describe('rule 3 — one currency (UC幣)', () => {
   it('draws spend non-refundable first, then refundable; only refundable coins can be refunded', async () => {
     const poolId = await publishPool(customPool({ priceCoins: 100 }));
     const u = await makeUser({ coins: 300, nonRefundableCoins: 150 });
@@ -100,7 +100,7 @@ describe('rule 3 — one currency (CC幣)', () => {
     await expectAppError(createRefundRequest(u.id, 251, 'x'), 'INSUFFICIENT_FUNDS');
     await createRefundRequest(u.id, 250, 'refund the rest');
     const b = await getCoinBreakdown(db(), u.id);
-    assert.deepEqual([b.currency, b.coins, b.refundableCoins, b.nonRefundableCoins], ['CC幣', 250, 250, 0]);
+    assert.deepEqual([b.currency, b.coins, b.refundableCoins, b.nonRefundableCoins], ['UC幣', 250, 250, 0]);
     assert.equal(b.nonRefundableCredited.CS_COMPENSATION, 150);
     const res = await breakdownRoute(apiRequest('GET', '/api/me/wallet/breakdown', { token: u.token }), none);
     assert.equal(res.status, 200);
@@ -138,7 +138,7 @@ describe('rule 3 — one currency (CC幣)', () => {
   });
 });
 
-describe('migration 20261102 — points → non-refundable CC幣, ship method backfill', () => {
+describe('migration 20261102 — points → non-refundable UC幣, ship method backfill', () => {
   it('converts existing point balances with a balanced ledger chain and backfills prize ship methods from bulky', async () => {
     const adminUrl = process.env.TEST_DATABASE_ADMIN_URL!;
     const name = `m_${randomBytes(6).toString('hex')}`;

@@ -6,14 +6,16 @@ import { db, transaction, type Db, type Tx } from '../../db';
 import { appendAudit, type AuditEntry } from '../audit/audit';
 import { requirePermission, type Principal } from '../auth/rbac';
 import { ensureWallet, NONREFUNDABLE_LABEL, postLedger } from '../wallet/wallet';
+import { notifyEvent } from '../notifications/outbox';
+import { notifyCouponsIssued } from '../marketing/coupons';
 
 /**
  * VIP 會員等級（業主 2026-10 第八批）。
  *
- *  - 等級依「抽賞累計花費 CC幣」決定（可退款與不可退款扣款皆計入；抽賞退款會扣回花費，但年度中不降級）。
+ *  - 等級依「抽賞累計花費 UC幣」決定（可退款與不可退款扣款皆計入；抽賞退款會扣回花費，但年度中不降級）。
  *    門檻、名稱、禮物、優惠券、加碼寄存天數、權益存於 vip_tiers，後台可改（留稽核）。
  *  - 升級禮：每個等級一生只發一次（vip_gift_grants UNIQUE (user, UPGRADE, L<等級>)）；跳級時逐級發放；
- *    於「跨過門檻的那筆抽賞結算時」在同一交易內入帳（不可退款 CC幣，帳本 VIP_UPGRADE_GIFT）。
+ *    於「跨過門檻的那筆抽賞結算時」在同一交易內入帳（不可退款 UC幣，帳本 VIP_UPGRADE_GIFT）。
  *  - 生日禮：生日當月（台灣時間）每年一次，依當時等級（帳本 VIP_BIRTHDAY_GIFT，不可退款）。排程工作 runVipBirthdayGifts。
  *  - 每月優惠券：每月 1 日（台灣時間）依當時等級發放，每人每月一次（runVipMonthlyCoupons）；當月有效。
  *  - 年度重新評等：1/1（台灣時間）依前 12 個月（上一個日曆年）花費重新評等，每年最多降一級（runVipAnnualRerating）。
@@ -22,11 +24,14 @@ import { ensureWallet, NONREFUNDABLE_LABEL, postLedger } from '../wallet/wallet'
  *  - 權益（perks）：每個等級列出「新增」的權益，較高等級自動包含較低等級的權益；
  *    LIVE_ODDS（賞池頁即時機率顯示）由程式強制（見 pool/queries.ts），其餘目前為顯示用標示。
  *
+ *  - 會員通知：升級禮、生日禮入帳與每月優惠券發放時，在同一交易內登記通知（站內＋依會員偏好的外部管道，outbox）；
+ *    通知以禮物/發放紀錄為冪等依據（UPGRADE 等級、BIRTHDAY 年份、MONTHLY_COUPONS 月份），重跑排程不會重複通知。
+ *
  * 鎖順序：錢包 → vip_members → vip_gift_grants → 稽核（audit_head 最後）。
  */
 
 export const ODDS_PERK = 'LIVE_ODDS';
-export const VIP_GIFT_NOTE = `VIP 禮物 CC幣${NONREFUNDABLE_LABEL}`;
+export const VIP_GIFT_NOTE = `VIP 禮物 UC幣${NONREFUNDABLE_LABEL}`;
 
 export const CouponSpecSchema = z.object({
   /** 折扣百分比：5 = 95折、10 = 9折、15 = 85折 */
@@ -167,6 +172,16 @@ async function grantUpgradeGifts(tx: Tx, userId: string, tiers: VipTier[], level
     }
     await tx`INSERT INTO vip_gift_grants (user_id, kind, period, level, coins, ledger_id)
              VALUES (${userId}, 'UPGRADE', ${`L${t.level}`}, ${t.level}, ${t.upgradeGiftCoins}, ${ledgerId})`;
+    if (t.upgradeGiftCoins > 0) {
+      await notifyEvent(tx, {
+        userId,
+        merchantId,
+        event: 'VIP_UPGRADE_GIFT',
+        data: { level: t.level, name: t.name, coins: t.upgradeGiftCoins },
+        payload: { level: t.level, coins: t.upgradeGiftCoins },
+        dedupeOn: { kind: 'UPGRADE', level: t.level },
+      });
+    }
     gifts.push({ level: t.level, name: t.name, coins: t.upgradeGiftCoins });
     audits.push({ actorType: 'SYSTEM', actorId: 'vip', action: 'VIP_UPGRADE_GIFT', entityType: 'user', entityId: userId, merchantId, payload: { level: t.level, coins: t.upgradeGiftCoins, ledgerId, source, refundable: false } });
   }
@@ -191,9 +206,13 @@ export interface DrawSpendResult {
 export async function applyDrawSpend(tx: Tx, a: { userId: string; drawId: string; amount: number; merchantId: string }): Promise<DrawSpendResult> {
   const tiers = await loadTiers(tx);
   const m = await lockMember(tx, a.userId);
-  const ins = await tx`
-    INSERT INTO vip_spend_events (user_id, draw_id, kind, ref_id, amount) VALUES (${a.userId}, ${a.drawId}, 'DRAW', ${a.drawId}, ${a.amount})
-    ON CONFLICT DO NOTHING RETURNING id`;
+  // 實付 0（優惠券全額折抵）不計花費
+  const ins =
+    a.amount > 0
+      ? await tx`
+          INSERT INTO vip_spend_events (user_id, draw_id, kind, ref_id, amount) VALUES (${a.userId}, ${a.drawId}, 'DRAW', ${a.drawId}, ${a.amount})
+          ON CONFLICT DO NOTHING RETURNING id`
+      : [];
   const spend = ins.length ? m.qualifyingSpend + a.amount : m.qualifyingSpend;
   const level = Math.max(m.level, tierForSpend(tiers, spend).level);
   await tx`
@@ -260,7 +279,7 @@ export async function getVipStatus(userId: string, now: Date = new Date()) {
   return {
     level,
     name: cur.name,
-    /** 升級用累計花費（抽賞 CC幣，含可退款與不可退款；年度評等後重設） */
+    /** 升級用累計花費（抽賞 UC幣，含可退款與不可退款；年度評等後重設） */
     spend,
     /** 歷來抽賞淨花費 */
     lifetimeSpend: m?.lifetimeSpend ?? 0,
@@ -281,7 +300,7 @@ export async function getVipStatus(userId: string, now: Date = new Date()) {
     gifts: gifts.map((g) => ({ kind: g.kind, period: g.period, level: g.level, coins: g.coins, coupons: couponsOut(JSON.parse(g.couponsJson) as CouponSpec[]), refundable: false, createdAt: g.createdAt })),
     coupons,
     rules: [
-      '等級依抽賞累計花費（CC幣，可退款與不可退款皆計）自動升級；抽賞退款會扣回花費',
+      '等級依抽賞累計花費（UC幣，可退款與不可退款皆計）自動升級；抽賞退款會扣回花費',
       '升級禮每個等級限領一次，跳級時逐級發放；生日禮於生日當月發放（每年一次）；優惠券於每月 1 日依當時等級發放，當月有效',
       '每年 1 月 1 日依前 12 個月花費重新評等，每年最多降一級',
       VIP_GIFT_NOTE,
@@ -394,13 +413,16 @@ export async function runVipMonthlyCoupons(now: Date = new Date()): Promise<{ mo
         ON CONFLICT DO NOTHING RETURNING id`;
       if (!g) return 0;
       let count = 0;
+      const labels: string[] = [];
       for (const c of tier.monthlyCoupons) {
         for (let i = 0; i < c.qty; i++) {
           await tx`INSERT INTO vip_coupons (user_id, grant_id, discount_pct, label, valid_from, expires_at)
                    VALUES (${userId}, ${g.id}, ${c.discountPct}, ${couponLabel(c.discountPct)}, ${validFrom}, ${expiresAt})`;
+          labels.push(couponLabel(c.discountPct));
           count++;
         }
       }
+      await notifyCouponsIssued(tx, { userId, labels, expiresAt, dedupeOn: { kind: 'MONTHLY_COUPONS', month } });
       await appendAudit(tx, { actorType: 'SYSTEM', actorId: 'vip-monthly-coupons', action: 'VIP_MONTHLY_COUPONS', entityType: 'user', entityId: userId, payload: { month, level: tier.level, coupons: couponsOut(tier.monthlyCoupons) } });
       return count;
     });
@@ -441,6 +463,13 @@ export async function runVipBirthdayGifts(now: Date = new Date()): Promise<{ yea
         memo: `VIP${tier.level} ${tier.name} ${year} 生日禮（不可退款）`,
       });
       await tx`INSERT INTO vip_gift_grants (user_id, kind, period, level, coins, ledger_id) VALUES (${userId}, 'BIRTHDAY', ${period}, ${tier.level}, ${tier.birthdayGiftCoins}, ${ledgerId})`;
+      await notifyEvent(tx, {
+        userId,
+        event: 'VIP_BIRTHDAY_GIFT',
+        data: { level: tier.level, name: tier.name, coins: tier.birthdayGiftCoins, year },
+        payload: { level: tier.level, coins: tier.birthdayGiftCoins, year },
+        dedupeOn: { kind: 'BIRTHDAY', year },
+      });
       await appendAudit(tx, { actorType: 'SYSTEM', actorId: 'vip-birthday', action: 'VIP_BIRTHDAY_GIFT', entityType: 'user', entityId: userId, payload: { year, level: tier.level, coins: tier.birthdayGiftCoins, ledgerId, coinsAfter: balanceAfter, refundable: false } });
       return tier.birthdayGiftCoins;
     });

@@ -41,12 +41,14 @@ export interface PoolSummary {
   drawPacks: (number | 'all')[];
   /** 是否含大件・限宅配獎項 */
   hasBulky: boolean;
+  /** 抽賞演出：KUJI（籤紙）/ VIDEO（播放抽卡影片） */
+  animation: 'KUJI' | 'VIDEO';
   currentSet: { setNo: number; remaining: number; total: number } | null;
 }
 
 export async function listPools(db: Db, filter: { source?: string; playType?: string; ipId?: string; tag?: string } = {}): Promise<PoolSummary[]> {
   const rows = await db<(Omit<PoolSummary, 'currentSet' | 'hasLastPrize' | 'tags' | 'drawPacks'> & { tags: string[]; drawPacks: string[]; lastPrizeName: string | null; curSetNo: number | null; curRemaining: number | null; curTotal: number | null })[]>`
-    SELECT p.id, p.slug, p.title, p.ip, p.ip_id, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.last_prize_name, p.shipping_note, p.draw_packs,
+    SELECT p.id, p.slug, p.title, p.ip, p.ip_id, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.last_prize_name, p.shipping_note, p.draw_packs, p.animation,
            cs.set_no AS cur_set_no, cs.remaining AS cur_remaining, cs.total_tickets AS cur_total,
            (SELECT COALESCE(array_agg(DISTINCT pp.tag) FILTER (WHERE pp.tag IS NOT NULL), '{}') FROM pool_prizes pp WHERE pp.pool_id = p.id) AS tags,
            (SELECT COALESCE(bool_or(pp.bulky), false) FROM pool_prizes pp WHERE pp.pool_id = p.id) AS has_bulky
@@ -78,6 +80,7 @@ export async function listPools(db: Db, filter: { source?: string; playType?: st
     tags: distinctTags(r.tags, r.source),
     drawPacks: drawPacksOut(r.drawPacks),
     hasBulky: r.hasBulky,
+    animation: r.animation,
     currentSet: r.curSetNo ? { setNo: r.curSetNo, remaining: r.curRemaining ?? 0, total: r.curTotal ?? 0 } : null,
   }));
 }
@@ -124,11 +127,11 @@ export async function getPoolDetail(db: Db, idOrSlug: string, viewerId?: string 
   const access = await oddsAccess(db, viewerId);
   const [p] = await db<{
     id: string; slug: string; title: string; ip: string; description: string; sourceNote: string; condition: string; source: string; playType: string; drawPacks: string[]; offline: boolean;
-    priceCoins: number; status: string; setCount: number; lastPrizeName: string | null; merchantId: string; shippingNote: string;
+    priceCoins: number; status: string; setCount: number; lastPrizeName: string | null; merchantId: string; shippingNote: string; animation: 'KUJI' | 'VIDEO';
     ruleVersionId: string; ruleVersion: number; rulesHash: string; rulesJson: string;
   }[]>`
     SELECT p.id, p.slug, p.title, p.ip, p.description, p.source_note, p.item_condition AS condition, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.draw_packs, p.offline,
-           p.last_prize_name, p.merchant_id, p.shipping_note, rv.id AS rule_version_id, rv.version AS rule_version, rv.rules_hash, rv.rules_json
+           p.last_prize_name, p.merchant_id, p.shipping_note, p.animation, rv.id AS rule_version_id, rv.version AS rule_version, rv.rules_hash, rv.rules_json
     FROM pools p JOIN pool_rule_versions rv ON rv.id = p.current_rule_version_id WHERE p.id = ${id}`;
   if (!p) throw new AppError('NOT_FOUND', 'pool not found');
   const all = await db<PrizeRow[]>`
@@ -166,6 +169,8 @@ export async function getPoolDetail(db: Db, idOrSlug: string, viewerId?: string 
     setCount: p.setCount,
     shippingNote: p.shippingNote,
     drawPacks: drawPacksOut(p.drawPacks),
+    /** 抽賞演出：KUJI（籤紙）/ VIDEO（播放抽卡影片，卡牌賞池） */
+    animation: p.animation,
     tags: distinctTags(all.map((r) => r.tag), p.source),
     hasBulky: all.some((r) => r.bulky),
     /** 本賞池獎項用到的寄送方式 */
@@ -243,7 +248,9 @@ export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewe
   const effective = isProb ? effectiveProbabilities(byPrize.map((p) => ({ levelNo: p.levelNo!, remaining: p.remaining })), oddsMap) : [];
   const prizeProb = (i: number, remaining: number) => (isProb ? round(effective[i]!) : prob(remaining));
 
-  const tickets = await db<{ ticketNo: number; status: string; heldActive: boolean; heldByMe: boolean; levelNo: number | null; levelName: string | null; name: string | null }[]>`
+  // 大型套（> BOARD_TICKETS_MAX 籤，例如卡牌機率賞）不輸出逐張籤板（只能快速抽，前台不顯示籤板），避免每次讀取整套籤表
+  const omitTickets = s.total > BOARD_TICKETS_MAX;
+  const tickets = omitTickets ? [] : await db<{ ticketNo: number; status: string; heldActive: boolean; heldByMe: boolean; levelNo: number | null; levelName: string | null; name: string | null }[]>`
     SELECT t.ticket_no, t.status,
            (t.status = 'AVAILABLE' AND t.held_by IS NOT NULL AND t.held_until > now()) AS held_active,
            (t.status = 'AVAILABLE' AND t.held_by IS NOT NULL AND t.held_until > now() AND t.held_by = ${viewerId ?? null}::uuid) AS held_by_me,
@@ -305,9 +312,13 @@ export async function getSetBoard(db: Db, idOrSlug: string, setNo: number, viewe
       const prize = state === 'TAKEN' && t.name ? { levelNo: t.levelNo, levelName: t.levelName, displayName: displayName(t.levelName, t.name) } : {};
       return { no: t.ticketNo, state, ...(t.heldByMe ? { heldByMe: true } : {}), ...prize };
     }),
+    ...(omitTickets ? { ticketsOmitted: true } : {}),
     soldOutAt: s.soldOutAt,
   };
 }
+
+/** 籤板逐張輸出的上限（超過則 tickets 為空陣列並標示 ticketsOmitted） */
+export const BOARD_TICKETS_MAX = 30_000;
 
 /** 完售後才可揭露：完整籤表、salt 與重算結果。 */
 export async function revealSet(db: Db, idOrSlug: string, setNo: number) {

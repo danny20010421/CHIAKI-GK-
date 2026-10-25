@@ -24,7 +24,7 @@ async function tamper(fn: (sql: ReturnType<typeof db>) => Promise<unknown>) {
 }
 
 describe('wallet ledger', () => {
-  it('one currency (CC幣): balance = refundable + non-refundable; balance_after chain; never negative', async () => {
+  it('one currency (UC幣): balance = refundable + non-refundable; balance_after chain; never negative', async () => {
     const u = await makeUser({ coins: 500, nonRefundableCoins: 30 });
     assert.deepEqual(await walletOf(u.id), { coins: 530, nonRefundableCoins: 30 });
     await expectAppError(transaction((tx) => postLedger(tx, { userId: u.id, amount: -531, entryType: 'ADMIN_ADJUST', refType: 't', refId: '2' })), 'INSUFFICIENT_FUNDS');
@@ -41,7 +41,7 @@ describe('wallet ledger', () => {
     const u = await makeUser({ coins: 10 });
     await assert.rejects(
       transaction((tx) => postLedger(tx, { userId: u.id, currency: 'POINTS' as never, amount: 10, entryType: 'BIND_REWARD', refType: 't', refId: 'x' })),
-      /only CC幣/,
+      /only UC幣/,
     );
     await assert.rejects(
       db()`INSERT INTO wallet_ledger (user_id, currency, amount, balance_after, entry_type, ref_type, ref_id) VALUES (${u.id}, 'POINTS', 10, 10, 'BIND_REWARD', 't', 't')`,

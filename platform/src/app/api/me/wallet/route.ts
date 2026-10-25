@@ -6,7 +6,7 @@ import { listPaymentOrders } from '@/server/modules/payment/payments';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** GET /api/me/wallet — CC幣餘額（可退款 + 不可退款）與交易明細（?before=<ledgerId> 分頁） */
+/** GET /api/me/wallet — UC幣餘額（可退款 + 不可退款）與交易明細（?before=<ledgerId> 分頁） */
 export const GET = route(async (req: Request) => {
   const p = await requirePrincipal(req);
   const before = Number(query(req).get('before')) || undefined;

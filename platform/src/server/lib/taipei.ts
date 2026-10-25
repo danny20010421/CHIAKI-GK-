@@ -48,3 +48,10 @@ export function taipeiWeekStart(now: Date): string {
 export function taipeiMidnight(year: number, month: number, day = 1): Date {
   return new Date(Date.UTC(year, month - 1, day) - OFFSET_MS);
 }
+
+/** 台灣日期 YYYY-MM-DD（+ offsetDays）00:00 對應的 UTC 時刻 */
+export function taipeiDayStart(day: string, offsetDays = 0): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`invalid day ${day}`);
+  const [y, m, d] = day.split('-').map(Number) as [number, number, number];
+  return taipeiMidnight(y, m, d + offsetDays);
+}

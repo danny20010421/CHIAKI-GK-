@@ -11,11 +11,11 @@ import { notifyEvent } from '../notifications/outbox';
  * 規則（業主 2026-10）：
  *  - 獎品自入庫起免費寄存 STORAGE_FREE_DAYS（預設 30）天（到期時間於入庫時寫入 storage_expires_at）。
  *  - 到期前 STORAGE_WARN_DAYS_BEFORE（預設 7）天、以及到期當日（以台灣日期計）各發一次站內通知。
- *  - 到期後仍為「保管中」的獎品，依「該套 × 該獎項」回收值自動回收，並以 CC幣入帳
+ *  - 到期後仍為「保管中」的獎品，依「該套 × 該獎項」回收值自動回收，並以 UC幣入帳
  *    （帳本類型 EXPIRY_AUTO_CONVERT，另寫稽核紀錄與通知）。
  *  - 後台設定為「不可回收」的獎品（或沒有回收設定的直購商品）不自動轉換：標記並通知，留待客服處理。
  *
- * 業主規則：到期轉換的 CC幣一律「不可退款・無法轉換」（wallet_ledger.refundable = false，不計入可退款餘額；
+ * 業主規則：到期轉換的 UC幣一律「不可退款・無法轉換」（wallet_ledger.refundable = false，不計入可退款餘額；
  *   舊的 EXPIRY_COINS_REFUNDABLE 開關已移除）。以可退款代幣支付獎品價值會讓獎品可經由退款兌換現金，
  *   可能使付費抽賞被認定為賭博或違法有獎銷售。
  *

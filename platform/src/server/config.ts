@@ -31,7 +31,7 @@ const EnvSchema = z.object({
   // 寄存：自入庫起免費保管天數、到期前幾天通知
   STORAGE_FREE_DAYS: z.coerce.number().int().positive().default(30),
   STORAGE_WARN_DAYS_BEFORE: z.coerce.number().int().positive().default(7),
-  // 業主規則：到期自動轉換、回收、邀請/綁定/儲值贈送、客服補償的 CC幣一律「不可退款・無法轉換」（見 wallet.ts）。
+  // 業主規則：到期自動轉換、回收、邀請/綁定/儲值贈送、客服補償的 UC幣一律「不可退款・無法轉換」（見 wallet.ts）。
   // 舊的 EXPIRY_COINS_REFUNDABLE 開關已移除（設定了也不會生效）。運費改為到付（2026-10 第七批），已無運費相關設定。
   // 綠界 ReturnURL 防護：來源 IP 允許清單（逗號分隔，可用 CIDR；空＝不限制）、通知時間新鮮度（小時，0＝不檢查）
   ECPAY_NOTIFY_IP_ALLOWLIST: z.string().default(''),
@@ -78,7 +78,7 @@ const EnvSchema = z.object({
   // TOTP 秘密金鑰加密用（32 bytes，hex 或 base64）；production 必填
   MFA_ENCRYPTION_KEY: z.string().default(''),
 
-  // 客服補償 CC幣：超過此數需第二人核准
+  // 客服補償 UC幣：超過此數需第二人核准
   CS_COMPENSATION_APPROVAL_THRESHOLD: z.coerce.number().int().positive().default(500),
 
   // 通知外送：重試次數與退避、外部管道替身（開發用；正式環境必須關閉）
@@ -126,11 +126,11 @@ export interface TopupPackage {
   code: string;
   amountTwd: number;
   coins: number;
-  /** 儲值贈送 CC幣（不可退款；欄位名稱沿用舊稱） */
+  /** 儲值贈送 UC幣（不可退款；欄位名稱沿用舊稱） */
   bonusPoints: number;
 }
 
-/** 儲值方案（金額、贈送比例待營運/法遵確認）。1 TWD = 1 CC幣。 */
+/** 儲值方案（金額、贈送比例待營運/法遵確認）。1 TWD = 1 UC幣。 */
 const DEFAULT_PACKAGES: TopupPackage[] = [
   { code: 'P500', amountTwd: 500, coins: 500, bonusPoints: 0 },
   { code: 'P1000', amountTwd: 1000, coins: 1000, bonusPoints: 0 },

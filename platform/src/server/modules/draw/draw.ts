@@ -17,6 +17,8 @@ import { getWallet } from '../wallet/wallet';
 import { assertSellable, assertTicketPickAllowed, TicketNosSchema } from './holds';
 import { pickTickets as pickProbTickets, PROB_SCHEME, ProbRng } from '../pool/prob';
 import { applyDrawSpend, type UpgradeGift } from '../vip/vip';
+import { buildProbIndex, checkoutProbIndex, releaseProbIndex, type ProbCheckout } from './prob-cache';
+import { assertCouponUsable, bumpCouponUsage, evaluateCoupon, loadMemberCoupons, lockMemberCoupon, markMemberCouponUsed, type CouponSource, type MemberCoupon } from '../marketing/coupons';
 
 export const DrawRequestSchema = z
   .object({
@@ -27,6 +29,8 @@ export const DrawRequestSchema = z
     count: z.union([z.number().int().positive(), z.literal('all')]).optional(),
     // 機率賞：會員可自訂 client seed（可驗證亂數的一部分）；未給則使用 Idempotency-Key
     clientSeed: z.string().min(1).max(128).optional(),
+    // 會員優惠券（GET /api/me/coupons 的 id；VIP 每月券或代碼券）：折抵本筆小計
+    couponId: z.string().uuid().optional(),
   })
   .refine((v) => (v.ticketNos ? 1 : 0) + (v.count ? 1 : 0) === 1, 'provide exactly one of ticketNos or count');
 
@@ -52,7 +56,7 @@ export interface DrawResultItem {
   tag: Tag | null;
   imageUrl: string | null;
   warehouseItemId: string;
-  /** 回收值（該套 × 該獎項，CC幣，不可退款）；賞池頁不公開，只在抽賞結果與會員倉庫顯示 */
+  /** 回收值（該套 × 該獎項，UC幣，不可退款）；賞池頁不公開，只在抽賞結果與會員倉庫顯示 */
   recycleValue: number | null;
   recyclable: boolean;
 }
@@ -63,9 +67,17 @@ export interface DrawResponse {
   setNo: number;
   ticketNos: number[];
   unitPrice: number;
+  /** 小計 = 單價 × 張數 */
   amountCoins: number;
+  /** 優惠券折抵（無券為 0） */
+  discountCoins: number;
+  /** 實付 UC幣 = 小計 − 折抵（≥ 0；VIP 花費以此計） */
+  paidCoins: number;
+  /** 使用的優惠券（無券為 null） */
+  coupon: { id: string; source: CouponSource; label: string; kind: 'pct' | 'amt'; value: number; discountCoins: number } | null;
   /** 運費到付：抽賞不收運費 */
   freightCollect: true;
+  /** 實付 UC幣（= paidCoins） */
   totalCoins: number;
   coinsAfter: number;
   results: DrawResultItem[];
@@ -74,7 +86,7 @@ export interface DrawResponse {
   guarantee: { misses: number; everyN: number; minLevel: number; reserveRemaining: number } | null;
   /** 機率賞：本筆的可驗證亂數參數（完售後公開 server seed 即可重算） */
   prob?: { scheme: string; seedHash: string; clientSeed: string; nonce: number };
-  /** VIP：本筆結算後的等級；跨過門檻時同一交易內發放升級禮（不可退款 CC幣，已計入 coinsAfter） */
+  /** VIP：本筆結算後的等級；跨過門檻時同一交易內發放升級禮（不可退款 UC幣，已計入 coinsAfter） */
   vip: { previousLevel: number; level: number; levelName: string; upgraded: boolean; spend: number; gifts: UpgradeGift[]; giftCoins: number };
   createdAt: string;
 }
@@ -132,12 +144,14 @@ const SCOPE = 'draw';
  *  2. 驗證會員狀態/年齡驗證
  *  3. 鎖定「套」(pool_sets FOR UPDATE)：同套抽賞序列化，確保最後一籤/完售判定正確
  *  4. 鎖定籤 (tickets FOR UPDATE)，檢查未被抽出、未被他人保留
- *  5. 扣 CC幣（條件式 UPDATE + 帳本；先扣不可退款、再扣可退款）。運費到付，抽賞不收運費
+ *  5. 優惠券（選用）：鎖定本人的會員券、檢查可用並計算折抵；扣實付 UC幣（條件式 UPDATE + 帳本；先扣不可退款、再扣可退款）。
+ *     會員券在同一交易內標記已使用（失敗 rollback → 券仍可用）。運費到付，抽賞不收運費
  *  6. 標記籤已抽、寫入 draw / draw_results、入中獎倉庫
  *  7. 保底計數（獨立保底庫存，不改變籤的機率）、最後賞、完售與下一套開賣；
- *     VIP 花費累計、升級與升級禮（不可退款 CC幣），入庫寄存期限加上 VIP 加碼天數；結果附回收值
+ *     VIP 花費累計、升級與升級禮（不可退款 UC幣），入庫寄存期限加上 VIP 加碼天數；結果附回收值
  *  8. 稽核鏈（最後取得的鎖）＋ 儲存冪等回應
- * 鎖順序固定：set → tickets → wallet → pool_guarantees → guarantee_counters → vip_members → audit_head，避免死結。
+ * 鎖順序固定：set → tickets → 會員優惠券 → wallet → pool_guarantees → guarantee_counters → vip_members → coupons（代碼券使用次數）→ audit_head，避免死結。
+ * 機率賞的抽選使用程序內索引（prob-cache.ts）：交易提交後才放回快取，失敗即丟棄。
  */
 export async function executeDraw(
   userId: string,
@@ -162,7 +176,9 @@ export async function executeDraw(
 
   await enforceRateLimit(userId, 'DRAW');
 
-  return transaction(async (tx) => {
+  const probState: { checkout: ProbCheckout | null; nonceAfter: number } = { checkout: null, nonceAfter: 0 };
+  const result = await transaction(async (tx): Promise<{ response: DrawResponse; replayed: boolean }> => {
+    probState.checkout = null;
     // 1. 冪等鍵
     const ins = await tx`
       INSERT INTO idempotency_keys (user_id, scope, key, request_hash) VALUES (${userId}, ${SCOPE}, ${key}, ${requestHash})
@@ -197,20 +213,28 @@ export async function executeDraw(
     // 4. 選籤 + 鎖籤
     let nos: number[];
     let prob: { clientSeed: string; nonce: number; seedHash: string } | null = null;
+    let probPick: ((fresh: boolean) => Promise<number[]>) | null = null;
     if (rules.playType === 'PROB') {
-      // 機率賞：只能快速抽；以可驗證種子流依規則逐張抽選（套已鎖定 → 狀態一致、nonce 連續）
+      // 機率賞：只能快速抽；以可驗證種子流依規則逐張抽選（套已鎖定 → 狀態一致、nonce 連續）。
+      // 大型套（數十萬籤）以索引抽選：每張 O(等級數 + log N)，不必每抽掃描/複製整套籤表（見 pool/prob.ts ProbIndex）
       if (req.ticketNos) throw new AppError('VALIDATION', '機率賞只能快速抽（count）');
-      const [ps] = await tx<{ seed: string; nonce: number; seedHash: string }[]>`SELECT prob_server_seed AS seed, prob_nonce AS nonce, prob_seed_hash AS seed_hash FROM pool_sets WHERE id = ${set.id}`;
-      const remaining = await tx<{ ticketNo: number; levelNo: number }[]>`
-        SELECT t.ticket_no, pl.level_no FROM tickets t JOIN pool_prizes pr ON pr.id = t.prize_id JOIN pool_levels pl ON pl.id = pr.level_id
-        WHERE t.set_id = ${set.id} AND t.status = 'AVAILABLE' ORDER BY t.ticket_no`;
+      const [ps] = await tx<{ seed: string; nonce: number; seedHash: string; commitment: string }[]>`
+        SELECT prob_server_seed AS seed, prob_nonce AS nonce, prob_seed_hash AS seed_hash, commitment FROM pool_sets WHERE id = ${set.id}`;
       const odds = await tx<{ levelNo: number; odds: number | null }[]>`
         SELECT l.level_no, l.odds FROM pool_levels l JOIN pool_sets s ON s.pool_id = l.pool_id WHERE s.id = ${set.id}`;
-      const n = resolvePackCount(req.count!, set.drawPacks, remaining.length);
-      prob = { clientSeed: req.clientSeed ?? key, nonce: ps!.nonce + 1, seedHash: ps!.seedHash };
-      const picked = pickProbTickets(remaining, new Map(odds.map((o) => [o.levelNo, o.odds])), new ProbRng(ps!.seed, prob.clientSeed, prob.nonce), n);
-      nos = picked.map((t) => t.ticketNo).sort((a, b) => a - b);
-      await tx`UPDATE pool_sets SET prob_nonce = ${prob.nonce} WHERE id = ${set.id}`;
+      const oddsMap = new Map(odds.map((o) => [o.levelNo, o.odds]));
+      const co = await checkoutProbIndex(tx, { setId: set.id, commitment: ps!.commitment, nonce: ps!.nonce, odds: oddsMap });
+      probState.checkout = co;
+      const n = resolvePackCount(req.count!, set.drawPacks, co.idx.remaining);
+      const p = { clientSeed: req.clientSeed ?? key, nonce: ps!.nonce + 1, seedHash: ps!.seedHash };
+      prob = p;
+      probPick = async (fresh) => {
+        if (fresh) co.idx = await buildProbIndex(tx, set.id, oddsMap);
+        return co.idx.pick(new ProbRng(ps!.seed, p.clientSeed, p.nonce), n).map((t) => t.ticketNo).sort((a, b) => a - b);
+      };
+      nos = await probPick(false);
+      await tx`UPDATE pool_sets SET prob_nonce = ${p.nonce} WHERE id = ${set.id}`;
+      probState.nonceAfter = p.nonce;
     } else if (req.ticketNos) {
       nos = [...req.ticketNos].sort((a, b) => a - b);
     } else {
@@ -225,14 +249,20 @@ export async function executeDraw(
       }
       nos = pool.slice(0, n).sort((a, b) => a - b);
     }
-    const tickets = await tx<({ ticketNo: number; prizeId: string; status: string; heldByOther: boolean } & PrizeInfo)[]>`
+    const lockTickets = (ns: number[]) => tx<({ ticketNo: number; prizeId: string; status: string; heldByOther: boolean } & PrizeInfo)[]>`
       SELECT t.ticket_no, t.prize_id, t.status,
              (t.held_by IS NOT NULL AND t.held_by <> ${userId} AND t.held_until > now()) AS held_by_other,
              pl.level_no, pl.name AS level_name, pl.is_small, pr.name, pr.tag, pr.image_url
       FROM tickets t JOIN pool_prizes pr ON pr.id = t.prize_id LEFT JOIN pool_levels pl ON pl.id = pr.level_id
-      WHERE t.set_id = ${set.id} AND t.ticket_no = ANY(${nos}::int[])
+      WHERE t.set_id = ${set.id} AND t.ticket_no = ANY(${ns}::int[])
       ORDER BY t.ticket_no
       FOR UPDATE OF t`;
+    let tickets = await lockTickets(nos);
+    if (probPick && (tickets.length !== nos.length || tickets.some((t) => t.status !== 'AVAILABLE'))) {
+      // 快取索引與資料庫不一致（理論上不會發生）：由資料庫重建索引後以同一亂數流重抽
+      nos = await probPick(true);
+      tickets = await lockTickets(nos);
+    }
     if (tickets.length !== nos.length) {
       const found = new Set(tickets.map((t) => t.ticketNo));
       throw new AppError('TICKET_NOT_FOUND', '籤號不存在', { ticketNos: nos.filter((x) => !found.has(x)) });
@@ -242,23 +272,33 @@ export async function executeDraw(
     const held = tickets.filter((t) => t.heldByOther).map((t) => t.ticketNo);
     if (held.length) throw new AppError('TICKET_HELD', '籤號正由其他玩家保留中', { ticketNos: held });
 
-    // 5. 扣款（不足則整筆 rollback，不會留下任何扣款或籤狀態）。運費到付：不收運費
+    // 5. 優惠券 + 扣款（不足則整筆 rollback，不會留下任何扣款、籤狀態或優惠券使用）。運費到付：不收運費
     const unitPrice = rules.priceCoins;
-    const amount = unitPrice * nos.length;
+    const amount = unitPrice * nos.length; // 小計
     if (!Number.isSafeInteger(amount)) throw new AppError('VALIDATION', 'amount overflow');
+    let coupon: MemberCoupon | null = null;
+    let discount = 0;
+    if (req.couponId) {
+      coupon = await lockMemberCoupon(tx, userId, req.couponId);
+      discount = assertCouponUsable(coupon, amount).discountCoins;
+    }
+    const paid = amount - discount;
     const drawId = randomUUID();
     await tx`
       INSERT INTO draws (id, merchant_id, user_id, pool_id, set_id, rule_version_id, idempotency_key, ticket_count, unit_price, amount_coins,
-                         prob_client_seed, prob_nonce)
+                         prob_client_seed, prob_nonce, discount_coins, coupon_id, coupon_source)
       VALUES (${drawId}, ${set.merchantId}, ${userId}, ${poolId}, ${set.id}, ${set.ruleVersionId}, ${key}, ${nos.length}, ${unitPrice}, ${amount},
-              ${prob?.clientSeed ?? null}, ${prob?.nonce ?? null})`;
+              ${prob?.clientSeed ?? null}, ${prob?.nonce ?? null}, ${discount}, ${coupon?.id ?? null}, ${coupon?.source ?? null})`;
+    if (coupon) await markMemberCouponUsed(tx, coupon, drawId, discount);
     const { balanceAfter } = await postLedger(tx, {
       userId,
-      amount: -amount,
+      amount: -paid,
       entryType: 'DRAW_DEBIT',
       refType: 'draw',
       refId: drawId,
       merchantId: set.merchantId,
+      allowZero: coupon !== null,
+      memo: coupon ? `${set.poolTitle} ${nos.length} 抽：小計 ${amount} − 優惠券「${coupon.label}」${discount} = 實付 ${paid} UC幣` : null,
     });
 
     // 6. 標記已抽
@@ -305,9 +345,10 @@ export async function executeDraw(
     }
 
     // 7b. 完售 → 最後賞、下一套開賣
-    const [cnt] = await tx<{ remaining: number }[]>`
-      SELECT count(*)::int AS remaining FROM tickets WHERE set_id = ${set.id} AND status = 'AVAILABLE'`;
-    const remaining = cnt!.remaining;
+    // 機率賞：剩餘數由抽選索引得知（不必計數整套籤表）
+    const remaining = probState.checkout
+      ? probState.checkout.idx.remaining
+      : (await tx<{ remaining: number }[]>`SELECT count(*)::int AS remaining FROM tickets WHERE set_id = ${set.id} AND status = 'AVAILABLE'`)[0]!.remaining;
     let nextSetNo: number | null = null;
     if (remaining === 0) {
       if (rules.lastPrize) {
@@ -326,7 +367,8 @@ export async function executeDraw(
     }
 
     // 7c. VIP：記錄花費、升級與升級禮（錢包已鎖定；鎖順序 wallet → vip_members → 稽核）
-    const vip = await applyDrawSpend(tx, { userId, drawId, amount, merchantId: set.merchantId });
+    // VIP 花費以實付計（優惠券折抵不計入）
+    const vip = await applyDrawSpend(tx, { userId, drawId, amount: paid, merchantId: set.merchantId });
     const giftCoins = vip.gifts.reduce((a, g) => a + g.coins, 0);
 
     // 7d. 中獎倉庫 + 結果列
@@ -362,8 +404,11 @@ export async function executeDraw(
       ticketNos: nos,
       unitPrice,
       amountCoins: amount,
+      discountCoins: discount,
+      paidCoins: paid,
+      coupon: coupon ? { id: coupon.id, source: coupon.source, label: coupon.label, kind: coupon.kind, value: coupon.value, discountCoins: discount } : null,
       freightCollect: true,
-      totalCoins: amount,
+      totalCoins: paid,
       coinsAfter: balanceAfter + giftCoins,
       results: items.map((i) => ({
         seq: i.seq,
@@ -400,7 +445,8 @@ export async function executeDraw(
       dedupeOn: { drawId },
     });
 
-    // 8. 稽核 + 冪等回應
+    // 8. 代碼券使用次數 + 稽核 + 冪等回應
+    if (coupon) await bumpCouponUsage(tx, coupon);
     for (const a of vip.audits) await appendAudit(tx, a);
     await appendAudit(tx, {
       actorType: 'USER',
@@ -415,6 +461,9 @@ export async function executeDraw(
         ruleVersionId: set.ruleVersionId,
         ticketNos: nos,
         amountCoins: amount,
+        discountCoins: discount,
+        paidCoins: paid,
+        coupon: coupon ? { id: coupon.id, source: coupon.source } : null,
         coinsAfter: balanceAfter,
         results: items.map((i) => ({ kind: i.kind, ticketNo: i.ticketNo, prizeId: i.prizeId, levelNo: i.levelNo })),
       },
@@ -422,10 +471,13 @@ export async function executeDraw(
     await tx`UPDATE idempotency_keys SET response_json = ${JSON.stringify(response)} WHERE user_id = ${userId} AND scope = ${SCOPE} AND key = ${key}`;
     return { response, replayed: false };
   });
+  // 交易已提交：機率賞索引以新的 nonce 放回快取（失敗的交易不會走到這裡 → 索引被丟棄、下次重建）
+  if (probState.checkout && !result.replayed) releaseProbIndex(probState.checkout, probState.nonceAfter);
+  return result;
 }
 
 /**
- * 抽賞前試算（POST /api/draws/quote）：籤價、總額與 CC幣餘額是否足夠（運費到付，不含運費）。
+ * 抽賞前試算（POST /api/draws/quote）：籤價、總額與 UC幣餘額是否足夠（運費到付，不含運費）。
  * 唯讀、不鎖定；實際扣款以抽賞交易內（已鎖定該套）重新計算的結果為準（同一函式，結果一致，除非期間狀態改變）。
  */
 export async function quoteDraw(userId: string, body: unknown) {
@@ -452,19 +504,30 @@ export async function quoteDraw(userId: string, body: unknown) {
   }
   const wallet = await getWallet(d, userId);
   const drawCoins = rules.priceCoins * n;
+  let coupon: { id: string; label: string; usable: boolean; reason: string | null; discountCoins: number } | null = null;
+  if (req.couponId) {
+    const c = (await loadMemberCoupons(d, userId)).find((x) => x.id === req.couponId);
+    if (!c) throw new AppError('NOT_FOUND', '找不到這張優惠券', { couponId: req.couponId });
+    const ev = evaluateCoupon(c, drawCoins);
+    coupon = { id: c.id, label: c.label, usable: ev.usable, reason: ev.reason, discountCoins: ev.discountCoins };
+  }
+  const discountCoins = coupon?.discountCoins ?? 0;
+  const totalCoins = drawCoins - discountCoins;
   return {
     poolId,
     setNo: req.setNo,
     ticketCount: n,
     unitPrice: rules.priceCoins,
     drawCoins,
-    totalCoins: drawCoins,
+    discountCoins,
+    coupon,
+    totalCoins,
     freightCollect: true as const,
     shippingNote: FREIGHT_COLLECT_NOTE,
     coinsBalance: wallet.coins,
     refundableCoins: wallet.refundableCoins,
     nonRefundableCoins: wallet.nonRefundableCoins,
-    sufficientFunds: wallet.coins >= drawCoins,
+    sufficientFunds: wallet.coins >= totalCoins,
   };
 }
 

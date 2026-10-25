@@ -67,8 +67,8 @@ async function audit(tx: Tx, actor: Principal, action: string, entityType: strin
 export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const rows = UUID_RE.test(idOrSlug)
-    ? await db<PoolHead[]>`SELECT id, slug, title, source, play_type, status, price_coins, set_count, draw_packs, last_prize_name, offline, deleted_at, delete_reason FROM pools WHERE id = ${idOrSlug}`
-    : await db<PoolHead[]>`SELECT id, slug, title, source, play_type, status, price_coins, set_count, draw_packs, last_prize_name, offline, deleted_at, delete_reason FROM pools WHERE slug = ${idOrSlug}`;
+    ? await db<PoolHead[]>`SELECT id, slug, title, source, play_type, status, price_coins, set_count, draw_packs, last_prize_name, offline, deleted_at, delete_reason, animation FROM pools WHERE id = ${idOrSlug}`
+    : await db<PoolHead[]>`SELECT id, slug, title, source, play_type, status, price_coins, set_count, draw_packs, last_prize_name, offline, deleted_at, delete_reason, animation FROM pools WHERE slug = ${idOrSlug}`;
   const p = rows[0];
   if (!p) throw new AppError('NOT_FOUND', 'pool not found');
   const levels = await db<{ id: string; levelNo: number; name: string; isSmall: boolean; odds: number | null }[]>`
@@ -103,6 +103,7 @@ export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
     priceCoins: p.priceCoins,
     setCount: p.setCount,
     drawPacks: drawPacksOut(p.drawPacks),
+    animation: p.animation,
     structureEditable: p.status === 'DRAFT',
     /** 寄送方式可改（賞池尚無任何銷售） */
     shipMethodEditable: !hasSales,
@@ -124,7 +125,7 @@ export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
 }
 interface PoolHead {
   id: string; slug: string; title: string; source: string; playType: string; status: string; priceCoins: number; setCount: number; drawPacks: string[]; lastPrizeName: string | null;
-  offline: boolean; deletedAt: Date | null; deleteReason: string | null;
+  offline: boolean; deletedAt: Date | null; deleteReason: string | null; animation: string;
 }
 interface AdminPrizeRow {
   id: string; kind: 'TICKET' | 'LAST' | 'GUARANTEE'; levelId: string | null; name: string; qtyPerSet: number; recycleValue: number; recyclable: boolean;

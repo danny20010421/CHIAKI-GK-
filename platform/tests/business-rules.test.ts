@@ -1,5 +1,5 @@
 /**
- * 業主 2026-10 商業規則：等級制獎項、每套每獎回收值、寄存 30 天＋到期自動轉 CC幣（不可退款）、
+ * 業主 2026-10 商業規則：等級制獎項、每套每獎回收值、寄存 30 天＋到期自動轉 UC幣（不可退款）、
  * 運費到付（抽賞不收運費）、試算端點、出貨時程說明。
  */
 import { after, before, describe, it } from 'node:test';
@@ -76,7 +76,7 @@ describe('rule 1 — prize levels in API output (every pool type)', () => {
   });
 });
 
-describe('rule 2 — recycle value is per prize per set (admin), user recycling credits non-refundable CC幣', () => {
+describe('rule 2 — recycle value is per prize per set (admin), user recycling credits non-refundable UC幣', () => {
   it('uses the set-specific value; admin can change value / recyclable flag per set; GRAND default non-recyclable', async () => {
     const poolId = await publishPool(
       customPool({
@@ -105,7 +105,7 @@ describe('rule 2 — recycle value is per prize per set (admin), user recycling 
     const w0 = await walletOf(u.id);
     const r = await recycleItems(u.id, [set1Small[0]!.id, set2Small[0]!.id]);
     assert.equal(r.coins, 77 + 50, 'set 1 value 77, set 2 keeps default 50');
-    assert.deepEqual(await walletOf(u.id), { coins: w0.coins + 127, nonRefundableCoins: w0.nonRefundableCoins + 127 }, 'recycle credits non-refundable CC幣 only');
+    assert.deepEqual(await walletOf(u.id), { coins: w0.coins + 127, nonRefundableCoins: w0.nonRefundableCoins + 127 }, 'recycle credits non-refundable UC幣 only');
     assert.deepEqual((await ledgerTypes(u.id, 'RECYCLE_CREDIT')).map((l) => [l.amount, l.refundable]), [[127, false]]);
     const grand = items.find((i) => i.levelNo === 1)!;
     await expectAppError(recycleItems(u.id, [grand.id]), 'NOT_RECYCLABLE');
@@ -155,7 +155,7 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     assert.equal(await ledgerTypes(u.id, 'EXPIRY_AUTO_CONVERT').then((l) => l.length), 0, 'not converted before the expiry instant');
     assert.equal((await runStorageSweep(sameDay)).notifications, 0, 'expiry-day notice only once');
 
-    // 到期後：3 件小獎（每件 50）＋中獎 400 → 共 550 CC幣；大獎不可回收 → 保留＋通知
+    // 到期後：3 件小獎（每件 50）＋中獎 400 → 共 550 UC幣；大獎不可回收 → 保留＋通知
     const coins0 = (await walletOf(u.id)).coins;
     const after = new Date(expiresAt.getTime() + 1000);
     const runs = await Promise.all([runStorageSweep(after), runStorageSweep(after), runStorageSweep(after)]);
@@ -169,7 +169,7 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     assert.equal(conv[0]!.amount, 550);
     assert.equal(conv[0]!.refundable, false, 'auto-converted coins are non-refundable by default');
     // 運費到付：到期轉換不再有任何運費退還
-    assert.equal((await walletOf(u.id)).coins, coins0 + 550, 'credited as CC幣');
+    assert.equal((await walletOf(u.id)).coins, coins0 + 550, 'credited as UC幣');
     assert.equal((await ledgerTypes(u.id, 'SHIPPING_REFUND_COINS')).length, 0);
     const after2 = await listWarehouse(db(), u.id);
     assert.equal(after2.filter((i) => i.recycleReason === 'STORAGE_EXPIRY' && i.status === 'RECYCLED').length, 4);
@@ -184,14 +184,14 @@ describe('rule 3 — storage: 30 days free, 7-day + expiry-day notices, auto-con
     const mr = (await (await markReadRoute(apiRequest('POST', '/api/me/notifications', { token: u.token, body: { ids: notes.notifications.map((n) => n.id) } }), none)).json()) as { updated: number };
     assert.equal(mr.updated, 4);
 
-    // 可退款餘額不含自動轉換 CC幣
+    // 可退款餘額不含自動轉換 UC幣
     const w = await getWallet(db(), u.id);
     assert.equal(w.nonRefundableCoins, 550);
     assert.equal(w.refundableCoins, w.coins - 550);
     await expectAppError(createRefundRequest(u.id, w.refundableCoins + 1, 'x'), 'INSUFFICIENT_FUNDS');
     await expectAppError(transaction((tx) => postLedger(tx, { userId: u.id, amount: -(w.refundableCoins + 1), entryType: 'REFUND_DEBIT', refType: 't', refId: 't' })), 'INSUFFICIENT_FUNDS');
     await createRefundRequest(u.id, w.refundableCoins, 'all refundable coins');
-    // 一般消費優先使用不可退款 CC幣
+    // 一般消費優先使用不可退款 UC幣
     await executeDraw(u.id, key(), { poolId, setNo: 1, ticketNos: [t.SMALL[10]!] });
     assert.equal((await getWallet(db(), u.id)).nonRefundableCoins, 550 - 10);
     assert.ok((await reconcileWallets(db(), u.id))[0]!.ok, 'reconciliation covers non-refundable balance chain');
