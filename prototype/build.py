@@ -6,7 +6,7 @@ Optional: put your own guarantee-pool cover at assets/guarantee-cover.jpg
 """
 import base64, pathlib
 here = pathlib.Path(__file__).parent
-parts = ['1_head.html', '2_body.html', '3_core.js', '4_pool.js', '5_pages.js', '6_ops.js', '8_fx.js', '9_admin.js', '10_catalog.js', '11_backoffice.js', '12_sets.js', '13_more.js', '15_vip.js', '14_home.js', '16_bday.js', '17_cards.js', '18_coupon.js', '19_ticket.js', '7_rules.js']
+parts = ['1_head.html', '2_body.html', '3_core.js', '4_pool.js', '5_pages.js', '6_ops.js', '8_fx.js', '9_admin.js', '10_catalog.js', '11_backoffice.js', '12_sets.js', '13_more.js', '15_vip.js', '14_home.js', '16_bday.js', '17_cards.js', '18_coupon.js', '19_ticket.js', '20_back.js', '7_rules.js']
 html = ''.join((here / 'src' / p).read_text(encoding='utf-8') for p in parts)
 cover = here / 'assets' / 'guarantee-cover.jpg'
 guar = 'data:image/jpeg;base64,' + base64.b64encode(cover.read_bytes()).decode() if cover.exists() else ''

@@ -25,7 +25,7 @@ heroFx = function(){
   };
   /* 首頁飄落的籤紙：正面＝新版封面，背面＝撕開後的內頁樣式（同一個虛線框） */
   raster(kujiCover(), 'front');
-  raster(`<svg viewBox="0 0 300 204"><rect width="300" height="204" fill="#000"/></svg>`, 'back');
+  raster(`<svg viewBox="0 0 300 204"><rect width="300" height="204" fill="#2b2b2b"/></svg>`, 'back');
   function ticket(t, sy){
     const w = 44 + 76*t.z, h = w*.68;
     const px = t.x + tx*36*t.z, py = t.y + ty*24*t.z - sy*.35*t.z;
