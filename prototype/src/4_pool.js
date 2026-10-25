@@ -382,7 +382,7 @@ function nextTicket(){
   setPeel(0);
   $('#cue').textContent = ''; $('#cue').style.removeProperty('--cue-c');
   $('#cue').innerHTML = `<small>${r.bonus ? r.bonus : 'TICKET ' + pad(r.no)}</small>`;
-  $('#hint').innerHTML = D.auto ? '' : `${ic('right','width:16px;height:16px')}按住左側撕口向右拉開・或點一下自動撕開`;
+  $('#hint').innerHTML = D.auto ? '' : `${ic('right','width:16px;height:16px')}向右慢慢拉，撕開 65% 自動打開・點一下自動撕`;
   $('#res').className = 'res'; $('#res').innerHTML = '';
   $('#ctr').innerHTML = D.results.length > 1 ? D.results.map((_,k) => `<i class="${k<D.i?'done':k===D.i?'on':''}"></i>`).join('') + `<span style="margin-left:8px">${D.i+1} / ${D.results.length}</span>` : '';
   $('#sbtm').innerHTML = D.results.length > 1 ? `<button class="btn" data-act="auto" aria-pressed="${D.auto}">${D.auto?'自動撕開中':'全部自動撕開'}</button>` : '';
@@ -392,17 +392,17 @@ function nextTicket(){
 }
 /* drag to peel — fold line follows half the finger travel (physical fold) */
 function bindPeel(el){
-  let sx = null, rect = null, moved = false;
-  el.addEventListener('pointerdown', e => { if (D.busy || D.done) return; sx = e.clientX; rect = el.getBoundingClientRect(); moved = false; el.setPointerCapture(e.pointerId); el.classList.remove('idle'); });
+  let sx = null, rect = null, moved = false, f0 = 0;
+  el.addEventListener('pointerdown', e => { if (D.busy || D.done) return; sx = e.clientX; rect = el.getBoundingClientRect(); moved = false; f0 = D.f || 0; el.setPointerCapture(e.pointerId); el.classList.remove('idle'); });
   el.addEventListener('pointermove', e => {
     if (sx == null || D.busy || D.done) return;
     const dx = e.clientX - sx; if (Math.abs(dx) > 6) moved = true;
     if (!moved) return;
     el.classList.add('peeling');
-    const edge = Math.max(0, (e.clientX - rect.left) / rect.width * 100);   // where the torn edge is
-    const f = Math.min(100, Math.max(D.f, edge));   // 撕開的部分跟著手指
+    /* 撕開的比例＝手指往右拖的距離，從哪裡開始按都一樣，可以慢慢拉；往回拉不會把撕開的部分黏回去 */
+    const f = Math.min(100, Math.max(D.f, f0 + Math.max(0, dx) / rect.width * 100));
     setPeel(f); escalateByPeel(f * .5);
-    if (f >= 65) { sx = null; finishPeel(); }   // 撕掉 65% 才自動打開
+    if (f >= 65) { sx = null; finishPeel(); }   // 撕掉 65% 後自動打開
   });
   const up = () => { if (sx == null) return; const wasTap = !moved; sx = null; if (wasTap && !D.busy && !D.done) autoPeel(); };
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', () => sx = null);
