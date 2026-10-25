@@ -4464,7 +4464,7 @@ heroFx = function(){
   };
   /* 首頁飄落的籤紙：正面＝新版封面，背面＝撕開後的內頁樣式（同一個虛線框） */
   raster(kujiCover(), 'front');
-  raster(`<svg viewBox="0 0 300 204"><defs><radialGradient id="hb" cx=".5" cy=".55" r=".6"><stop offset="0" stop-color="#4d6a73"/><stop offset="1" stop-color="#2c4249"/></radialGradient></defs><rect width="300" height="204" fill="url(#hb)"/><path d="${KF_LINE}" fill="none" stroke="#e6c77f" stroke-width="1.6" stroke-linejoin="round" stroke-dasharray="4.5 2.5"/><text x="148" y="98" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="700" font-size="24" letter-spacing="2" fill="#f2e2b6">CHIAKI</text><text x="148" y="124" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="700" font-size="16" letter-spacing="4" fill="#e6c77f">一番賞</text></svg>`, 'back');
+  raster(`<svg viewBox="0 0 300 204"><rect width="300" height="204" fill="#000"/></svg>`, 'back');
   function ticket(t, sy){
     const w = 44 + 76*t.z, h = w*.68;
     const px = t.x + tx*36*t.z, py = t.y + ty*24*t.z - sy*.35*t.z;
