@@ -30,7 +30,7 @@ const _probPctB = probPct; probPct = (p, i) => p.play === 'bday' ? '<span style=
         {n:'鉑金 PT950 戒指或鍊墜（2000 元抵用券）', q:2, img:I('bdpt'), tag:'其他'},
         {n:'不限品牌衣物任選（1500 元抵用券）', q:2, img:I('bdcloth'), tag:'其他'},
         {n:'半年份衛生棉', q:1, img:I('bdpad'), tag:'其他'},
-        {n:'重抽券', q:10, img:I('bdreroll'), tag:'其他', reroll:true}]},
+        {n:'重抽券', q:10, img:I('bdreroll'), tag:'其他', reroll:true, noGuar:true}]},
       {name:'四獎', small:false, items:[
         {n:'Kose 雪肌精 臉部保濕保養品＋頭髮（1000 元抵用券）', q:3, img:I('bdkose'), tag:'其他'},
         {n:'DONKI DONKI 購物（1000 元抵用券）', q:3, img:I('bddonki'), tag:'其他'},

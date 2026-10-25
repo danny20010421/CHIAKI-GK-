@@ -9,7 +9,8 @@
    影片二（擊殺怪物）：小獎在擊殺第 1 隻後結束、3～4 獎在擊殺第 2 隻後結束、大獎／2 獎看到擊殺綠色巨人 */
 const GACHA_VIDS = [
   {src:'__VIDEO_gacha1__', kind:'beam', beamAt:7.4},
-  {src:'__VIDEO_gacha2__', kind:'kills', stop:{low:13.9, mid:15.6}}];
+  {src:'__VIDEO_gacha2__', kind:'kills', stop:{low:13.9, mid:15.6}},
+  {src:'__VIDEO_gacha3__', kind:'plain'}];   // 影片三（萬聖魔女）：完整播放，不依結果變化
 const GACHA_VIDEO = GACHA_VIDS[0].src;
 const gTier = res => { const b = Math.min(...res.map(x => x.lv || 99)); return b <= 2 ? 'top' : b <= 4 ? 'mid' : 'low'; };
 (() => { const I = k => DEMO_IMG(k);

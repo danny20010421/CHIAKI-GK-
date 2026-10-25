@@ -19,11 +19,13 @@ heroFx = function(){
   const IMG = {front:null, back:null};
   const raster = (svg, key) => {
     const im = new Image();
-    im.onload = () => { const c = document.createElement('canvas'); c.width = 300; c.height = 204; const g = c.getContext('2d');
-      g.beginPath(); if (g.roundRect) g.roundRect(0,0,300,204,10); else g.rect(0,0,300,204); g.clip(); g.drawImage(im,0,0,300,204); IMG[key] = c; };
+    im.onload = () => { const c = document.createElement('canvas'); c.width = 600; c.height = 408; const g = c.getContext('2d');
+      g.beginPath(); if (g.roundRect) g.roundRect(0,0,600,408,20); else g.rect(0,0,600,408); g.clip(); g.drawImage(im,0,0,600,408); IMG[key] = c; };
     im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '));
   };
-  raster(kujiCover(), 'front'); raster('<svg viewBox="0 0 300 204"><rect width="300" height="204" rx="10" fill="#050505"/><rect x="1" y="1" width="298" height="202" rx="9" fill="none" stroke="rgba(255,255,255,.08)"/></svg>', 'back');
+  /* 首頁飄落的籤紙：正面＝新版封面，背面＝撕開後的內頁樣式（同一個虛線框） */
+  raster(kujiCover(), 'front');
+  raster(`<svg viewBox="0 0 300 204"><defs><radialGradient id="hb" cx=".5" cy=".55" r=".6"><stop offset="0" stop-color="#223238"/><stop offset="1" stop-color="#1b272b"/></radialGradient></defs><rect width="300" height="204" fill="url(#hb)"/><path d="${KF_LINE}" fill="none" stroke="rgba(230,199,127,.75)" stroke-width="1.4" stroke-linejoin="round" stroke-dasharray="4.5 2.5"/><text x="150" y="112" text-anchor="middle" font-family="Noto Serif TC,serif" font-weight="700" font-size="22" letter-spacing="2" fill="#e6c77f">CHIAKI</text></svg>`, 'back');
   function ticket(t, sy){
     const w = 44 + 76*t.z, h = w*.68;
     const px = t.x + tx*36*t.z, py = t.y + ty*24*t.z - sy*.35*t.z;
