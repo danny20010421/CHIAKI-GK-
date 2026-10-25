@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mediaUrl } from '../../lib/media';
 import { AppError } from '../../errors';
 import { db, transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
@@ -113,7 +114,7 @@ export async function publicIps(d: Db, input: z.input<typeof PublicIpQuerySchema
   const rows = sortIps(await queryIps(d, { ...f, visibleOnly: true }), mode);
   return {
     sortMode: mode,
-    ips: rows.map(({ sortOrder: _s, visible: _v, ...r }) => r),
+    ips: rows.map(({ sortOrder: _s, visible: _v, ...r }) => ({ ...r, coverUrl: mediaUrl(r.coverUrl) })),
   };
 }
 

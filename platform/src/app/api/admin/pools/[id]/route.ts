@@ -20,6 +20,7 @@ export const GET = route(async (req: Request, ctx: RouteContext<{ id: string }>)
  * PATCH /api/admin/pools/:id — 營運設定：
  *   shippingNote（出貨時程說明，無固定 SLA）、ipId（連結 IP）、drawPacks（快速抽包：1、3、5、10、20、'all' 的子集合）；
  *   lastPrize（最後賞 { name, recycleValue?, recyclable?, tag?, bulky?, imageUrl? } 或 null；只在草稿）
+ *   coverUrl（封面路徑或 https://；null＝移除）、videos（抽賞演出影片整份取代：[{ url, behavior?, enabled? }]）
  */
 export const PATCH = route(async (req: Request, ctx: RouteContext<{ id: string }>) => {
   const p = await requirePrincipal(req);

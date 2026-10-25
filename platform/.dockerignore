@@ -1,0 +1,18 @@
+# 建置脈絡只需要原始碼；以下一律排除（尤其是 .env 秘密）
+node_modules
+.next
+dist
+.pgdata
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+next-env.d.ts
+vendor
+tests
+docs
+Dockerfile
+docker-compose.yml
+.dockerignore
+.git
+npm-debug.log*

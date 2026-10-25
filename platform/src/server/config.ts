@@ -18,8 +18,24 @@ const EnvSchema = z.object({
   NODE_ENV: z.string().default('development'),
   DATABASE_URL: z.string().default('postgres://postgres@127.0.0.1:55432/chiaki'),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(20),
+  /** 前台網站網址（綠界 ReturnURL、CSRF Origin 比對、CORS） */
   APP_BASE_URL: z.string().url().default('http://localhost:3000'),
   DEFAULT_MERCHANT_ID: z.string().default('chiaki'),
+
+  // 後台網域分離：設定 ADMIN_HOST 後，/api/admin/* 與 /api/auth/admin/* 只在該主機名稱提供（其他主機一律 404）
+  ADMIN_HOST: z.string().trim().toLowerCase().default(''),
+  /** 後台介面網址（CSRF/CORS 允許的後台 origin）；空白且有 ADMIN_HOST 時視為 https://<ADMIN_HOST> */
+  ADMIN_BASE_URL: z.union([z.string().url(), z.literal('')]).default(''),
+  /** 判斷請求主機名稱用的 header（預設 host；部分反向代理需改為 x-forwarded-host） */
+  HOST_HEADER: z.string().trim().toLowerCase().default('host'),
+  /** 另外允許跨網域呼叫公開 API 的前台 origin（逗號分隔，例如 https://www.chiaki.tw）；APP_BASE_URL 一律允許 */
+  CORS_ALLOWED_ORIGINS: z.string().default(''),
+
+  // 圖片/影片 CDN：站內媒體路徑（/media/...）會加上此前綴（例如 https://cdn.chiaki.tw）；空白＝由本站提供
+  MEDIA_BASE_URL: z.union([z.string().url(), z.literal('')]).default(''),
+
+  // 日誌：debug / info / warn / error（JSON 一行一筆）
+  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
   HOLD_SECONDS: z.coerce.number().int().positive().default(180),
   MAX_TICKETS_PER_DRAW: z.coerce.number().int().positive().default(100),
@@ -151,9 +167,58 @@ export function config(): AppConfig {
     if (env.NODE_ENV === 'production' && !env.MFA_ENCRYPTION_KEY) {
       throw new Error('MFA_ENCRYPTION_KEY is required in production');
     }
+    if (env.NODE_ENV === 'production' && !env.SITE_TEST_MODE) {
+      const missing = liveModeProblems(env);
+      if (missing.length) throw new Error(`SITE_TEST_MODE=false requires live ECPay / SMS settings: ${missing.join('; ')}`);
+    }
     cached = { ...env, topupPackages: DEFAULT_PACKAGES };
   }
   return cached;
+}
+
+/** 綠界官方公開 STAGE 測試商店（任何人都知道的金鑰；正式營運不可使用） */
+export const ECPAY_STAGE_MERCHANT_ID = '3002607';
+
+type Env = z.infer<typeof EnvSchema>;
+
+/** 關閉測試模式（正式收款）前必須備妥的設定；回傳缺少的項目（空陣列＝可上線） */
+export function liveModeProblems(env: Env): string[] {
+  const out: string[] = [];
+  if (env.ECPAY_MERCHANT_ID === ECPAY_STAGE_MERCHANT_ID) out.push('ECPAY_MERCHANT_ID is still the public STAGE merchant');
+  if (!env.ECPAY_HASH_KEY || !env.ECPAY_HASH_IV) out.push('ECPAY_HASH_KEY / ECPAY_HASH_IV missing');
+  if (/payment-stage\./.test(env.ECPAY_AIO_URL)) out.push('ECPAY_AIO_URL points to the STAGE cashier');
+  if (env.PAYMENT_SANDBOX) out.push('PAYMENT_SANDBOX must be off');
+  if (!smsConfigured(env)) out.push('MITAKE_USERNAME / MITAKE_PASSWORD missing');
+  if (!env.APP_BASE_URL.startsWith('https://')) out.push('APP_BASE_URL must be https://');
+  return out;
+}
+
+export function smsConfigured(env: Pick<Env, 'MITAKE_USERNAME' | 'MITAKE_PASSWORD'>): boolean {
+  return Boolean(env.MITAKE_USERNAME && env.MITAKE_PASSWORD);
+}
+
+export interface DeploymentMode {
+  /** 測試網站（不收款）；SITE_TEST_MODE */
+  testMode: boolean;
+  /** 金流：DISABLED（測試網站，一律 403）/ SANDBOX（綠界 STAGE）/ LIVE（正式） */
+  payments: 'DISABLED' | 'SANDBOX' | 'LIVE';
+  /** 簡訊：DEV_STUB（開發固定碼）/ DISABLED（未設定供應商）/ CONFIGURED */
+  sms: 'DEV_STUB' | 'DISABLED' | 'CONFIGURED';
+  /** 後台是否綁定獨立網域 */
+  adminHost: string | null;
+  /** 媒體是否走 CDN */
+  mediaCdn: boolean;
+}
+
+/** 部署狀態摘要（/api/health、啟動日誌）。不含任何秘密。 */
+export function deploymentMode(c: AppConfig = config()): DeploymentMode {
+  return {
+    testMode: c.SITE_TEST_MODE,
+    payments: c.SITE_TEST_MODE ? (c.PAYMENT_SANDBOX ? 'SANDBOX' : 'DISABLED') : 'LIVE',
+    sms: c.AUTH_DEV_STUB && c.NODE_ENV !== 'production' ? 'DEV_STUB' : smsConfigured(c) ? 'CONFIGURED' : 'DISABLED',
+    adminHost: c.ADMIN_HOST || null,
+    mediaCdn: Boolean(c.MEDIA_BASE_URL),
+  };
 }
 
 /** 測試用：改動 process.env 後重新讀取。 */

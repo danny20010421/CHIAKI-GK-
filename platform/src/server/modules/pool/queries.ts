@@ -1,4 +1,6 @@
 import { AppError } from '../../errors';
+import { mediaUrl } from '../../lib/media';
+import { loadPoolVideos } from './videos';
 import type { Db } from '../../db';
 import { COMMIT_SCHEME_V1, COMMIT_SCHEMES, canonicalLayout, verifyCommitment, type CommitScheme, type LayoutEntry } from './commitment';
 import type { PoolRules } from './rules';
@@ -43,12 +45,14 @@ export interface PoolSummary {
   hasBulky: boolean;
   /** 抽賞演出：KUJI（籤紙）/ VIDEO（播放抽卡影片） */
   animation: 'KUJI' | 'VIDEO';
+  /** 賞池封面（已套用 MEDIA_BASE_URL；未設定為 null） */
+  coverUrl: string | null;
   currentSet: { setNo: number; remaining: number; total: number } | null;
 }
 
 export async function listPools(db: Db, filter: { source?: string; playType?: string; ipId?: string; tag?: string } = {}): Promise<PoolSummary[]> {
   const rows = await db<(Omit<PoolSummary, 'currentSet' | 'hasLastPrize' | 'tags' | 'drawPacks'> & { tags: string[]; drawPacks: string[]; lastPrizeName: string | null; curSetNo: number | null; curRemaining: number | null; curTotal: number | null })[]>`
-    SELECT p.id, p.slug, p.title, p.ip, p.ip_id, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.last_prize_name, p.shipping_note, p.draw_packs, p.animation,
+    SELECT p.id, p.slug, p.title, p.ip, p.ip_id, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.last_prize_name, p.shipping_note, p.draw_packs, p.animation, p.cover_url,
            cs.set_no AS cur_set_no, cs.remaining AS cur_remaining, cs.total_tickets AS cur_total,
            (SELECT COALESCE(array_agg(DISTINCT pp.tag) FILTER (WHERE pp.tag IS NOT NULL), '{}') FROM pool_prizes pp WHERE pp.pool_id = p.id) AS tags,
            (SELECT COALESCE(bool_or(pp.bulky), false) FROM pool_prizes pp WHERE pp.pool_id = p.id) AS has_bulky
@@ -81,6 +85,7 @@ export async function listPools(db: Db, filter: { source?: string; playType?: st
     drawPacks: drawPacksOut(r.drawPacks),
     hasBulky: r.hasBulky,
     animation: r.animation,
+    coverUrl: mediaUrl(r.coverUrl),
     currentSet: r.curSetNo ? { setNo: r.curSetNo, remaining: r.curRemaining ?? 0, total: r.curTotal ?? 0 } : null,
   }));
 }
@@ -114,7 +119,7 @@ export function showPrize(r: Pick<PrizeRow, 'kind' | 'levelNo' | 'levelName' | '
     /** 寄送方式（上架時預設，會員不可選；運費到付） */
     shipMethod: r.shipMethod,
     shipMethodLabel: SHIP_METHOD_LABEL[r.shipMethod],
-    imageUrl: r.imageUrl,
+    imageUrl: mediaUrl(r.imageUrl),
   };
 }
 
@@ -127,11 +132,11 @@ export async function getPoolDetail(db: Db, idOrSlug: string, viewerId?: string 
   const access = await oddsAccess(db, viewerId);
   const [p] = await db<{
     id: string; slug: string; title: string; ip: string; description: string; sourceNote: string; condition: string; source: string; playType: string; drawPacks: string[]; offline: boolean;
-    priceCoins: number; status: string; setCount: number; lastPrizeName: string | null; merchantId: string; shippingNote: string; animation: 'KUJI' | 'VIDEO';
+    priceCoins: number; status: string; setCount: number; lastPrizeName: string | null; merchantId: string; shippingNote: string; animation: 'KUJI' | 'VIDEO'; coverUrl: string | null;
     ruleVersionId: string; ruleVersion: number; rulesHash: string; rulesJson: string;
   }[]>`
     SELECT p.id, p.slug, p.title, p.ip, p.description, p.source_note, p.item_condition AS condition, p.source, p.play_type, p.price_coins, p.status, p.set_count, p.draw_packs, p.offline,
-           p.last_prize_name, p.merchant_id, p.shipping_note, p.animation, rv.id AS rule_version_id, rv.version AS rule_version, rv.rules_hash, rv.rules_json
+           p.last_prize_name, p.merchant_id, p.shipping_note, p.animation, p.cover_url, rv.id AS rule_version_id, rv.version AS rule_version, rv.rules_hash, rv.rules_json
     FROM pools p JOIN pool_rule_versions rv ON rv.id = p.current_rule_version_id WHERE p.id = ${id}`;
   if (!p) throw new AppError('NOT_FOUND', 'pool not found');
   const all = await db<PrizeRow[]>`
@@ -171,6 +176,10 @@ export async function getPoolDetail(db: Db, idOrSlug: string, viewerId?: string 
     drawPacks: drawPacksOut(p.drawPacks),
     /** 抽賞演出：KUJI（籤紙）/ VIDEO（播放抽卡影片，卡牌賞池） */
     animation: p.animation,
+    /** 賞池封面（已套用 MEDIA_BASE_URL） */
+    coverUrl: mediaUrl(p.coverUrl),
+    /** 抽賞演出影片（啟用中；前台隨機挑一支，依 behavior 決定演出） */
+    videos: (await loadPoolVideos(db, p.id)).map(({ url, behavior }) => ({ url, behavior })),
     tags: distinctTags(all.map((r) => r.tag), p.source),
     hasBulky: all.some((r) => r.bulky),
     /** 本賞池獎項用到的寄送方式 */

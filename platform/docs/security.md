@@ -12,7 +12,8 @@
 | 每 IP、每會員 token bucket 限流 | `security/rate-limit.ts`（記憶體；可換 Redis） | `RATE_LIMIT_*` |
 | 請求本文上限、JSON content-type 檢查 | `http.ts` | `MAX_BODY_BYTES` |
 | 安全標頭（CSP、HSTS、X-Frame-Options DENY、nosniff、Referrer-Policy、Permissions-Policy） | `security/headers.ts`、`next.config.mjs` | — |
-| Cookie session 的 CSRF（double-submit＋Origin） | `security/cookies.ts` | `APP_BASE_URL` |
+| Cookie session 的 CSRF（double-submit＋Origin） | `security/cookies.ts` | `APP_BASE_URL`、`CORS_ALLOWED_ORIGINS`、`ADMIN_BASE_URL` |
+| 後台網域分離（其他主機 → 404）、CORS 允許清單 | `security/hosts.ts`、`src/middleware.ts` | `ADMIN_HOST`、`CORS_ALLOWED_ORIGINS` |
 | 登入暴力破解：指數退避＋鎖定 | `security/lockout.ts` | `LOGIN_*` |
 | 後台：員工角色＋密碼 session＋近期重新驗證＋（選用）MFA、IP 允許清單 | `http.ts`、`modules/auth/admin-auth.ts` | `ADMIN_*` |
 | 綠界通知：CheckMacValue、來源 IP 允許清單、重放防護、時間新鮮度 | `modules/payment/payments.ts` | `ECPAY_NOTIFY_*` |

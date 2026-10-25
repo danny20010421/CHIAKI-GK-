@@ -40,7 +40,8 @@ export type ErrorCode =
   | 'HAS_SALES'
   | 'TEST_SITE'
   | 'TICKET_PICK_DISABLED'
-  | 'COUPON_NOT_USABLE';
+  | 'COUPON_NOT_USABLE'
+  | 'SMS_DISABLED';
 
 const STATUS: Record<ErrorCode, number> = {
   VALIDATION: 400,
@@ -85,6 +86,8 @@ const STATUS: Record<ErrorCode, number> = {
   TEST_SITE: 403,
   TICKET_PICK_DISABLED: 403,
   COUPON_NOT_USABLE: 422,
+  /** 測試模式／尚未設定簡訊供應商：OTP 無法發送 */
+  SMS_DISABLED: 503,
 };
 
 /** 可預期的業務錯誤：會轉成乾淨的 JSON 錯誤回應，且交易一律 rollback。 */

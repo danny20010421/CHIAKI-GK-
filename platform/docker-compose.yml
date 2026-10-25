@@ -1,0 +1,70 @@
+# CHIAKI 本機／類正式環境：PostgreSQL ＋ migration（一次性）＋ 網站 ＋（選用）背景工作
+#   cp .env.example .env    # 依註解填值
+#   docker compose up -d --build                    # db + migrate + app
+#   docker compose --profile worker up -d           # 另外啟動 worker（通知外送、VIP 排程等）
+#   docker compose run --rm app node dist/seed-prod.mjs
+#   docker compose run --rm app node dist/create-admin.mjs --login admin
+# 正式主機也可直接使用本檔（建議前面再放 Caddy / Nginx / Cloudflare 處理 HTTPS）。
+
+name: chiaki
+
+x-app: &app
+  build:
+    context: .
+    args:
+      APP_VERSION: ${APP_VERSION:-local}
+  image: chiaki-platform:${APP_VERSION:-local}
+  env_file: .env
+  environment:
+    # 容器內連到 compose 的 db 服務（覆寫 .env 的本機設定）
+    DATABASE_URL: postgres://chiaki:${POSTGRES_PASSWORD:-chiaki-local-only}@db:5432/chiaki
+    NODE_ENV: production
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: chiaki
+      POSTGRES_USER: chiaki
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chiaki-local-only}
+      TZ: Asia/Taipei
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chiaki -d chiaki"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    # 預設不對外開放資料庫；需要從主機連線除錯時取消註解（只綁 127.0.0.1）
+    # ports: ["127.0.0.1:5432:5432"]
+
+  migrate:
+    <<: *app
+    command: ["node", "dist/migrate.mjs"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    command: ["node", "dist/worker.mjs"]
+    profiles: ["worker"]
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

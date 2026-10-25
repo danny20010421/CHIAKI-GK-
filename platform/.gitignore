@@ -5,3 +5,4 @@ node_modules
 .pgdata
 *.tsbuildinfo
 next-env.d.ts
+dist

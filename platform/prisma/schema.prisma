@@ -12,7 +12,7 @@
 //   `npx prisma migrate resolve --applied 20261026000000_image_assets` 與
 //   `npx prisma migrate resolve --applied 20261027000000_item_refunds_categories_ip_catalog` 與
 //   `npx prisma migrate resolve --applied 20261028000000_ip_categories_five` 標記既有 migration（之後的 migration 依目錄名稱同樣標記，
-//   最新為 20261105000000_checkin_streak_vip_tiers_uc_coins）。
+//   最新為 20261106000000_vip1_birthday_media_videos）。
 // 檢視 member_draw_history（會員可見的近 90 天抽賞紀錄）未列於此（Prisma 視圖需 previewFeatures = ["views"]）。
 // 關聯欄位（relation fields）刻意省略：外鍵已在 SQL migration 中定義。
 
@@ -421,7 +421,23 @@ model Pool {
   itemCondition String @default("") @map("item_condition")
   /// 抽賞演出：KUJI（籤紙）/ VIDEO（影片，卡牌賞池）
   animation     String @default("KUJI")
+  /// 賞池封面：站內路徑（輸出時加上 MEDIA_BASE_URL）或 https://
+  coverUrl      String? @map("cover_url")
   @@map("pools")
+}
+
+/// 抽賞演出影片（每個賞池可多支，前台隨機挑一支）；behaviorJson：依結果的演出方式（kind: beam / kills / plain）
+model PoolVideo {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  poolId       String   @map("pool_id") @db.Uuid
+  url          String
+  sortOrder    Int      @default(0) @map("sort_order")
+  behaviorJson String   @default("{\"kind\":\"plain\"}") @map("behavior_json")
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@unique([poolId, url])
+  @@index([poolId, sortOrder])
+  @@map("pool_videos")
 }
 
 model PoolGuarantee {
