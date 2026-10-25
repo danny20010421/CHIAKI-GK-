@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mediaUrl } from '../../lib/media';
 import { AppError } from '../../errors';
 import { db, transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
@@ -96,7 +97,7 @@ interface BannerRow {
 }
 const BANNER_COLS = (d: Db | Tx) =>
   d`id, title, alt_text, link_url, open_in_new_tab, starts_at, ends_at, enabled, sort_order, desktop_asset_id, desktop_image_url, mobile_asset_id, mobile_image_url, created_at, updated_at`;
-const imageOf = (assetId: string | null, url: string | null) => (assetId ? `/api/assets/${assetId}` : url);
+const imageOf = (assetId: string | null, url: string | null) => (assetId ? `/api/assets/${assetId}` : mediaUrl(url));
 /** 結束時刻（不含）→ 最後上架的台灣日期 */
 const lastDayOf = (end: Date | null) => (end ? taipeiDay(new Date(end.getTime() - 1)) : null);
 const showBanner = (b: BannerRow) => ({

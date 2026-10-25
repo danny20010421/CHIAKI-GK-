@@ -176,13 +176,14 @@ export const KG_POOL: PoolDraftInput = {
 };
 
 /**
- * VIP 等級預設值（業主 2026-10 第十批；migration 20261105000000 已更新 vip_tiers；後台可改）。seedReferenceData 只補缺漏的等級，不覆蓋後台設定。
+ * VIP 等級預設值（業主 2026-10 第十批；migration 20261105000000 已更新 vip_tiers；VIP1 生日禮 0 見 20261106000000；後台可改）。seedReferenceData 只補缺漏的等級，不覆蓋後台設定。
  * monthlyCoupons.discountPct：5 = 95折、10 = 9折、15 = 85折、20 = 8折。perks 為該等級「新增」的權益（較高等級自動包含）。
  * extraStorageDays 為該等級的「總」加碼寄存天數（不累加）。
  */
 export const VIP_TIER_DEFAULTS: VipTier[] = [
   { level: 0, name: '新手籤', spendThreshold: 0, upgradeGiftCoins: 0, birthdayGiftCoins: 0, monthlyCoupons: [], extraStorageDays: 0, perks: [] },
-  { level: 1, name: '銅籤', spendThreshold: 3_000, upgradeGiftCoins: 50, birthdayGiftCoins: 50, monthlyCoupons: [{ discountPct: 5, qty: 1 }], extraStorageDays: 0, perks: [] },
+  // 銅籤無生日禮（業主 2026-10-25；migration 20261106000000）
+  { level: 1, name: '銅籤', spendThreshold: 3_000, upgradeGiftCoins: 50, birthdayGiftCoins: 0, monthlyCoupons: [{ discountPct: 5, qty: 1 }], extraStorageDays: 0, perks: [] },
   { level: 2, name: '銀籤', spendThreshold: 30_000, upgradeGiftCoins: 100, birthdayGiftCoins: 100, monthlyCoupons: [{ discountPct: 5, qty: 2 }], extraStorageDays: 0, perks: [{ code: 'BIRTHDAY_GIFT', label: '生日禮' }] },
   { level: 3, name: '金籤', spendThreshold: 200_000, upgradeGiftCoins: 500, birthdayGiftCoins: 500, monthlyCoupons: [{ discountPct: 5, qty: 2 }], extraStorageDays: 0, perks: [{ code: 'LIVE_ODDS', label: '賞池頁即時機率顯示' }] },
   { level: 4, name: '白金籤', spendThreshold: 500_000, upgradeGiftCoins: 1_000, birthdayGiftCoins: 2_000, monthlyCoupons: [{ discountPct: 10, qty: 3 }], extraStorageDays: 7, perks: [{ code: 'FREE_STORAGE_PLUS_7', label: '免費保管期限 +7 天' }] },
@@ -238,6 +239,12 @@ export const WK_POOL: PoolDraftInput = {
   guarantee: null,
   drawPacks: [1, 10, 100],
   animation: 'VIDEO',
+  /** 抽卡影片（前台隨機播放一支）；behavior 依最高獎項決定演出（與 prototype 17_cards.js 的 GACHA_VIDS 相同） */
+  videos: [
+    { url: '/media/video/gacha1.mp4', behavior: { kind: 'beam', beamAt: 7.4 } },
+    { url: '/media/video/gacha2.mp4', behavior: { kind: 'kills', stop: { low: 13.9, mid: 15.6 } } },
+    { url: '/media/video/gacha3.mp4', behavior: { kind: 'plain' } },
+  ],
 };
 
 /** 首頁橫幅（種子；上架期間以台灣日期計，結束日當天仍上架）。圖片暫用站內路徑，正式圖請於後台上傳素材後替換。 */

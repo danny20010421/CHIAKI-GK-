@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { loadPoolVideos } from './videos';
 import { AppError } from '../../errors';
 import { transaction, type Db, type Tx } from '../../db';
 import { appendAudit } from '../audit/audit';
@@ -67,8 +68,8 @@ async function audit(tx: Tx, actor: Principal, action: string, entityType: strin
 export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const rows = UUID_RE.test(idOrSlug)
-    ? await db<PoolHead[]>`SELECT id, slug, title, source, play_type, status, price_coins, set_count, draw_packs, last_prize_name, offline, deleted_at, delete_reason, animation FROM pools WHERE id = ${idOrSlug}`
-    : await db<PoolHead[]>`SELECT id, slug, title, source, play_type, status, price_coins, set_count, draw_packs, last_prize_name, offline, deleted_at, delete_reason, animation FROM pools WHERE slug = ${idOrSlug}`;
+    ? await db<PoolHead[]>`SELECT id, slug, title, source, play_type, status, price_coins, set_count, draw_packs, last_prize_name, offline, deleted_at, delete_reason, animation, cover_url FROM pools WHERE id = ${idOrSlug}`
+    : await db<PoolHead[]>`SELECT id, slug, title, source, play_type, status, price_coins, set_count, draw_packs, last_prize_name, offline, deleted_at, delete_reason, animation, cover_url FROM pools WHERE slug = ${idOrSlug}`;
   const p = rows[0];
   if (!p) throw new AppError('NOT_FOUND', 'pool not found');
   const levels = await db<{ id: string; levelNo: number; name: string; isSmall: boolean; odds: number | null }[]>`
@@ -104,6 +105,10 @@ export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
     setCount: p.setCount,
     drawPacks: drawPacksOut(p.drawPacks),
     animation: p.animation,
+    /** 封面（原始路徑；公開 API 會套用 MEDIA_BASE_URL） */
+    coverUrl: p.coverUrl,
+    /** 抽賞演出影片（含停用；path 為原始路徑） */
+    videos: await loadPoolVideos(db, p.id, { includeDisabled: true }),
     structureEditable: p.status === 'DRAFT',
     /** 寄送方式可改（賞池尚無任何銷售） */
     shipMethodEditable: !hasSales,
@@ -125,7 +130,7 @@ export async function getAdminPool(db: Db | Tx, idOrSlug: string) {
 }
 interface PoolHead {
   id: string; slug: string; title: string; source: string; playType: string; status: string; priceCoins: number; setCount: number; drawPacks: string[]; lastPrizeName: string | null;
-  offline: boolean; deletedAt: Date | null; deleteReason: string | null; animation: string;
+  offline: boolean; deletedAt: Date | null; deleteReason: string | null; animation: string; coverUrl: string | null;
 }
 interface AdminPrizeRow {
   id: string; kind: 'TICKET' | 'LAST' | 'GUARANTEE'; levelId: string | null; name: string; qtyPerSet: number; recycleValue: number; recyclable: boolean;

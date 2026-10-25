@@ -203,9 +203,12 @@ describe('member notifications', () => {
     assert.match(up[0]!.title, /VIP1 銅籤/);
     assert.match(up[0]!.body, /升級禮 50 UC幣已入帳/);
     assert.equal(JSON.parse(up[0]!.payloadJson).url, '/me/vip');
-    // 生日禮（11 月生日，台灣 11/1）＋重跑
+    // 生日禮（11 月生日，台灣 11/1）＋重跑。VIP1 銅籤預設生日禮為 0 → 不發、不通知；後台改為 50 後才發放
     await db()`UPDATE users SET birth_date = '1990-11-03' WHERE id = ${u.id}`;
     const nov = new Date('2026-10-31T16:30:00Z');
+    await runVipBirthdayGifts(nov);
+    assert.equal((await ofType(u.id, 'VIP_BIRTHDAY_GIFT')).length, 0, 'VIP1 has no birthday gift by default');
+    await db()`UPDATE vip_tiers SET birthday_gift_coins = 50 WHERE level = 1`;
     await runVipBirthdayGifts(nov);
     await runVipBirthdayGifts(nov);
     const bd = await ofType(u.id, 'VIP_BIRTHDAY_GIFT');

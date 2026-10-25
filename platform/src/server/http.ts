@@ -11,6 +11,8 @@ import { securityHeaders } from './security/headers';
 import { csrfViolation, parseCookies, SESSION_COOKIE } from './security/cookies';
 import { recordSecurityEvent } from './security/events';
 import { botCheck } from './security/bot';
+import { adminHostAllowed, corsHeaders, isAdminPath } from './security/hosts';
+import { log } from './lib/log';
 
 /**
  * Route handler 共用工具＋應用層防火牆。只使用 Web 標準 Request/Response，
@@ -25,7 +27,8 @@ import { botCheck } from './security/bot';
  *   5. 每會員 token bucket 限流          → 429
  *   6. /api/admin/**：員工角色、密碼登入的 session、近期重新驗證、（設定時）MFA 與 IP 允許清單
  *   7. 抽賞/鎖籤的機器人行為偵測        → 429 BOT_SUSPECTED
- *   8. 回應一律加上安全標頭；錯誤訊息一律為通用格式（不含堆疊）
+ *   0. 後台網域分離：設定 ADMIN_HOST 時，/api/admin/**、/api/auth/admin/** 從其他主機進來 → 404 NOT_FOUND
+ *   8. 回應一律加上安全標頭（允許清單內的 Origin 另加 CORS 標頭）；錯誤訊息一律為通用格式（不含堆疊）
  * 被攔截的請求寫入 risk_events（同類型同來源每 60 秒最多一筆）。
  */
 export type RouteContext<P extends Record<string, string> = Record<string, string>> = { params: Promise<P> };
@@ -39,6 +42,11 @@ export interface RouteOptions {
   adminAuthOnly?: boolean;
   /** 覆寫請求本文上限（預設 MAX_BODY_BYTES；例如圖片上傳） */
   maxBodyBytes?: number | (() => number);
+  /**
+   * 健康檢查探針（/api/health、/api/ready）：不經封鎖清單、限流、身分（容器平台每幾秒呼叫一次，且 liveness 不可依賴資料庫）。
+   * 只限 GET、無本文、不讀取身分的端點使用。
+   */
+  probe?: boolean;
 }
 
 const BASE_HEADERS = { 'cache-control': 'no-store' } as const;
@@ -68,13 +76,13 @@ export function errorResponse(e: unknown): Response {
   const pg = e as { code?: string; message?: string };
   if (pg?.code === '23505') return json({ error: { code: 'CONFLICT', message: 'duplicate' } }, 409);
   // 只在伺服器端記錄細節；回應不含堆疊或內部訊息
-  console.error('[api] unhandled error', e);
+  log.error('api unhandled error', { err: e });
   return json({ error: { code: 'INTERNAL', message: 'internal error' } }, 500);
 }
 
-function withSecurityHeaders(res: Response): Response {
+function withSecurityHeaders(res: Response, req?: Request): Response {
   const h = new Headers(res.headers);
-  for (const [k, v] of Object.entries({ ...BASE_HEADERS, ...securityHeaders('api') })) if (!h.has(k)) h.set(k, v);
+  for (const [k, v] of Object.entries({ ...BASE_HEADERS, ...securityHeaders('api'), ...(req ? corsHeaders(req) : {}) })) if (!h.has(k)) h.set(k, v);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
@@ -121,6 +129,13 @@ async function firewall(req: Request, opts: RouteOptions): Promise<Request> {
   const ip = clientIp(req);
   const device = req.headers.get('x-device-fingerprint');
   const path = new URL(req.url).pathname;
+
+  // 0. 後台網域分離（不寫風控事件：外部掃描很常見，也不透露後台存在）
+  if (isAdminPath(path) && !adminHostAllowed(req, c)) throw new AppError('NOT_FOUND', 'not found');
+  if (opts.probe) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') throw new AppError('VALIDATION', 'probe endpoints accept GET only');
+    return req;
+  }
 
   // 1. 封鎖清單
   const blocked = await blockedReason(ip, device);
@@ -222,7 +237,7 @@ export function route<C>(fn: (req: Request, ctx: C) => Promise<Response>, opts: 
     } catch (e) {
       res = errorResponse(e);
     }
-    return withSecurityHeaders(res);
+    return withSecurityHeaders(res, req);
   };
 }
 

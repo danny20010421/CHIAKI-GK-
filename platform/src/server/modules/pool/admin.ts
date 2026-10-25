@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PoolVideosSchema, loadPoolVideos, replacePoolVideos } from './videos';
 import { AppError } from '../../errors';
 import { config } from '../../config';
 import { canonicalJson } from '../../lib/canonical';
@@ -125,6 +126,10 @@ export const PoolDraftSchema = z
     drawPacks: DrawPacksSchema.optional(),
     shippingNote: z.string().max(500).optional(),
     animation: AnimationSchema.default('KUJI'),
+    /** 賞池封面（站內路徑或 https://；輸出時套用 MEDIA_BASE_URL） */
+    coverUrl: ImageUrlSchema.nullable().default(null),
+    /** 抽賞演出影片（animation = VIDEO 時前台隨機播放一支）；隨時可改 */
+    videos: PoolVideosSchema.default([]),
   })
   .superRefine((v, ctx) => {
     const nos = v.levels.map((l) => l.levelNo);
@@ -185,13 +190,14 @@ export async function createPoolDraft(actor: Principal, input: PoolDraftInput): 
   return transaction(async (tx) => {
     const [pool] = await tx<{ id: string }[]>`
       INSERT INTO pools (slug, title, ip, description, terms, source, play_type, price_coins, set_count, created_by,
-                         shipping_note, draw_packs, source_note, item_condition, animation)
+                         shipping_note, draw_packs, source_note, item_condition, animation, cover_url)
       VALUES (${v.slug}, ${v.title}, ${v.ip}, ${v.description}, ${v.terms}, ${v.source}, ${v.playType}, ${v.priceCoins}, ${v.setCount},
               ${actor.userId}, ${v.shippingNote ?? DEFAULT_SHIPPING_NOTE[v.source]},
-              ${v.drawPacks ?? DEFAULT_DRAW_PACKS}::text[], ${v.sourceNote}, ${v.condition}, ${v.animation})
+              ${v.drawPacks ?? DEFAULT_DRAW_PACKS}::text[], ${v.sourceNote}, ${v.condition}, ${v.animation}, ${v.coverUrl})
       RETURNING id`;
     const poolId = pool!.id;
     if (v.ipId) await linkPoolIp(tx, poolId, v.ipId);
+    if (v.videos.length) await replacePoolVideos(tx, poolId, v.videos);
     const levelIds = new Map<number, { id: string; levelNo: number }>();
     for (const l of [...v.levels].sort((a, b) => a.levelNo - b.levelNo)) {
       const lv = await insertLevel(tx, poolId, l);
@@ -220,6 +226,8 @@ export async function createPoolDraft(actor: Principal, input: PoolDraftInput): 
       entityId: poolId,
       payload: {
         slug: v.slug, playType: v.playType, source: v.source, priceCoins: v.priceCoins, setCount: v.setCount, animation: v.animation,
+        ...(v.coverUrl ? { coverUrl: v.coverUrl } : {}),
+        ...(v.videos.length ? { videos: v.videos.map((x) => x.url) } : {}),
         levels: v.levels.map((l) => ({ levelNo: l.levelNo, name: l.name, items: l.items.length })),
         freightCollect: true,
       },
@@ -414,6 +422,10 @@ export const PoolSettingsSchema = z
     drawPacks: DrawPacksSchema.optional(),
     /** 抽賞演出（KUJI / VIDEO）；隨時可改 */
     animation: AnimationSchema.optional(),
+    /** 賞池封面（null = 移除）；隨時可改 */
+    coverUrl: ImageUrlSchema.nullable().optional(),
+    /** 抽賞演出影片（整份取代；[] = 清空）；隨時可改 */
+    videos: PoolVideosSchema.optional(),
     /** 最後賞（null = 移除）：只在草稿階段可改 */
     lastPrize: LastPrizeSchema.nullable().optional(),
   })
@@ -425,8 +437,8 @@ export async function updatePoolSettings(actor: Principal, idOrSlug: string, inp
   const v = PoolSettingsSchema.parse(input);
   return transaction(async (tx) => {
     const p = await lockPublishedPool(tx, idOrSlug);
-    const [before] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null; description: string; sourceNote: string; condition: string; animation: PoolAnimation }[]>`
-      SELECT shipping_note, ip_id, draw_packs, last_prize_name, description, source_note, item_condition AS condition, animation FROM pools WHERE id = ${p.id}`;
+    const [before] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null; description: string; sourceNote: string; condition: string; animation: PoolAnimation; coverUrl: string | null }[]>`
+      SELECT shipping_note, ip_id, draw_packs, last_prize_name, description, source_note, item_condition AS condition, animation, cover_url FROM pools WHERE id = ${p.id}`;
     if (v.lastPrize !== undefined) {
       if (p.status !== 'DRAFT') throw new AppError('STRUCTURE_LOCKED', '最後賞屬於賞池結構，只能在草稿階段修改（已發布賞池的籤表與規則已承諾）');
       await tx`DELETE FROM set_prizes WHERE prize_id IN (SELECT id FROM pool_prizes WHERE pool_id = ${p.id} AND kind = 'LAST')`;
@@ -441,9 +453,19 @@ export async function updatePoolSettings(actor: Principal, idOrSlug: string, inp
     if (v.ipId !== undefined) await linkPoolIp(tx, p.id, v.ipId);
     if (v.drawPacks !== undefined) await tx`UPDATE pools SET draw_packs = ${v.drawPacks}::text[] WHERE id = ${p.id}`;
     if (v.animation !== undefined) await tx`UPDATE pools SET animation = ${v.animation} WHERE id = ${p.id}`;
-    await appendAudit(tx, { actorType: 'ADMIN', actorId: actor.userId, action: 'POOL_SETTINGS_UPDATED', entityType: 'pool', entityId: p.id, payload: { before, ...v } });
-    const [after] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null; description: string; sourceNote: string; condition: string; animation: PoolAnimation }[]>`
-      SELECT shipping_note, ip_id, draw_packs, last_prize_name, description, source_note, item_condition AS condition, animation FROM pools WHERE id = ${p.id}`;
+    if (v.coverUrl !== undefined) await tx`UPDATE pools SET cover_url = ${v.coverUrl} WHERE id = ${p.id}`;
+    const videosBefore = v.videos !== undefined ? (await loadPoolVideos(tx, p.id, { includeDisabled: true })).map((x) => x.path) : undefined;
+    if (v.videos !== undefined) await replacePoolVideos(tx, p.id, v.videos);
+    await appendAudit(tx, {
+      actorType: 'ADMIN',
+      actorId: actor.userId,
+      action: 'POOL_SETTINGS_UPDATED',
+      entityType: 'pool',
+      entityId: p.id,
+      payload: { before: { ...before, ...(videosBefore ? { videos: videosBefore } : {}) }, ...v },
+    });
+    const [after] = await tx<{ shippingNote: string; ipId: string | null; drawPacks: string[]; lastPrizeName: string | null; description: string; sourceNote: string; condition: string; animation: PoolAnimation; coverUrl: string | null }[]>`
+      SELECT shipping_note, ip_id, draw_packs, last_prize_name, description, source_note, item_condition AS condition, animation, cover_url FROM pools WHERE id = ${p.id}`;
     return {
       poolId: p.id,
       shippingNote: after!.shippingNote,
@@ -453,6 +475,8 @@ export async function updatePoolSettings(actor: Principal, idOrSlug: string, inp
       ipId: after!.ipId,
       drawPacks: drawPacksOut(after!.drawPacks),
       animation: after!.animation,
+      coverUrl: after!.coverUrl,
+      videos: await loadPoolVideos(tx, p.id, { includeDisabled: true }),
       lastPrizeName: after!.lastPrizeName,
     };
   });

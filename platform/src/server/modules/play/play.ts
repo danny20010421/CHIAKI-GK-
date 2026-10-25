@@ -1,4 +1,5 @@
 import { randomInt } from 'node:crypto';
+import { mediaUrl } from '../../lib/media';
 import { z } from 'zod';
 import { AppError } from '../../errors';
 import { config } from '../../config';
@@ -100,7 +101,7 @@ export async function freePlay(d: Db, idOrSlug: string, rawCount: unknown) {
       prizeName: b.name,
       displayName: displayName(b.levelName, b.name),
       tag: b.tag,
-      imageUrl: b.imageUrl,
+      imageUrl: mediaUrl(b.imageUrl),
     });
   }
   // 模擬抽完整套 → 一併模擬最後賞
@@ -108,7 +109,7 @@ export async function freePlay(d: Db, idOrSlug: string, rawCount: unknown) {
     const [lp] = await d<{ name: string; tag: Tag | null; imageUrl: string | null }[]>`
       SELECT name, tag, image_url FROM pool_prizes WHERE pool_id = ${poolId} AND kind = 'LAST'`;
     if (lp) {
-      results.push({ seq: n + 1, kind: 'LAST', levelNo: null, levelName: LAST_PRIZE_LABEL, isSmall: false, prizeName: lp.name, displayName: displayName(LAST_PRIZE_LABEL, lp.name), tag: lp.tag, imageUrl: lp.imageUrl });
+      results.push({ seq: n + 1, kind: 'LAST', levelNo: null, levelName: LAST_PRIZE_LABEL, isSmall: false, prizeName: lp.name, displayName: displayName(LAST_PRIZE_LABEL, lp.name), tag: lp.tag, imageUrl: mediaUrl(lp.imageUrl) });
     }
   }
   return {

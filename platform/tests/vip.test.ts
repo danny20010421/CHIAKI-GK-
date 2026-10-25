@@ -63,7 +63,7 @@ describe('VIP tiers (pure + seeded defaults)', () => {
     assert.deepEqual(tiers.map((t) => [t.level, t.name, t.spendThreshold]), [
       [0, '新手籤', 0], [1, '銅籤', 3_000], [2, '銀籤', 30_000], [3, '金籤', 200_000], [4, '白金籤', 500_000], [5, '鑽石籤', 1_000_000], [6, '黑金籤', 2_000_000],
     ]);
-    assert.deepEqual(tiers.map((t) => [t.upgradeGiftCoins, t.birthdayGiftCoins]), [[0, 0], [50, 50], [100, 100], [500, 500], [1000, 2000], [2500, 5000], [5000, 10000]]);
+    assert.deepEqual(tiers.map((t) => [t.upgradeGiftCoins, t.birthdayGiftCoins]), [[0, 0], [50, 0], [100, 100], [500, 500], [1000, 2000], [2500, 5000], [5000, 10000]]);
     assert.deepEqual(
       tiers.map((t) => t.monthlyCoupons.map((c) => `${couponLabel(c.discountPct)}×${c.qty}`).join('+')),
       ['', '95折券×1', '95折券×2', '95折券×2', '9折券×3', '85折券×3+8折券×1', '8折券×3'],
@@ -185,10 +185,20 @@ describe('VIP — birthday gifts, monthly coupons, annual re-rating (job functio
     // 並行執行同一天的工作：仍只發一次
     const w = await makeUser();
     await db()`UPDATE users SET birth_date = '1991-11-01' WHERE id = ${w.id}`;
-    await setVip(w.id, 1, 3000);
+    await setVip(w.id, 2, 30_000);
     await Promise.all([1, 2, 3].map(() => runVipBirthdayGifts(nov1Taipei)));
-    assert.deepEqual((await grantsOf(w.id, 'BIRTHDAY')).map((g) => g.coins), [50]);
-    assert.equal((await walletOf(w.id)).coins, 50);
+    assert.deepEqual((await grantsOf(w.id, 'BIRTHDAY')).map((g) => g.coins), [100]);
+    assert.equal((await walletOf(w.id)).coins, 100);
+    // VIP1 銅籤：生日禮為 0 → 不發放、不留紀錄、不通知
+    const b1 = await makeUser();
+    await db()`UPDATE users SET birth_date = '1992-11-20' WHERE id = ${b1.id}`;
+    await setVip(b1.id, 1, 3000);
+    const r1 = await runVipBirthdayGifts(nov1Taipei);
+    assert.equal((await grantsOf(b1.id, 'BIRTHDAY')).length, 0);
+    assert.equal((await walletOf(b1.id)).coins, 0);
+    assert.equal(r1.granted, 0);
+    const [n1] = await db()<{ n: number }[]>`SELECT count(*)::int AS n FROM notifications WHERE user_id = ${b1.id} AND type = 'VIP_BIRTHDAY_GIFT'`;
+    assert.equal(n1!.n, 0);
   });
 
   it('monthly coupons: issued per tier on the 1st (Asia/Taipei), idempotent per member-month, valid until next month', async () => {
@@ -314,7 +324,7 @@ describe('VIP — member and admin API', () => {
     assert.deepEqual([t1.name, t1.birthdayGiftCoins, t1.monthlyCoupons], ['銅籤+', 60, [{ discountPct: 5, qty: 2, label: '95折券' }]]);
     const [a] = await db()<{ actorId: string; payloadJson: string }[]>`SELECT actor_id, payload_json FROM audit_log WHERE action = 'VIP_TIER_UPDATED' ORDER BY seq DESC LIMIT 1`;
     assert.equal(a!.actorId, ops.id);
-    assert.match(a!.payloadJson, /"before":\{[^}]*"birthdayGiftCoins":50/);
+    assert.match(a!.payloadJson, /"before":\{[^}]*"birthdayGiftCoins":0/);
     // 即時機率改由 VIP2 解鎖（移動 LIVE_ODDS 權益）
     assert.equal((await patch('3', { perks: [] })).status, 200);
     assert.equal((await patch('2', { perks: [{ code: 'BIRTHDAY_GIFT', label: '生日禮' }, { code: 'LIVE_ODDS', label: '賞池頁即時機率顯示' }] })).status, 200);

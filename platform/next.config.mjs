@@ -35,6 +35,8 @@ export const securityHeaderRoutes = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Docker 映像：只帶 .next/standalone（server.js ＋ 實際用到的 node_modules）
+  output: 'standalone',
   // postgres.js 在伺服器端執行，不打包進前端
   serverExternalPackages: ['postgres'],
   async headers() {

@@ -1,11 +1,12 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { config } from '../config';
+import { csrfOrigins } from './hosts';
 
 /**
  * Cookie session 與 CSRF（double-submit）：
  *  - chiaki_session：HttpOnly、Secure（production）、SameSite=Lax，內容與 Bearer token 相同。
  *  - chiaki_csrf：前端可讀；以 cookie 驗證身分的「非安全方法」請求必須帶 x-csrf-token header 且與 cookie 相同，
- *    並且 Origin（若有）必須等於 APP_BASE_URL 的 origin。Bearer token 不受 CSRF 影響（瀏覽器不會自動附帶）。
+ *    並且 Origin（若有）必須是 APP_BASE_URL、CORS_ALLOWED_ORIGINS 或後台（ADMIN_BASE_URL / ADMIN_HOST）的 origin。Bearer token 不受 CSRF 影響（瀏覽器不會自動附帶）。
  */
 export const SESSION_COOKIE = 'chiaki_session';
 export const CSRF_COOKIE = 'chiaki_csrf';
@@ -59,6 +60,6 @@ export function csrfViolation(req: Request): string | null {
   const b = Buffer.from(h);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return 'csrf token mismatch';
   const origin = req.headers.get('origin');
-  if (origin && origin !== new URL(config().APP_BASE_URL).origin) return 'cross-origin request';
+  if (origin && !csrfOrigins().includes(origin)) return 'cross-origin request';
   return null;
 }

@@ -1,4 +1,5 @@
 import { randomInt, randomUUID } from 'node:crypto';
+import { mediaUrl } from '../../lib/media';
 import { z } from 'zod';
 import { AppError } from '../../errors';
 import { config } from '../../config';
@@ -121,7 +122,7 @@ function awardOf(kind: AwardKind, ticketNo: number | null, prizeId: string, p: P
     isSmall: kind === 'LAST' ? false : (p.isSmall ?? false),
     prizeName: p.name,
     tag: p.tag,
-    imageUrl: p.imageUrl,
+    imageUrl: mediaUrl(p.imageUrl),
   };
 }
 
@@ -421,7 +422,7 @@ export async function executeDraw(
         prizeName: i.prizeName,
         displayName: displayName(i.levelName, i.prizeName),
         tag: i.tag,
-        imageUrl: i.imageUrl,
+        imageUrl: mediaUrl(i.imageUrl),
         warehouseItemId: i.id,
         recycleValue: rv.get(i.prizeId)?.recycleValue ?? null,
         recyclable: rv.get(i.prizeId)?.recyclable ?? false,

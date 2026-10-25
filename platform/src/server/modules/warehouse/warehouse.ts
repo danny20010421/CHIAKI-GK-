@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { mediaUrl } from '../../lib/media';
 import { z } from 'zod';
 import { AppError } from '../../errors';
 import { transaction, type Db, type Tx } from '../../db';
@@ -62,7 +63,7 @@ export async function listWarehouse(db: Db, userId: string, status?: ItemStatus)
     LEFT JOIN set_prizes sp ON sp.set_id = wi.set_id AND sp.prize_id = wi.prize_id
     WHERE wi.user_id = ${userId} ${status ? db`AND wi.status = ${status}` : db``}
     ORDER BY wi.created_at DESC, wi.id`;
-  return rows.map((r) => ({ ...r, recyclable: r.recyclable ?? false, displayName: displayName(r.levelName, r.prizeName) }));
+  return rows.map((r) => ({ ...r, imageUrl: mediaUrl(r.imageUrl), recyclable: r.recyclable ?? false, displayName: displayName(r.levelName, r.prizeName) }));
 }
 
 /**
