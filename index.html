@@ -4617,15 +4617,15 @@ const _probPctB = probPct; probPct = (p, i) => p.play === 'bday' ? '<span style=
         {n:'續約三星手機（4000 元抵用券）', q:1, img:I('bdphone'), tag:'其他'},
         {n:'PT950飾品（不限品牌4000 元抵用券）', q:1, img:I('bdpt'), tag:'其他'},
         {n:'日本機票 25%（3500 元抵用券）', q:1, img:I('bdflight'), tag:'其他'},
-        {n:'當天約會經費 2500 元', q:1, img:I('bddate'), tag:'其他'},
-        {n:'不限品牌衣物任選（3000 元抵用券）', q:1, img:I('bdcloth'), tag:'其他'}]},
+        {n:'不限品牌衣物任選（3000 元抵用券）', q:1, img:I('bdcloth'), tag:'其他'},
+        {n:'百貨公司全館（3000 元抵用券）', q:2, img:I('bdcloth'), tag:'其他'}]},
       {name:'三獎', small:false, items:[
         {n:'14K／18K 玫瑰香檳金飾品（不限品牌2500 元抵用券）', q:1, img:I('bdring'), tag:'其他'},
         {n:'玫瑰金飾品（不限品牌2000 元抵用券）', q:1, img:I('bdbracelet'), tag:'其他'},
         {n:'PT950飾品（不限品牌2000 元抵用券）', q:2, img:I('bdpt'), tag:'其他'},
         {n:'不限品牌衣物任選（1500 元抵用券）', q:2, img:I('bdcloth'), tag:'其他'},
         {n:'半年份衛生棉', q:1, img:I('bdpad'), tag:'其他'},
-        {n:'百貨公司全館（3000 元抵用券）', q:2, img:I('bdcloth'), tag:'其他'},
+        {n:'當天約會經費 2500 元', q:1, img:I('bddate'), tag:'其他'},
         {n:'重抽券', q:100, img:I('bdreroll'), tag:'其他', reroll:true, noGuar:true}]},
       {name:'四獎', small:false, items:[
         {n:'保濕保養品（不限品牌1000 元抵用券）', q:3, img:I('bdkose'), tag:'其他'},
@@ -4638,8 +4638,8 @@ const _probPctB = probPct; probPct = (p, i) => p.play === 'bday' ? '<span style=
         {n:'馬卡龍（1 顆）', q:13, img:I('bdmacaron'), tag:'其他', noGuar:true},
         {n:'糖葫蘆（1 枝）', q:13, img:I('bdtanghulu'), tag:'其他', noGuar:true},
         {n:'再來兩抽', q:150, img:I('bdagain'), tag:'其他', again:2},
-        {n:'再來三抽', q:30, img:I('bdagain'), tag:'其他', again:3},
-        {n:'生日快樂（銘謝惠顧）', q:652, img:I('bdhbd'), tag:'其他', miss:true}]}], last:null};
+        {n:'再來三抽', q:82, img:I('bdagain'), tag:'其他', again:3},
+        {n:'生日快樂（銘謝惠顧）', q:600, img:I('bdhbd'), tag:'其他', miss:true}]}], last:null};
   buildPool(B);
   B.levels.forEach((L, li) => L.items.forEach(it => { const pr = B.prizes.find(x => x.lv === li + 1 && x.name === it.n); if (pr){ pr.again = it.again === true ? 2 : (it.again || 0); pr.miss = !!it.miss; pr.reroll = !!it.reroll; pr.noGuar = !!it.noGuar; } }));
   POOLS.push(B); })();
