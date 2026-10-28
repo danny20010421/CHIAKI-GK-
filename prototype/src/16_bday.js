@@ -201,3 +201,13 @@ showSummary = function(){ _sumB(); if (!D || !D.p || D.p.play !== 'bday') return
   const again = s.querySelector('.acts [data-act="close-stage"]'); if (again && !again.getAttribute('href')) again.textContent = `完成（${BD_CD} 秒後可再抽）`;
   if (D.bdWon > 0){ const acts = s.querySelector('.acts'); if (acts) acts.insertAdjacentHTML('beforebegin', `<button type="button" class="btn block bd-rr" data-act="bd-reroll">${ic('recycle','width:18px;height:18px')}使用重抽券重抽本輪</button><p class="bd-rr-note">重抽券只能在本輪結算時使用，關閉結果後即失效。使用後本輪獎品全部作廢，以重抽結果為準。</p>`); } };
 </script>
+<script>
+/* 漩漩：再來兩抽／三抽不提前曝光 — 進度點、張數與下方疊籤只顯示「已揭曉」的抽數 */
+const bdAgainOf = x => /再來三抽/.test(x.name) ? 3 : /再來兩抽/.test(x.name) ? 2 : 0;
+function bdVisible(){ if (!D || !D.p || D.p.play !== 'bday') return 0; let v = BD_N; for (let k = 0; k < D.i; k++) v += bdAgainOf(D.results[k]); return Math.min(v, D.results.length); }
+const _ntB = nextTicket;
+nextTicket = function(){ _ntB.apply(this, arguments); if (!D || !D.p || D.p.play !== 'bday' || !D.results[D.i]) return;
+  const vis = bdVisible(), left = vis - D.i - 1, w = $('#tixWrap');
+  if (w){ w.querySelectorAll('.tix-stack').forEach(e => e.remove()); w.insertAdjacentHTML('afterbegin', `${left > 1 ? '<div class="tix-stack s2"></div>' : ''}${left > 0 ? '<div class="tix-stack"></div>' : ''}`); }
+  const c = $('#ctr'); if (c) c.innerHTML = Array.from({length:vis}, (_, k) => `<i class="${k < D.i ? 'done' : k === D.i ? 'on' : ''}"></i>`).join('') + `<span style="margin-left:8px">${D.i + 1} / ${vis}</span>`; };
+</script>
