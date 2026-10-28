@@ -1,14 +1,14 @@
 <script>
 /* =========================================================
    限定賞池：漩漩生日一番賞（輸入通關密碼才看得到）
-   每輪 3 抽・3 抽保底一個獎品（最大獎權重較低）・抽到「再來兩抽／再來三抽」本輪 +2／+3 抽
+   每輪 5 抽・5 抽保底至少一個 4 獎以上（最大獎權重較低）・抽到「再來兩抽／再來三抽」本輪 +2／+3 抽
    每輪結束後需等 10 秒・每輪抽完恢復原配率・獎項皆不可回收・抽獎紀錄保留
    ========================================================= */
 PLAY.bday = '生日限定';
 const _probPctB = probPct; probPct = (p, i) => p.play === 'bday' ? '<span style="white-space:nowrap">依規則</span>' : _probPctB(p, i);
 (() => { const I = k => DEMO_IMG(k);
   const B = {id:'bday', title:'漩漩生日一番賞', ip:'CHIAKI 限定', src:'s', play:'bday', price:0, hue:330, seed:1126, drawn:0, locked:true, isNew:true, img:I('bdcover'),
-    desc:'每輪 3 抽，有機會中多個獎品，每輪保底一個獎品；抽到「再來兩抽」本輪再多抽 2 次、「再來三抽」再多抽 3 次。每輪結束後需等待 10 秒才能再玩，每次抽完都會恢復原配率。獎項皆不提供回收，抽中紀錄會保留。',
+    desc:'每輪 5 抽，有機會中多個獎品，每輪保底至少一個 4 獎以上；抽到「再來兩抽」本輪再多抽 2 次、「再來三抽」再多抽 3 次。每輪結束後需等待 10 秒才能再玩，每次抽完都會恢復原配率。獎項皆不提供回收，抽中紀錄會保留。',
     ship:{home:0, cvs:0}, packs:[3],
     levels:[
       {name:'最大獎', items:[{n:'黃金（8000 元抵用券）', q:1, img:I('bdgold'), tag:'其他'}]},
@@ -102,7 +102,7 @@ routes.pool = r => { const p = poolById(r.arg);
   if (p && hiddenPool(p)) return `<div class="wrap"><div class="empty lockpage">${ic('lock','width:40px;height:40px')}<h2>限定賞池</h2><p>這是限定賞池，請先輸入通關密碼。</p><button class="btn gold" type="button" data-act="bd-lock">輸入通關密碼</button></div></div>`;
   let h = _poolB(r); if (!p || p.play !== 'bday') return h;
   bdCheckClear();
-  h = h.replace(/<span class="coin" style="width:28px;height:28px;font-size:14px;align-self:center">U<\/span>\s*<b class="num" style="font-size:32px;line-height:1">0<\/b><span class="muted">UC幣 \/ 抽<\/span>/, '<b class="bd-free">免費</b><span class="muted">每輪 3 抽・保底 1 個獎品</span>');
+  h = h.replace(/<span class="coin" style="width:28px;height:28px;font-size:14px;align-self:center">U<\/span>\s*<b class="num" style="font-size:32px;line-height:1">0<\/b><span class="muted">UC幣 \/ 抽<\/span>/, '<b class="bd-free">免費</b><span class="muted">每輪 5 抽・保底 4 獎以上</span>');
   h = h.replace('機率 = 該賞剩餘數 ÷ 總剩餘數，每抽即時更新', '每輪抽完恢復原配率');
   h = h.replace(/<small class="shipm">[\s\S]*?<\/small>/g, '').replace(/CHIAKI 原創設計/g, '生日限定').replace(/<a class="odds-lock"[\s\S]*?<\/a>/g, '<span class="dim" style="white-space:nowrap">依規則</span>');
   const log = S.bdLog.length ? S.bdLog.map(x => `<li class="${x.void ? 'void' : ''}"><span class="dim num">${x.at}${x.redo ? '・重抽' : ''}${x.void ? '・已重抽作廢' : ''}</span><div class="bd-items">${x.items.map(n => `<span class="tag ${/再來[兩三]抽|銘謝惠顧/.test(n) ? '' : 'ok'}">${hx(n)}</span>`).join('')}</div></li>`).join('') : '<li class="dim">還沒有抽獎紀錄</li>';
@@ -116,7 +116,7 @@ routes.pool = r => { const p = poolById(r.arg);
 document.addEventListener('toggle', e => { if (e.target.classList && e.target.classList.contains('pz-det')) S.bdPzOpen = e.target.open; }, true);
 routes.pool.after = r => { if (_poolBA) _poolBA(r); const p = poolById(r.arg); if (!p || p.play !== 'bday') return;
   const tick = () => { const b = $('#bdGo'); if (!b) return; const s = bdLeft(), left = remaining(p);
-    b.disabled = !!s || !left; b.innerHTML = !left ? '已全部抽完' : s ? `${ic('clock','width:18px;height:18px')}${s} 秒後可再抽` : `${ic('ticket','width:18px;height:18px')}抽 3 抽（免費）`; };
+    b.disabled = !!s || !left; b.innerHTML = !left ? '已全部抽完' : s ? `${ic('clock','width:18px;height:18px')}${s} 秒後可再抽` : `${ic('ticket','width:18px;height:18px')}抽 5 抽（免費）`; };
   tick(); const iv = setInterval(() => { tick(); if (bdCheckClear() && !$('#stage')) render(true); }, 500); cleanup.push(() => clearInterval(iv)); BGM.ui(); };
 
 /* ---------- 背景音樂：生日快樂歌（旋律為公有領域，Web Audio 即時合成，不需音檔） ---------- */
@@ -158,11 +158,11 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) BGM.s
 const _packsB = packsSection;
 packsSection = function(p){ if (p.play !== 'bday') return _packsB(p);
   return `<section class="packs-wrap" id="packs" aria-labelledby="h-pk" tabindex="-1"><div class="sec-h"><h2 id="h-pk"><small>DRAW</small>開始抽獎<span class="muted" style="font-size:14px;font-weight:400;margin-left:8px">共 ${p.total} 籤・每輪恢復原配率</span></h2><button type="button" class="btn s ghost bd-bgm" id="bdBgm" data-act="bd-bgm" aria-pressed="${BGM.on}">${ic(BGM.on ? 'sound' : 'mute','width:16px;height:16px')}<span>${BGM.on ? '生日快樂歌' : '音樂已關閉'}</span></button></div>
-    <button class="btn gold block bd-go" id="bdGo" type="button" data-act="bd-go">${ic('ticket','width:18px;height:18px')}抽 3 抽（免費）</button>
-    <ul class="bd-rules"><li>每輪 3 抽，有機會中多個獎品，每輪保底一個獎品。</li><li>抽到「再來兩抽」本輪再多抽 2 次；抽到「再來三抽」再多抽 3 次。</li><li>每輪結束後需等待 ${BD_CD} 秒才能再玩。</li><li>每次抽完都會恢復原配率。</li><li>抽中「重抽券」須在該輪結算時立即使用：不滿意可重抽本輪，該輪獎品作廢、以新結果為準；關閉結果後即失效。</li><li>獎項皆不提供回收；抽中的獎品會記錄在下方「我的抽獎紀錄」。</li></ul></section>`; };
+    <button class="btn gold block bd-go" id="bdGo" type="button" data-act="bd-go">${ic('ticket','width:18px;height:18px')}抽 5 抽（免費）</button>
+    <ul class="bd-rules"><li>每輪 5 抽，有機會中多個獎品，每輪保底至少一個 4 獎以上（重抽券不算保底）。</li><li>抽到「再來兩抽」本輪再多抽 2 次；抽到「再來三抽」再多抽 3 次。</li><li>每輪結束後需等待 ${BD_CD} 秒才能再玩。</li><li>每次抽完都會恢復原配率。</li><li>抽中「重抽券」須在該輪結算時立即使用：不滿意可重抽本輪，該輪獎品作廢、以新結果為準；關閉結果後即失效。</li><li>獎項皆不提供回收；抽中的獎品會記錄在下方「我的抽獎紀錄」。</li></ul></section>`; };
 
-/* 一輪：前 2 抽隨機（最大獎權重 0.35），第 3 抽若前面都沒中獎則只從獎品中抽；再來兩抽／三抽 → 追加 2／3 抽 */
-const BD_W_TOP = .35;
+/* 一輪：前 4 抽隨機（最大獎權重 0.35），第 5 抽若前面都沒中 4 獎以上則只從獎品中抽；再來兩抽／三抽 → 追加 2／3 抽 */
+const BD_W_TOP = .35, BD_N = 5;
 function bdPick(p, onlyPrize){ const free = p.tickets.filter(t => !t.taken), pool = onlyPrize ? free.filter(t => { const pr = p.prizes[t.pi]; return !pr.again && !pr.miss && !pr.noGuar; }) : free;
   const L = pool.length ? pool : free; if (!L.length) return null;
   const w = L.map(t => p.prizes[t.pi].lv === 1 ? BD_W_TOP : 1), sum = w.reduce((a, b) => a + b, 0); let r = Math.random() * sum;
@@ -171,7 +171,7 @@ function bdRound(p){
   const out = [], lbl = []; let hit = false, extra = 0;
   const take = (t, bonus) => { t.taken = true; t.by = 'me'; const pr = p.prizes[t.pi]; if (!pr.again && !pr.miss && !pr.noGuar) hit = true; if (pr.again){ extra += pr.again; lbl.push(...Array(pr.again).fill(pr.name)); }
     out.push({no:t.no, rk:pr.rk, g:pr.g, lv:pr.lv, lvName:pr.lvName, small:pr.small, tag:pr.tag, img:pr.img, custom:true, tier:pr.tier, rv:0, name:pr.name, pname:pr.name, hue:p.hue, bonus:bonus || ''}); };
-  for (let k = 0; k < 3; k++){ const t = bdPick(p, k === 2 && !hit); if (!t) break; take(t); }
+  for (let k = 0; k < BD_N; k++){ const t = bdPick(p, k === BD_N - 1 && !hit); if (!t) break; take(t); }
   while (extra > 0){ extra--; const t = bdPick(p, false); if (!t) break; take(t, lbl.shift() || '再來兩抽'); }
   return out; }
 /* 重抽券：抽中後可保留；對某一輪結果不滿意時使用，該輪獎品全部作廢（含該輪抽中的重抽券），立即重抽一輪 */
